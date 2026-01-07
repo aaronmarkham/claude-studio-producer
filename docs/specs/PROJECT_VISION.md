@@ -27,26 +27,37 @@ The workflow:
 
 **Competitive Pilot System**: Instead of generating one video, we generate multiple competing versions at different quality/cost tiers, then let AI evaluate and reallocate budget dynamically.
 
-## Current State (v0.4.0)
+## Current State (v0.5.0)
 
 ### Implemented ✅
-- `ProducerAgent` - Budget analysis and pilot strategy planning
-- `CriticAgent` - Quality evaluation and budget reallocation
-- `ScriptWriterAgent` - Breaks video concepts into detailed scene-by-scene scripts
-- `VideoGeneratorAgent` - Video generation with pluggable providers (mock mode + API-ready)
-- `QAVerifierAgent` - Vision-based quality analysis with detailed scoring
-- `StudioOrchestrator` - Full pipeline coordination
-- `BudgetTracker` - Real-time cost monitoring
-- Skills system - Progressive disclosure (`video_generation`, `scene_analysis`)
-- Cost models for 4 production tiers (2025 pricing)
-- Budget enforcement (prevents overspending)
-- Retry logic and error handling
-- Quality gates and regeneration decision logic
+- **Core Agents**
+  - `ProducerAgent` - Budget analysis and pilot strategy planning
+  - `CriticAgent` - Quality evaluation and budget reallocation
+  - `ScriptWriterAgent` - Breaks video concepts into detailed scene-by-scene scripts
+  - `VideoGeneratorAgent` - Video generation with pluggable providers (mock mode + API-ready)
+  - `QAVerifierAgent` - Vision-based quality analysis with detailed scoring
+
+- **Full Integration** (v0.5.0)
+  - `StudioOrchestrator` - **Now uses all real agents in pipeline**
+  - ScriptWriter → VideoGenerator → QAVerifier → Critic workflow fully operational
+  - Real QA scores flow to Critic for decision-making
+  - Budget tracking throughout entire agent pipeline
+  - Mock mode fallback for testing without API keys
+
+- **Infrastructure**
+  - `BudgetTracker` - Real-time cost monitoring
+  - Skills system - Progressive disclosure (`video_generation`, `scene_analysis`)
+  - Cost models for 4 production tiers (2025 pricing)
+  - Budget enforcement (prevents overspending)
+  - Retry logic and error handling
+  - Quality gates and regeneration decision logic
+  - Intelligent mock responses for Claude API fallback
 
 ### Simulated (Mock Mode) 🔶
 - Video generation APIs (mock mode enabled by default for testing)
 - Video frame extraction (uses mock scoring, ready for real vision API)
 - QA verification with realistic scoring based on tier quality ceilings
+- Full pipeline testable without any API keys
 
 ### Not Yet Implemented ❌
 - Real video API integration (Runway, Pika, Stability AI providers)
