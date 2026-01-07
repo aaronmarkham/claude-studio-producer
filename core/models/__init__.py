@@ -28,6 +28,13 @@ from .audio import (
     MixedAudio,
     AudioQAResult,
 )
+from .edit_decision import (
+    ExportFormat,
+    EditDecision,
+    EditCandidate,
+    EditDecisionList,
+    HumanFeedback,
+)
 
 __all__ = [
     # Seed assets
@@ -57,4 +64,10 @@ __all__ = [
     "MixSettings",
     "MixedAudio",
     "AudioQAResult",
+    # Edit decision models
+    "ExportFormat",
+    "EditDecision",
+    "EditCandidate",
+    "EditDecisionList",
+    "HumanFeedback",
 ]

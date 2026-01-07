@@ -25,6 +25,7 @@ __all__ = [
     "QAResult",
     "AssetAnalyzerAgent",
     "AudioGeneratorAgent",
+    "EditorAgent",
     "AGENT_REGISTRY",
 ]
 
@@ -61,6 +62,9 @@ def __getattr__(name):
     elif name == "AudioGeneratorAgent":
         from .audio_generator import AudioGeneratorAgent
         return AudioGeneratorAgent
+    elif name == "EditorAgent":
+        from .editor import EditorAgent
+        return EditorAgent
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Agent Registry for CLI introspection and dynamic loading
@@ -134,14 +138,15 @@ AGENT_REGISTRY = {
         "name": "editor",
         "class": "EditorAgent",
         "module": "agents.editor",
-        "status": "stub",
+        "status": "implemented",
         "description": "Creates EDL candidates and final assembly",
         "inputs": {
             "scenes": "List[Scene] - All scene specifications",
-            "generated_videos": "List[GeneratedVideo] - All generated videos",
-            "qa_results": "List[QAResult] - Quality verification results"
+            "video_candidates": "Dict[str, List[GeneratedVideo]] - All generated video variations",
+            "qa_results": "Dict[str, List[QAResult]] - Quality verification results",
+            "original_request": "str - User's original video concept"
         },
-        "outputs": "List[EDLCandidate] - Edit decision list candidates for human selection",
+        "outputs": "EditDecisionList - EDL with multiple candidate edits for human selection",
     },
     "asset_analyzer": {
         "name": "asset_analyzer",
