@@ -8,9 +8,9 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass
 
 from .claude_client import ClaudeClient
-from .producer import ProducerAgent, PilotStrategy
-from .critic import CriticAgent, SceneResult, PilotResults
 from .budget import BudgetTracker, ProductionTier
+from agents.producer import ProducerAgent, PilotStrategy
+from agents.critic import CriticAgent, SceneResult, PilotResults
 
 
 @dataclass

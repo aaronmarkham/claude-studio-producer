@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass
 from typing import List, Dict
-from .producer import PilotStrategy
-from .claude_client import ClaudeClient, JSONExtractor
+from core.claude_client import ClaudeClient, JSONExtractor
 
 
 @dataclass
@@ -47,7 +46,7 @@ class CriticAgent:
     async def evaluate_pilot(
         self,
         original_request: str,
-        pilot: PilotStrategy,
+        pilot,  # PilotStrategy from agents.producer
         scene_results: List[SceneResult],
         budget_spent: float,
         budget_allocated: float

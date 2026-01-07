@@ -8,7 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.claude_client import ClaudeClient
-from core.producer import ProducerAgent
+from agents.producer import ProducerAgent
 
 
 async def main():

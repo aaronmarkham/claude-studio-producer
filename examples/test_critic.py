@@ -7,9 +7,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.claude_client import ClaudeClient
-from core.producer import ProducerAgent, PilotStrategy
-from core.critic import CriticAgent, SceneResult
 from core.budget import ProductionTier
+from agents.producer import PilotStrategy
+from agents.critic import CriticAgent, SceneResult
 
 
 async def main():
@@ -44,7 +44,6 @@ async def main():
     """
     
     # Simulate some test scene results
-    # In real usage, these would come from actual video generation
     test_scenes = [
         SceneResult(
             scene_id="scene_1",
