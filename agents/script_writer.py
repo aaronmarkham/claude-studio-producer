@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass, field
 from typing import List, Optional
+from strands import tool
 from core.budget import ProductionTier
 from core.claude_client import ClaudeClient, JSONExtractor
 from core.models.audio import SyncPoint
 from core.models.seed_assets import SeedAssetRef
+from .base import StudioAgent
 
 
 @dataclass
@@ -33,7 +35,7 @@ class Scene:
     seed_asset_refs: List[SeedAssetRef] = field(default_factory=list)  # References to brand assets
 
 
-class ScriptWriterAgent:
+class ScriptWriterAgent(StudioAgent):
     """
     Takes a high-level video concept and breaks it down into
     individual scenes with detailed descriptions and timing
@@ -41,13 +43,14 @@ class ScriptWriterAgent:
 
     _is_stub = False
 
-    def __init__(self, claude_client: ClaudeClient = None):
+    def __init__(self, claude_client: Optional[ClaudeClient] = None):
         """
         Args:
             claude_client: Optional ClaudeClient instance (creates one if not provided)
         """
-        self.claude = claude_client or ClaudeClient()
+        super().__init__(claude_client=claude_client)
 
+    @tool
     async def create_script(
         self,
         video_concept: str,

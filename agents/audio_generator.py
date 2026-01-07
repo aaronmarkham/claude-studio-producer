@@ -11,8 +11,10 @@ Supports 5-tier audio production:
 
 from typing import List, Dict, Optional, Any
 from dataclasses import replace
+from strands import tool
 from core.claude_client import ClaudeClient
 from core.budget import estimate_audio_cost
+from .base import StudioAgent
 from core.models.audio import (
     AudioTier,
     VoiceStyle,
@@ -31,7 +33,7 @@ from core.models.audio import (
 from agents.script_writer import Scene
 
 
-class AudioGeneratorAgent:
+class AudioGeneratorAgent(StudioAgent):
     """
     Generates audio for video scenes using AI providers.
 
@@ -56,7 +58,7 @@ class AudioGeneratorAgent:
             audio_provider: Optional audio provider (ElevenLabs, OpenAI TTS, etc.)
             music_provider: Optional music provider (Mubert, Suno, etc.)
         """
-        self.claude = claude_client or ClaudeClient()
+        super().__init__(claude_client=claude_client)
         self.audio_provider = audio_provider  # Will use mock if None
         self.music_provider = music_provider  # Will use mock if None
 
@@ -252,6 +254,7 @@ class AudioGeneratorAgent:
 
         return scene_audio
 
+    @tool
     async def run(
         self,
         scenes: List[Scene],

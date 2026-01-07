@@ -3,10 +3,12 @@
 import asyncio
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Any
+from strands import tool
 
 from core.budget import ProductionTier, COST_MODELS
 from core.providers import VideoProvider, MockVideoProvider
 from agents.script_writer import Scene
+from .base import StudioAgent
 
 
 @dataclass
@@ -32,7 +34,7 @@ TIER_STYLES = {
 }
 
 
-class VideoGeneratorAgent:
+class VideoGeneratorAgent(StudioAgent):
     """
     Generates video content by calling external video generation APIs.
 
@@ -56,12 +58,13 @@ class VideoGeneratorAgent:
             retry_attempts: Number of retries on failure
             backoff_seconds: Initial backoff delay for retries
         """
-        # Use MockVideoProvider as default for backward compatibility
+        super().__init__(claude_client=None)  # VideoGenerator doesn't use Claude directly
         self.provider = provider or MockVideoProvider()
         self.num_variations = num_variations
         self.retry_attempts = retry_attempts
         self.backoff_seconds = backoff_seconds
 
+    @tool
     async def generate_scene(
         self,
         scene: Scene,

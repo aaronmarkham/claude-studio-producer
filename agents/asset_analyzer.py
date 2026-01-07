@@ -8,9 +8,11 @@ Analyzes images, sketches, storyboards, and other visual seed assets to extract:
 - Common themes across assets
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
+from strands import tool
 from core.claude_client import ClaudeClient
+from .base import StudioAgent
 from core.models.seed_assets import (
     SeedAsset,
     SeedAssetCollection,
@@ -19,7 +21,7 @@ from core.models.seed_assets import (
 )
 
 
-class AssetAnalyzerAgent:
+class AssetAnalyzerAgent(StudioAgent):
     """
     Analyzes seed assets using Claude Vision to extract descriptions,
     themes, colors, and style information for production guidance.
@@ -27,15 +29,16 @@ class AssetAnalyzerAgent:
 
     _is_stub = True  # Not yet fully implemented
 
-    def __init__(self, claude_client: ClaudeClient = None):
+    def __init__(self, claude_client: Optional[ClaudeClient] = None):
         """
         Initialize the Asset Analyzer Agent
 
         Args:
             claude_client: Optional ClaudeClient instance (creates one if not provided)
         """
-        self.claude = claude_client or ClaudeClient()
+        super().__init__(claude_client=claude_client)
 
+    @tool
     async def analyze_collection(
         self,
         collection: SeedAssetCollection

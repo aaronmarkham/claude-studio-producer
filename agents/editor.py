@@ -11,7 +11,9 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dataclasses import asdict
 
+from strands import tool
 from core.claude_client import ClaudeClient, JSONExtractor
+from .base import StudioAgent
 from core.models.edit_decision import (
     EditDecision,
     EditCandidate,
@@ -24,7 +26,7 @@ from agents.video_generator import GeneratedVideo
 from agents.qa_verifier import QAResult
 
 
-class EditorAgent:
+class EditorAgent(StudioAgent):
     """
     Professional video editor that creates Edit Decision Lists.
 
@@ -34,13 +36,14 @@ class EditorAgent:
 
     _is_stub = False  # Fully implemented
 
-    def __init__(self, claude_client: ClaudeClient = None):
+    def __init__(self, claude_client: Optional[ClaudeClient] = None):
         """
         Args:
             claude_client: Optional ClaudeClient instance (creates one if not provided)
         """
-        self.claude = claude_client or ClaudeClient()
+        super().__init__(claude_client=claude_client)
 
+    @tool
     async def create_edl(
         self,
         scenes: List[Scene],
@@ -326,6 +329,7 @@ Return JSON with the revised edit decisions."""
         else:
             raise ValueError(f"Unsupported export format: {format}")
 
+    @tool
     async def run(
         self,
         scenes: List[Scene],

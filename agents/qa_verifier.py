@@ -4,11 +4,13 @@ import asyncio
 import random
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
+from strands import tool
 
 from core.budget import ProductionTier, COST_MODELS
 from core.claude_client import ClaudeClient, JSONExtractor
 from agents.script_writer import Scene
 from agents.video_generator import GeneratedVideo
+from .base import StudioAgent
 
 
 @dataclass
@@ -42,7 +44,7 @@ QA_THRESHOLDS = {
 }
 
 
-class QAVerifierAgent:
+class QAVerifierAgent(StudioAgent):
     """
     Analyzes generated videos against scene descriptions to score quality.
     Uses Claude's vision capabilities to evaluate video frames.
@@ -64,11 +66,12 @@ class QAVerifierAgent:
             num_frames: Number of frames to extract from video
             use_vision: Whether to use Claude's vision API for analysis
         """
-        self.claude = claude_client or ClaudeClient()
+        super().__init__(claude_client=claude_client)
         self.mock_mode = mock_mode
         self.num_frames = num_frames
         self.use_vision = use_vision
 
+    @tool
     async def verify_video(
         self,
         scene: Scene,
