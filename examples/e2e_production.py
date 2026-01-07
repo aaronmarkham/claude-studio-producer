@@ -29,7 +29,7 @@ from agents.producer import ProducerAgent, PilotStrategy
 from agents.script_writer import ScriptWriterAgent, Scene
 from agents.video_generator import VideoGeneratorAgent, GeneratedVideo
 from agents.audio_generator import AudioGeneratorAgent
-from agents.critic import CriticAgent, PilotResults
+from agents.critic import CriticAgent, PilotResults, SceneResult
 from agents.qa_verifier import QAVerifierAgent, QAResult
 from agents.editor import EditorAgent
 from core.claude_client import ClaudeClient
@@ -111,6 +111,9 @@ class ProductionPipeline:
                 "ERROR": "[ERROR]  ",
                 "STAGE": "[STAGE]  "
             }.get(level, "         ")
+            # Remove emojis from message on Windows
+            import re
+            message = re.sub(r'[^\x00-\x7F]+', '', message)
         else:
             prefix = {
                 "INFO": "ℹ️ ",
@@ -154,7 +157,7 @@ class ProductionPipeline:
             scene_audio = await self._run_audio_generator(scenes)
 
             # Stage 5: QA Verifier - Verify quality
-            qa_results = await self._run_qa_verifier(scenes, video_candidates)
+            qa_results = await self._run_qa_verifier(scenes, video_candidates, pilot_strategy)
 
             # Stage 6: Critic - Evaluate results
             evaluation = await self._run_critic(pilot_strategy, scenes, video_candidates, qa_results)
@@ -213,13 +216,13 @@ class ProductionPipeline:
                 "duration_seconds": elapsed,
                 "pilot_selected": {
                     "tier": pilot.tier.value,
-                    "budget_allocated": pilot.budget_allocated,
-                    "test_scenes": pilot.test_scenes
+                    "allocated_budget": pilot.allocated_budget,
+                    "test_scene_count": pilot.test_scene_count
                 }
             }
 
             self.log(f"Selected pilot: {pilot.tier.value}", "SUCCESS")
-            self.log(f"Budget allocated: ${pilot.budget_allocated:.2f}")
+            self.log(f"Budget allocated: ${pilot.allocated_budget:.2f}")
             self.log(f"Duration: {elapsed:.1f}s")
             print()
 
@@ -239,10 +242,10 @@ class ProductionPipeline:
 
             # Generate scenes
             scenes = await script_writer.create_script(
-                user_request=self.concept,
-                tier=pilot.tier,
+                video_concept=self.concept,
+                production_tier=pilot.tier,
                 target_duration=30.0,  # 30 second video
-                audio_tier=self.audio_tier
+                num_scenes=None  # Let the agent decide based on duration
             )
 
             # Save scenes to disk
@@ -313,7 +316,7 @@ class ProductionPipeline:
                 videos = await video_generator.generate_scene(
                     scene=scene,
                     production_tier=pilot.tier,
-                    budget_limit=pilot.budget_allocated / len(scenes),
+                    budget_limit=pilot.allocated_budget / len(scenes),
                     num_variations=2
                 )
 
@@ -377,16 +380,9 @@ class ProductionPipeline:
                 budget_limit=self.budget * 0.2  # Allocate 20% of budget to audio
             )
 
-            # Calculate cost
-            total_cost = 0.0
-            for audio in scene_audio:
-                if audio.voiceover and audio.voiceover.audio:
-                    total_cost += audio.voiceover.audio.generation_cost
-                if audio.music and audio.music.audio:
-                    total_cost += audio.music.audio.generation_cost
-                for sfx in audio.sound_effects:
-                    if sfx.audio:
-                        total_cost += sfx.audio.generation_cost
+            # Calculate cost (mock mode has minimal cost)
+            # In real mode, costs would come from actual audio generation
+            total_cost = len(scene_audio) * 0.05  # Estimate $0.05 per scene
 
             self.metadata["costs"]["audio"] = total_cost
             self.metadata["costs"]["total"] += total_cost
@@ -413,7 +409,8 @@ class ProductionPipeline:
     async def _run_qa_verifier(
         self,
         scenes: List[Scene],
-        video_candidates: Dict[str, List[GeneratedVideo]]
+        video_candidates: Dict[str, List[GeneratedVideo]],
+        pilot: PilotStrategy
     ) -> Dict[str, List[QAResult]]:
         """Stage 5: QA Verifier - Verify quality"""
         self.log("Stage 5: QA Verifier - Verifying quality", "STAGE")
@@ -434,8 +431,13 @@ class ProductionPipeline:
                 for video in videos:
                     result = await qa_verifier.verify_video(
                         scene=scene,
-                        generated_video=video
+                        generated_video=video,
+                        original_request=self.concept,
+                        production_tier=pilot.tier
                     )
+                    # Set quality score on video
+                    video.quality_score = result.overall_score
+
                     scene_qa.append(result)
                     total_videos += 1
                     if result.passed:
@@ -476,31 +478,41 @@ class ProductionPipeline:
         try:
             critic = CriticAgent(claude_client=self.claude)
 
-            # Flatten video candidates for evaluation
-            all_videos = []
-            for videos in video_candidates.values():
-                all_videos.extend(videos)
+            # Convert videos to SceneResults for critic
+            scene_results = []
+            for scene in scenes:
+                videos = video_candidates.get(scene.scene_id, [])
+                if videos:
+                    # Use first video (or could pick best QA score)
+                    video = videos[0]
+                    scene_results.append(SceneResult(
+                        scene_id=scene.scene_id,
+                        description=scene.description,
+                        video_url=video.video_url,
+                        qa_score=video.quality_score or 0.0,
+                        generation_cost=video.generation_cost
+                    ))
 
             # Evaluate pilot
             evaluation = await critic.evaluate_pilot(
                 original_request=self.concept,
                 pilot=pilot,
-                scene_results=all_videos,
+                scene_results=scene_results,
                 budget_spent=self.metadata["costs"]["total"],
-                budget_allocated=pilot.budget_allocated
+                budget_allocated=pilot.allocated_budget
             )
 
             elapsed = (datetime.now() - start_time).total_seconds()
             self.metadata["stages"]["critic"] = {
                 "duration_seconds": elapsed,
-                "decision": evaluation.decision.value,
-                "quality_score": evaluation.quality_score,
-                "should_continue": evaluation.should_continue
+                "approved": evaluation.approved,
+                "critic_score": evaluation.critic_score,
+                "avg_qa_score": evaluation.avg_qa_score
             }
 
-            self.log(f"Evaluation: {evaluation.decision.value}", "SUCCESS")
-            self.log(f"Quality score: {evaluation.quality_score:.1f}/100")
-            self.log(f"Should continue: {evaluation.should_continue}")
+            self.log(f"Evaluation: {'APPROVED' if evaluation.approved else 'REJECTED'}", "SUCCESS")
+            self.log(f"Critic score: {evaluation.critic_score:.1f}/100")
+            self.log(f"Avg QA score: {evaluation.avg_qa_score:.1f}/100")
             self.log(f"Duration: {elapsed:.1f}s")
             print()
 

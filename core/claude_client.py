@@ -66,7 +66,7 @@ class ClaudeClient:
 
                 client = anthropic.Anthropic(api_key=api_key)
                 response = client.messages.create(
-                    model="claude-3-7-sonnet-20250219",
+                    model="claude-sonnet-4-20250514",
                     max_tokens=4096,
                     messages=[{"role": "user", "content": full_prompt}]
                 )
@@ -167,7 +167,7 @@ class ClaudeClient:
 
             # Create message with vision
             response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",  # Supports vision
+                model="claude-sonnet-4-20250514",  # Supports vision
                 max_tokens=4096,
                 messages=[{"role": "user", "content": message_content}],
                 system=system_prompt if system_prompt else None
