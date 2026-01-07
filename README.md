@@ -40,7 +40,20 @@ Claude Studio Producer orchestrates AI agents to create professional videos:
 - Python 3.9+
 - Anthropic API key ([get one here](https://console.anthropic.com/))
 
-### Setup
+### Quick Install (Recommended)
+
+```bash
+# Install directly from GitHub
+pip install git+https://github.com/aaronmarkham/claude-studio-producer.git
+
+# Or install in editable mode for development
+git clone https://github.com/aaronmarkham/claude-studio-producer.git
+cd claude-studio-producer
+pip install -e .
+```
+
+### Manual Setup
+
 ```bash
 # Clone the repository
 git clone https://github.com/aaronmarkham/claude-studio-producer.git
@@ -55,8 +68,8 @@ source .venv/Scripts/activate
 # On macOS/Linux:
 source .venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the package
+pip install -e .
 
 # Configure environment
 cp .env.example .env
@@ -167,7 +180,9 @@ Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details
+MIT-0 (MIT No Attribution) - see [LICENSE](LICENSE) for details
+
+This project is released under the most permissive open source license. Use it freely without attribution requirements.
 
 ## 🙏 Acknowledgments
 

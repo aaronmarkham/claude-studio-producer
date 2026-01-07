@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-studio-producer"
+version = "0.2.0"
+description = "Budget-aware multi-agent video production orchestration using Claude Agent SDK"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT-0"}
+authors = [
+    {name = "Aaron Markham", email = "noreply@github.com"}
+]
+keywords = [
+    "ai",
+    "video-production",
+    "multi-agent",
+    "claude",
+    "orchestration",
+    "budget-optimization"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT No Attribution License (MIT-0)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "anthropic>=0.34.0",
+    "claude-agent-sdk>=0.1.18",
+    "aiohttp>=3.9.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aaronmarkham/claude-studio-producer"
+Repository = "https://github.com/aaronmarkham/claude-studio-producer"
+Issues = "https://github.com/aaronmarkham/claude-studio-producer/issues"
+Documentation = "https://github.com/aaronmarkham/claude-studio-producer/tree/main/docs"
+
+[tool.setuptools]
+packages = ["core", "agents"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
