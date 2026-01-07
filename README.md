@@ -173,6 +173,7 @@ Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details
 - [x] Video Generator agent (with mock mode)
 - [x] Video QA agent with vision analysis (mock mode)
 - [x] Skills system (video-generation, scene-analysis)
+- [x] **Full agent integration in orchestrator (v0.5.0)**
 - [ ] Real video API integration (Runway, Pika)
 - [ ] Editor agent with EDL generation
 - [ ] Web UI dashboard

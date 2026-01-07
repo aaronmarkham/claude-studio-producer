@@ -1,6 +1,6 @@
 """
 Main Orchestrator - Runs the full multi-pilot video production pipeline
-Producer → Parallel Pilots → Critic → Winner Continues
+Producer → ScriptWriter → VideoGenerator → QA → Critic → Winner Continues
 """
 
 import asyncio
@@ -11,6 +11,9 @@ from .claude_client import ClaudeClient
 from .budget import BudgetTracker, ProductionTier
 from agents.producer import ProducerAgent, PilotStrategy
 from agents.critic import CriticAgent, SceneResult, PilotResults
+from agents.script_writer import ScriptWriterAgent, Scene
+from agents.video_generator import VideoGeneratorAgent, GeneratedVideo
+from agents.qa_verifier import QAVerifierAgent, QAResult
 
 
 @dataclass
@@ -29,21 +32,32 @@ class StudioOrchestrator:
     Full production orchestrator with Producer + Pilots + Critic workflow
     """
     
-    def __init__(self, num_variations: int = 3, debug: bool = False):
+    def __init__(self, num_variations: int = 3, debug: bool = False, mock_mode: bool = True):
         """
         Args:
             num_variations: Number of video variations per scene
             debug: Enable debug output
+            mock_mode: Use mock generation/QA (True for testing without API keys)
         """
         self.num_variations = num_variations
         self.debug = debug
-        
+        self.mock_mode = mock_mode
+
         # Shared Claude client
         self.claude = ClaudeClient(debug=debug)
-        
+
         # Agents
         self.producer = ProducerAgent(claude_client=self.claude)
         self.critic = CriticAgent(claude_client=self.claude)
+        self.script_writer = ScriptWriterAgent(claude_client=self.claude)
+        self.video_generator = VideoGeneratorAgent(
+            num_variations=num_variations,
+            mock_mode=mock_mode
+        )
+        self.qa_verifier = QAVerifierAgent(
+            claude_client=self.claude,
+            mock_mode=mock_mode
+        )
         
     async def produce_video(
         self,
@@ -194,38 +208,82 @@ class StudioOrchestrator:
         budget_tracker: BudgetTracker
     ) -> Dict:
         """
-        Run a pilot's test phase (limited scenes)
-        In real implementation, this would call actual video generation APIs
+        Run a pilot's test phase using real agents:
+        1. ScriptWriter creates scenes
+        2. VideoGenerator generates videos
+        3. QAVerifier scores quality
         """
-        
-        # Simulate scene generation
-        import random
-        
+
+        # Step 1: Generate script for test scenes
+        # Create a focused request for just the test scenes
+        test_duration = pilot.test_scene_count * 5.0  # Assume 5s per scene
+
+        scenes = await self.script_writer.create_script(
+            video_concept=user_request,
+            target_duration=test_duration,
+            production_tier=pilot.tier,
+            num_scenes=pilot.test_scene_count
+        )
+
+        if self.debug:
+            print(f"      Generated {len(scenes)} scenes for {pilot.pilot_id}")
+
+        # Step 2 & 3: For each scene, generate video and run QA
         test_scenes = []
         total_cost = 0
-        
-        for i in range(pilot.test_scene_count):
-            # Simulate scene generation cost
-            from .budget import COST_MODELS
-            cost_model = COST_MODELS[pilot.tier]
-            scene_cost = 5.0 * cost_model.cost_per_second * self.num_variations
-            
-            # Simulate QA score (better tiers get higher scores on average)
-            base_score = 70 + (cost_model.quality_ceiling - 70) * 0.3
-            qa_score = base_score + random.uniform(-10, 15)
-            qa_score = min(100, max(60, qa_score))
-            
-            scene = SceneResult(
-                scene_id=f"{pilot.pilot_id}_scene_{i+1}",
-                description=f"Test scene {i+1} for {pilot.pilot_id}",
-                video_url=f"https://example.com/{pilot.pilot_id}/scene{i+1}.mp4",
-                qa_score=qa_score,
-                generation_cost=scene_cost
+
+        for scene in scenes:
+            # Budget check before generating
+            remaining = pilot.allocated_budget - total_cost
+            if remaining <= 0:
+                print(f"      Budget exhausted after {len(test_scenes)} scenes")
+                break
+
+            # Generate video variations
+            videos = await self.video_generator.generate_scene(
+                scene=scene,
+                production_tier=pilot.tier,
+                budget_limit=remaining,
+                num_variations=self.num_variations
             )
-            
-            test_scenes.append(scene)
-            total_cost += scene_cost
-        
+
+            if not videos:
+                if self.debug:
+                    print(f"      No videos generated for {scene.scene_id}")
+                continue
+
+            # Run QA on all variations
+            qa_results = await self.qa_verifier.verify_batch(
+                scenes=[scene] * len(videos),
+                videos=videos,
+                original_request=user_request,
+                production_tier=pilot.tier
+            )
+
+            # Select best variation based on QA score
+            best_idx = max(range(len(qa_results)), key=lambda i: qa_results[i].overall_score)
+            best_video = videos[best_idx]
+            best_qa = qa_results[best_idx]
+
+            # Track total cost (all variations + QA)
+            generation_cost = sum(v.generation_cost for v in videos)
+            scene_total_cost = generation_cost
+
+            # Create SceneResult for Critic
+            scene_result = SceneResult(
+                scene_id=scene.scene_id,
+                description=scene.description,
+                video_url=best_video.video_url,
+                qa_score=best_qa.overall_score,
+                generation_cost=scene_total_cost
+            )
+
+            test_scenes.append(scene_result)
+            total_cost += scene_total_cost
+
+            if self.debug:
+                print(f"      {scene.scene_id}: QA {best_qa.overall_score:.1f}/100, Cost ${scene_total_cost:.2f}")
+
         return {
             "pilot_id": pilot.pilot_id,
             "scenes": test_scenes,
@@ -241,56 +299,79 @@ class StudioOrchestrator:
         max_budget: float
     ) -> PilotResults:
         """
-        Complete full production for approved pilot
+        Complete full production for approved pilot using real agents
         Respects max_budget constraint
         """
-        
-        # Calculate how many more scenes we can afford
-        from .budget import COST_MODELS
-        cost_model = COST_MODELS[pilot.tier]
-        cost_per_scene = 5.0 * cost_model.cost_per_second * self.num_variations
-        
+
+        # Calculate remaining scenes to generate
         remaining_scenes = pilot.full_scene_count - pilot.test_scene_count
-        affordable_scenes = int(max_budget / cost_per_scene)
-        scenes_to_generate = min(remaining_scenes, affordable_scenes)
-        
-        if scenes_to_generate < remaining_scenes:
-            print(f"      ⚠️  Budget limits: generating {scenes_to_generate}/{remaining_scenes} scenes")
-        
-        # Generate scenes
-        import random
-        
+
+        if remaining_scenes <= 0:
+            return evaluation
+
+        # Generate script for remaining scenes
+        remaining_duration = remaining_scenes * 5.0
+        scenes = await self.script_writer.create_script(
+            video_concept=user_request,
+            target_duration=remaining_duration,
+            production_tier=pilot.tier,
+            num_scenes=remaining_scenes
+        )
+
         all_scenes = list(evaluation.scenes_generated)
         additional_cost = 0
-        
-        for i in range(scenes_to_generate):
-            scene_cost = cost_per_scene
-            
-            # Check if we still have budget
-            if additional_cost + scene_cost > max_budget:
-                print(f"      ⚠️  Budget exhausted after {i} scenes")
+
+        for scene in scenes:
+            # Budget check
+            remaining_budget = max_budget - additional_cost
+            if remaining_budget <= 0:
+                print(f"      ⚠️  Budget exhausted after {len(all_scenes) - pilot.test_scene_count} additional scenes")
                 break
-            
-            # Adjust QA scores based on critic feedback
-            base_score = evaluation.avg_qa_score + random.uniform(-5, 10)
-            qa_score = min(100, max(60, base_score))
-            
-            scene = SceneResult(
-                scene_id=f"{pilot.pilot_id}_scene_{pilot.test_scene_count + i + 1}",
-                description=f"Scene {pilot.test_scene_count + i + 1}",
-                video_url=f"https://example.com/{pilot.pilot_id}/scene{pilot.test_scene_count + i + 1}.mp4",
-                qa_score=qa_score,
-                generation_cost=scene_cost
+
+            # Generate videos
+            videos = await self.video_generator.generate_scene(
+                scene=scene,
+                production_tier=pilot.tier,
+                budget_limit=remaining_budget,
+                num_variations=self.num_variations
             )
-            
-            all_scenes.append(scene)
-            additional_cost += scene_cost
-        
+
+            if not videos:
+                continue
+
+            # Run QA
+            qa_results = await self.qa_verifier.verify_batch(
+                scenes=[scene] * len(videos),
+                videos=videos,
+                original_request=user_request,
+                production_tier=pilot.tier
+            )
+
+            # Select best variation
+            best_idx = max(range(len(qa_results)), key=lambda i: qa_results[i].overall_score)
+            best_video = videos[best_idx]
+            best_qa = qa_results[best_idx]
+
+            # Track costs
+            generation_cost = sum(v.generation_cost for v in videos)
+            scene_total_cost = generation_cost
+
+            scene_result = SceneResult(
+                scene_id=scene.scene_id,
+                description=scene.description,
+                video_url=best_video.video_url,
+                qa_score=best_qa.overall_score,
+                generation_cost=scene_total_cost
+            )
+
+            all_scenes.append(scene_result)
+            additional_cost += scene_total_cost
+
         budget_tracker.record_spend(pilot.pilot_id, additional_cost)
-        
+
         # Update evaluation with complete results
         evaluation.scenes_generated = all_scenes
         evaluation.total_cost += additional_cost
         evaluation.avg_qa_score = sum(s.qa_score for s in all_scenes) / len(all_scenes)
-        
+
         return evaluation
