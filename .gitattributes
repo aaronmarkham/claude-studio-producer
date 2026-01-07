@@ -4,6 +4,9 @@
 # Python files should always use LF
 *.py text eol=lf
 
+# Markdown files should use LF
+*.md text eol=lf
+
 # Shell scripts should use LF
 *.sh text eol=lf
 
