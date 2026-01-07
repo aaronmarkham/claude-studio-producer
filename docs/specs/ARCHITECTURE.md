@@ -103,6 +103,46 @@ All Videos + QA Scores → Editor Agent → EDL Candidates → Human Selection
 | `orchestrator.py` | Main pipeline coordinator |
 | `budget.py` | Cost models, tracking, enforcement |
 | `claude_client.py` | Claude SDK abstraction layer |
+| `provider_config.py` | Provider factory and configuration |
+
+### Provider System (`core/providers/`)
+
+The provider pattern enables clean separation between agents and external APIs:
+
+| Provider | Purpose | Status |
+|----------|---------|--------|
+| `base.py` | Abstract `VideoProvider` interface | ✅ Complete |
+| `mock.py` | `MockVideoProvider` for testing | ✅ Complete |
+| `runway.py` | `RunwayProvider` for Runway Gen-3 | ✅ Complete |
+| `pika.py` | `PikaProvider` for Pika Labs | ⏳ TODO |
+| `stability.py` | `StabilityProvider` for Stability AI | ⏳ TODO |
+
+**Provider Interface:**
+```python
+class VideoProvider(ABC):
+    async def generate_video(prompt, duration, **kwargs) -> GenerationResult
+    async def check_status(job_id) -> Dict[str, Any]
+    async def download_video(url, path) -> bool
+    def estimate_cost(duration, **kwargs) -> float
+    async def validate_credentials() -> bool
+```
+
+**Dependency Injection:**
+```python
+# Default (mock mode)
+orchestrator = StudioOrchestrator(mock_mode=True)
+
+# With explicit provider
+from core.providers import RunwayProvider
+from core.provider_config import ProviderFactory
+
+provider = ProviderFactory.create_runway(api_key="sk-...")
+orchestrator = StudioOrchestrator(video_provider=provider)
+
+# From environment
+provider = ProviderFactory.create_from_env()  # Uses VIDEO_PROVIDER env var
+orchestrator = StudioOrchestrator(video_provider=provider)
+```
 
 ### Agents (`agents/`)
 
@@ -206,10 +246,29 @@ MAX_CONCURRENT_QA = 10
 4. Register with orchestrator
 
 ### Adding New Providers
-1. Add to `video_generator.py` provider map
-2. Implement API wrapper
-3. Add cost model to `budget.py`
-4. Update tier mappings
+1. Create new provider class in `core/providers/` implementing `VideoProvider` interface
+2. Add provider to `ProviderFactory` in `provider_config.py`
+3. Update cost estimation in provider's `estimate_cost()` method
+4. Add API key environment variable support (e.g., `PIKA_API_KEY`)
+5. Create integration tests in `tests/integration/`
+
+**Example:**
+```python
+# core/providers/pika.py
+class PikaProvider(VideoProvider):
+    def __init__(self, config: VideoProviderConfig):
+        super().__init__(config)
+        # Initialize Pika API client
+
+    async def generate_video(self, prompt, duration, **kwargs):
+        # Call Pika API
+        pass
+
+# core/provider_config.py
+elif provider_enum == ProviderType.PIKA:
+    api_key = os.getenv("PIKA_API_KEY")
+    return PikaProvider(VideoProviderConfig(...))
+```
 
 ### Adding New Production Tiers
 1. Add to `ProductionTier` enum

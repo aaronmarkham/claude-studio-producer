@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from .claude_client import ClaudeClient
 from .budget import BudgetTracker, ProductionTier
+from .providers import VideoProvider, MockVideoProvider
 from agents.producer import ProducerAgent, PilotStrategy
 from agents.critic import CriticAgent, SceneResult, PilotResults
 from agents.script_writer import ScriptWriterAgent, Scene
@@ -31,13 +32,20 @@ class StudioOrchestrator:
     """
     Full production orchestrator with Producer + Pilots + Critic workflow
     """
-    
-    def __init__(self, num_variations: int = 3, debug: bool = False, mock_mode: bool = True):
+
+    def __init__(
+        self,
+        num_variations: int = 3,
+        debug: bool = False,
+        mock_mode: bool = True,
+        video_provider: Optional[VideoProvider] = None
+    ):
         """
         Args:
             num_variations: Number of video variations per scene
             debug: Enable debug output
             mock_mode: Use mock generation/QA (True for testing without API keys)
+            video_provider: VideoProvider instance (defaults to MockVideoProvider if mock_mode=True)
         """
         self.num_variations = num_variations
         self.debug = debug
@@ -46,13 +54,20 @@ class StudioOrchestrator:
         # Shared Claude client
         self.claude = ClaudeClient(debug=debug)
 
+        # Video provider (dependency injection)
+        if video_provider is None:
+            video_provider = MockVideoProvider() if mock_mode else None
+
+        if video_provider is None and not mock_mode:
+            raise ValueError("video_provider required when mock_mode=False")
+
         # Agents
         self.producer = ProducerAgent(claude_client=self.claude)
         self.critic = CriticAgent(claude_client=self.claude)
         self.script_writer = ScriptWriterAgent(claude_client=self.claude)
         self.video_generator = VideoGeneratorAgent(
-            num_variations=num_variations,
-            mock_mode=mock_mode
+            provider=video_provider,
+            num_variations=num_variations
         )
         self.qa_verifier = QAVerifierAgent(
             claude_client=self.claude,
