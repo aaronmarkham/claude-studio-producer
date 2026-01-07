@@ -23,6 +23,7 @@ __all__ = [
     "VideoProvider",
     "QAVerifierAgent",
     "QAResult",
+    "AssetAnalyzerAgent",
     "AGENT_REGISTRY",
 ]
 
@@ -53,6 +54,9 @@ def __getattr__(name):
     elif name in ("QAVerifierAgent", "QAResult"):
         from .qa_verifier import QAVerifierAgent, QAResult
         return QAVerifierAgent if name == "QAVerifierAgent" else QAResult
+    elif name == "AssetAnalyzerAgent":
+        from .asset_analyzer import AssetAnalyzerAgent
+        return AssetAnalyzerAgent
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Agent Registry for CLI introspection and dynamic loading

@@ -5,7 +5,9 @@ Handles all the message parsing and API interaction
 
 import re
 import json
-from typing import Optional, Dict, Any
+import base64
+from pathlib import Path
+from typing import Optional, Dict, Any, Union
 
 
 class ClaudeClient:
@@ -83,7 +85,107 @@ class ClaudeClient:
             print("[DEBUG] ---")
 
         return response_text.strip()
-    
+
+    async def query_with_image(
+        self,
+        prompt: str,
+        image_path: Union[str, Path],
+        system_prompt: Optional[str] = None
+    ) -> str:
+        """
+        Send a query to Claude with an image for vision analysis
+
+        Args:
+            prompt: The user prompt
+            image_path: Path to the image file (local path or URL)
+            system_prompt: Optional system prompt
+
+        Returns:
+            Clean text response from Claude
+
+        Raises:
+            FileNotFoundError: If image file doesn't exist
+            ValueError: If image format is not supported
+            ImportError: If Anthropic SDK is not available
+        """
+        image_path = Path(image_path)
+
+        # Validate image exists
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image not found: {image_path}")
+
+        # Read and encode image
+        image_data = image_path.read_bytes()
+        image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
+
+        # Determine media type from extension
+        extension = image_path.suffix.lower()
+        media_type_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp"
+        }
+        media_type = media_type_map.get(extension)
+        if not media_type:
+            raise ValueError(f"Unsupported image format: {extension}")
+
+        if self.debug:
+            print(f"\n[DEBUG] Sending vision query with image: {image_path.name}")
+            print(f"[DEBUG] Image size: {len(image_data)} bytes")
+
+        # Vision queries require direct Anthropic SDK
+        try:
+            import anthropic
+            import os
+
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "ANTHROPIC_API_KEY environment variable not set. "
+                    "Vision queries require the Anthropic SDK."
+                )
+
+            client = anthropic.Anthropic(api_key=api_key)
+
+            # Build message content with image
+            message_content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_b64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+
+            # Create message with vision
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",  # Supports vision
+                max_tokens=4096,
+                messages=[{"role": "user", "content": message_content}],
+                system=system_prompt if system_prompt else None
+            )
+
+            response_text = response.content[0].text
+
+            if self.debug:
+                print(f"[DEBUG] Received vision response ({len(response_text)} chars)")
+
+            return response_text.strip()
+
+        except ImportError:
+            raise ImportError(
+                "anthropic SDK is required for vision queries. "
+                "Install with: pip install anthropic"
+            )
+
     def _extract_text_from_message(self, message) -> str:
         """Extract text content from Claude SDK message objects"""
         
