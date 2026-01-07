@@ -171,9 +171,9 @@ Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details
 - [x] Multi-tier cost models
 - [x] Script Writer agent
 - [x] Video Generator agent (with mock mode)
-- [x] Skills system (video-generation)
+- [x] Video QA agent with vision analysis (mock mode)
+- [x] Skills system (video-generation, scene-analysis)
 - [ ] Real video API integration (Runway, Pika)
-- [ ] Video QA agent with vision analysis
 - [ ] Editor agent with EDL generation
 - [ ] Web UI dashboard
 - [ ] Prompt library & templates

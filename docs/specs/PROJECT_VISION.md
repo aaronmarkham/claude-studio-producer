@@ -27,28 +27,32 @@ The workflow:
 
 **Competitive Pilot System**: Instead of generating one video, we generate multiple competing versions at different quality/cost tiers, then let AI evaluate and reallocate budget dynamically.
 
-## Current State (v0.3.0)
+## Current State (v0.4.0)
 
 ### Implemented ✅
 - `ProducerAgent` - Budget analysis and pilot strategy planning
 - `CriticAgent` - Quality evaluation and budget reallocation
 - `ScriptWriterAgent` - Breaks video concepts into detailed scene-by-scene scripts
 - `VideoGeneratorAgent` - Video generation with pluggable providers (mock mode + API-ready)
+- `QAVerifierAgent` - Vision-based quality analysis with detailed scoring
 - `StudioOrchestrator` - Full pipeline coordination
 - `BudgetTracker` - Real-time cost monitoring
-- Skills system - Progressive disclosure with `video_generation` skill
+- Skills system - Progressive disclosure (`video_generation`, `scene_analysis`)
 - Cost models for 4 production tiers (2025 pricing)
 - Budget enforcement (prevents overspending)
 - Retry logic and error handling
+- Quality gates and regeneration decision logic
 
 ### Simulated (Mock Mode) 🔶
 - Video generation APIs (mock mode enabled by default for testing)
-- QA verification (returns random scores within tier range)
+- Video frame extraction (uses mock scoring, ready for real vision API)
+- QA verification with realistic scoring based on tier quality ceilings
 
 ### Not Yet Implemented ❌
 - Real video API integration (Runway, Pika, Stability AI providers)
-- QAVerifierAgent (vision-based quality analysis)
+- Real video frame extraction (ffmpeg integration)
+- Claude Vision API integration for actual frame analysis
 - EditorAgent (EDL generation and assembly)
 - PromptVariationAgent
-- Additional skills (scene-analysis, editing)
+- Additional skills (editing)
 - Web UI dashboard

@@ -8,6 +8,7 @@
 # - CriticAgent (agents/critic.py)
 # - ScriptWriterAgent (agents/script_writer.py)
 # - VideoGeneratorAgent (agents/video_generator.py)
+# - QAVerifierAgent (agents/qa_verifier.py)
 
 __all__ = [
     "ProducerAgent",
@@ -20,6 +21,8 @@ __all__ = [
     "VideoGeneratorAgent",
     "GeneratedVideo",
     "VideoProvider",
+    "QAVerifierAgent",
+    "QAResult",
 ]
 
 def __getattr__(name):
@@ -46,4 +49,7 @@ def __getattr__(name):
             return GeneratedVideo
         else:
             return VideoProvider
+    elif name in ("QAVerifierAgent", "QAResult"):
+        from .qa_verifier import QAVerifierAgent, QAResult
+        return QAVerifierAgent if name == "QAVerifierAgent" else QAResult
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
