@@ -11,6 +11,7 @@
 # - QAVerifierAgent (agents/qa_verifier.py)
 
 __all__ = [
+    "StudioAgent",
     "ProducerAgent",
     "PilotStrategy",
     "CriticAgent",
@@ -31,7 +32,10 @@ __all__ = [
 
 def __getattr__(name):
     """Lazy imports to avoid circular dependencies"""
-    if name in ("ProducerAgent", "PilotStrategy"):
+    if name == "StudioAgent":
+        from .base import StudioAgent
+        return StudioAgent
+    elif name in ("ProducerAgent", "PilotStrategy"):
         from .producer import ProducerAgent, PilotStrategy
         return ProducerAgent if name == "ProducerAgent" else PilotStrategy
     elif name in ("CriticAgent", "SceneResult", "PilotResults"):

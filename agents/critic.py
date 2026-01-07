@@ -1,8 +1,10 @@
 """Critic Agent - Evaluates pilot results and makes budget decisions"""
 
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Optional
+from strands import tool
 from core.claude_client import ClaudeClient, JSONExtractor
+from .base import StudioAgent
 
 
 @dataclass
@@ -23,7 +25,7 @@ class PilotResults:
     scenes_generated: List[SceneResult]
     total_cost: float
     avg_qa_score: float
-    
+
     # Critic's evaluation
     critic_score: float = 0  # Overall score 0-100
     approved: bool = False
@@ -33,7 +35,7 @@ class PilotResults:
     adjustments_needed: List[str] = None
 
 
-class CriticAgent:
+class CriticAgent(StudioAgent):
     """
     Evaluates pilot results against original intent
     Makes budget continuation/cancellation decisions
@@ -41,10 +43,11 @@ class CriticAgent:
 
     _is_stub = False
 
-    def __init__(self, claude_client: ClaudeClient = None):
-        self.claude = claude_client or ClaudeClient()
+    def __init__(self, claude_client: Optional[ClaudeClient] = None):
+        super().__init__(claude_client=claude_client)
         self.quality_threshold = 65  # Minimum score to continue
-        
+
+    @tool
     async def evaluate_pilot(
         self,
         original_request: str,
@@ -168,26 +171,27 @@ Return ONLY valid JSON:
             lines.append(f"  Cost: ${scene['cost']:.2f}")
         return "\n".join(lines)
     
-    def compare_pilots(self, results: List[PilotResults]) -> PilotResults:
+    @tool
+    def compare_pilots(self, results: List[PilotResults]) -> Optional[PilotResults]:
         """
         Compare multiple pilot results and select the best
-        
+
         Args:
             results: List of pilot results to compare
-            
+
         Returns:
-            The best pilot result
+            The best pilot result, or None if none are approved
         """
         # Filter to approved pilots only
         approved = [r for r in results if r.approved]
-        
+
         if not approved:
             return None
-        
+
         # Sort by critic score, then by cost efficiency
         best = max(approved, key=lambda r: (
             r.critic_score,
             r.avg_qa_score / r.total_cost  # Quality per dollar
         ))
-        
+
         return best
