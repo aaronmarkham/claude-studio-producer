@@ -66,3 +66,11 @@ test_message_attrs.py
 setup_fresh_windows.ps1
 setup_here.ps1
 setup_here.sh
+
+# Docker
+.dockerignore
+
+# Artifacts (but track the directory structure)
+artifacts/*
+!artifacts/.gitkeep
+!artifacts/README.md

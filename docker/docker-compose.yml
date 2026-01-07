@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  studio:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount repo for hot reload
+      - ..:/app
+
+      # Persist artifacts between runs
+      - ../artifacts:/artifacts
+
+      # Mount AWS credentials (optional, uncomment if needed)
+      # - ~/.aws:/root/.aws:ro
+
+      # Mount environment file (if exists)
+      - ../.env:/app/.env:ro
+
+    environment:
+      # Development mode
+      - ENV=development
+      - DEBUG=true
+
+      # Provider mode: "mock" or "live"
+      - PROVIDER_MODE=mock
+
+      # Artifact storage
+      - ARTIFACT_DIR=/artifacts
+
+      # Load from .env file (these will override if .env exists)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - RUNWAY_API_KEY=${RUNWAY_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+
+    # Keep container running for development
+    stdin_open: true
+    tty: true
+
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Redis for caching/queuing
+  # Uncomment if needed
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+
+# volumes:
+#   redis_data:
