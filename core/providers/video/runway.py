@@ -3,7 +3,7 @@
 import asyncio
 import aiohttp
 from typing import Dict, Any, Optional
-from .base import VideoProvider, VideoProviderConfig, GenerationResult, ProviderType
+from ..base import VideoProvider, VideoProviderConfig, GenerationResult, ProviderType
 from core.budget import ProductionTier
 
 
