@@ -4,31 +4,75 @@ This guide walks through building and testing the Docker development environment
 
 ## Prerequisites
 
-- Docker Desktop installed and running
+**Required:**
+- **Docker Desktop** - Must be installed AND running
+  - Download: https://www.docker.com/products/docker-desktop
+  - Windows: Start from Start Menu before running setup
+  - Mac: Start from Applications folder
+  - Linux: `sudo systemctl start docker`
+
+**Optional (for testing):**
 - Git (for cloning the repo)
 - curl and jq (for testing API endpoints)
   - Windows: Install via Chocolatey or WSL
-  - Mac: Install via Homebrew
+  - Mac: Install via Homebrew (`brew install jq`)
   - Linux: Usually pre-installed
 
 ## Quick Start (TL;DR)
 
 ```bash
-# 1. Build the Docker image
-./scripts/dev.sh build
+# 0. IMPORTANT: Start Docker Desktop first!
+#    Windows: Start Menu → Docker Desktop
+#    Mac: Applications → Docker Desktop
+#    Linux: sudo systemctl start docker
 
-# 2. Start the server
+# 1. First-time setup (builds image, creates .env)
+./scripts/dev.sh setup
+
+# 2. Edit .env and add your ANTHROPIC_API_KEY
+#    (Or use mock mode without API key)
+
+# 3. Start the server
 ./scripts/dev.sh up
 
-# 3. Test it works
+# 4. Test it works
 curl http://localhost:8000/health
 
-# 4. View API docs
+# 5. View API docs
 open http://localhost:8000/docs  # Mac
 start http://localhost:8000/docs  # Windows
+xdg-open http://localhost:8000/docs  # Linux
 ```
 
 ## Step-by-Step Setup
+
+### 0. Start Docker Desktop
+
+**BEFORE running any commands, ensure Docker Desktop is running!**
+
+**Windows:**
+```bash
+# Start Docker Desktop from Start Menu
+# Wait for "Docker Desktop is running" notification
+```
+
+**Mac:**
+```bash
+# Open Docker Desktop from Applications
+# Wait for whale icon in menu bar to show "Docker Desktop is running"
+```
+
+**Linux:**
+```bash
+# Start Docker daemon
+sudo systemctl start docker
+
+# Verify it's running
+docker info
+```
+
+If you see this error: `error during connect: ... cannot find the file specified`
+→ Docker Desktop is not running. Start it first!
 
 ### 1. Build the Docker Image
 

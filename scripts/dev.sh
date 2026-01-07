@@ -5,8 +5,24 @@ set -e
 
 COMPOSE_FILE="docker/docker-compose.yml"
 
+# Check if Docker is running
+check_docker() {
+  if ! docker info > /dev/null 2>&1; then
+    echo "[ERROR] Docker is not running!"
+    echo ""
+    echo "Please start Docker Desktop and try again."
+    echo ""
+    echo "Windows: Start Docker Desktop from Start Menu"
+    echo "Mac: Start Docker Desktop from Applications"
+    echo "Linux: sudo systemctl start docker"
+    echo ""
+    exit 1
+  fi
+}
+
 case "$1" in
   setup)
+    check_docker
     echo "[INFO] Setting up Claude Studio Producer for the first time..."
     echo ""
     echo "Step 1: Building Docker image (this may take 2-5 minutes)..."
@@ -36,6 +52,7 @@ case "$1" in
     ;;
 
   up)
+    check_docker
     echo "[INFO] Starting Claude Studio Producer in development mode..."
 
     # Check if image exists
@@ -101,6 +118,7 @@ case "$1" in
     ;;
 
   build)
+    check_docker
     echo "[INFO] Rebuilding Docker image..."
     docker-compose -f $COMPOSE_FILE build
     echo "Build complete"
