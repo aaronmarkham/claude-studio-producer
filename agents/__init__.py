@@ -24,6 +24,7 @@ __all__ = [
     "QAVerifierAgent",
     "QAResult",
     "AssetAnalyzerAgent",
+    "AudioGeneratorAgent",
     "AGENT_REGISTRY",
 ]
 
@@ -57,6 +58,9 @@ def __getattr__(name):
     elif name == "AssetAnalyzerAgent":
         from .asset_analyzer import AssetAnalyzerAgent
         return AssetAnalyzerAgent
+    elif name == "AudioGeneratorAgent":
+        from .audio_generator import AudioGeneratorAgent
+        return AudioGeneratorAgent
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Agent Registry for CLI introspection and dynamic loading
