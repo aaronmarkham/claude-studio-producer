@@ -7,14 +7,19 @@
 # - ProducerAgent (agents/producer.py)
 # - CriticAgent (agents/critic.py)
 # - ScriptWriterAgent (agents/script_writer.py)
+# - VideoGeneratorAgent (agents/video_generator.py)
 
 __all__ = [
     "ProducerAgent",
-    "PilotStrategy", 
+    "PilotStrategy",
     "CriticAgent",
     "SceneResult",
     "PilotResults",
     "ScriptWriterAgent",
+    "Scene",
+    "VideoGeneratorAgent",
+    "GeneratedVideo",
+    "VideoProvider",
 ]
 
 def __getattr__(name):
@@ -30,7 +35,15 @@ def __getattr__(name):
             return SceneResult
         else:
             return PilotResults
-    elif name == "ScriptWriterAgent":
-        from .script_writer import ScriptWriterAgent
-        return ScriptWriterAgent
+    elif name in ("ScriptWriterAgent", "Scene"):
+        from .script_writer import ScriptWriterAgent, Scene
+        return ScriptWriterAgent if name == "ScriptWriterAgent" else Scene
+    elif name in ("VideoGeneratorAgent", "GeneratedVideo", "VideoProvider"):
+        from .video_generator import VideoGeneratorAgent, GeneratedVideo, VideoProvider
+        if name == "VideoGeneratorAgent":
+            return VideoGeneratorAgent
+        elif name == "GeneratedVideo":
+            return GeneratedVideo
+        else:
+            return VideoProvider
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

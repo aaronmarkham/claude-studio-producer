@@ -170,8 +170,9 @@ Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details
 - [x] Budget-aware orchestration
 - [x] Multi-tier cost models
 - [x] Script Writer agent
+- [x] Video Generator agent (with mock mode)
+- [x] Skills system (video-generation)
 - [ ] Real video API integration (Runway, Pika)
-- [ ] Video Generator agent
 - [ ] Video QA agent with vision analysis
 - [ ] Editor agent with EDL generation
 - [ ] Web UI dashboard
