@@ -48,6 +48,8 @@ class QAVerifierAgent:
     Uses Claude's vision capabilities to evaluate video frames.
     """
 
+    _is_stub = False
+
     def __init__(
         self,
         claude_client: Optional[ClaudeClient] = None,

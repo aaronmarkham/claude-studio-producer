@@ -39,6 +39,8 @@ class ScriptWriterAgent:
     individual scenes with detailed descriptions and timing
     """
 
+    _is_stub = False
+
     def __init__(self, claude_client: ClaudeClient = None):
         """
         Args:

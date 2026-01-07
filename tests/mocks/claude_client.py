@@ -14,6 +14,12 @@ class MockClaudeClient:
     def __init__(self, debug: bool = False):
         self.debug = debug
         self.calls: List[Dict] = []  # Track calls for test assertions
+        self.responses: List[str] = []  # Queue of responses to return
+        self.response_index: int = 0  # Current response index
+
+    def add_response(self, response: str):
+        """Add a response to the queue"""
+        self.responses.append(response)
 
     async def query(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Generate mock response based on prompt patterns"""
@@ -22,6 +28,12 @@ class MockClaudeClient:
 
         if self.debug:
             print(f"[MockClaudeClient] Received prompt ({len(prompt)} chars)")
+
+        # If responses queued, return next one
+        if self.responses and self.response_index < len(self.responses):
+            response = self.responses[self.response_index]
+            self.response_index += 1
+            return response
 
         # Producer: planning pilots
         if "pilot strategies" in prompt.lower() and "total_scenes_estimated" in prompt:
@@ -85,6 +97,8 @@ class MockClaudeClient:
     def reset(self):
         """Reset call tracking (for test cleanup)"""
         self.calls.clear()
+        self.responses.clear()
+        self.response_index = 0
 
     def assert_called_with_prompt_containing(self, substring: str):
         """Assert any call contained substring in prompt"""

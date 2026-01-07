@@ -40,6 +40,8 @@ class VideoGeneratorAgent:
     and flexibility in switching between providers.
     """
 
+    _is_stub = False
+
     def __init__(
         self,
         provider: Optional[VideoProvider] = None,

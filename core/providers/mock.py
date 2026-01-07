@@ -16,6 +16,8 @@ class MockVideoProvider(VideoProvider):
     - CI/CD pipeline testing
     """
 
+    _is_stub = False
+
     def __init__(self, config: VideoProviderConfig = None):
         if config is None:
             config = VideoProviderConfig(provider_type=ProviderType.MOCK)

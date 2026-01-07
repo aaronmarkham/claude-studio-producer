@@ -38,7 +38,9 @@ class CriticAgent:
     Evaluates pilot results against original intent
     Makes budget continuation/cancellation decisions
     """
-    
+
+    _is_stub = False
+
     def __init__(self, claude_client: ClaudeClient = None):
         self.claude = claude_client or ClaudeClient()
         self.quality_threshold = 65  # Minimum score to continue
