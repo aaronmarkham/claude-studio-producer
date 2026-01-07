@@ -23,6 +23,8 @@ from ..base import AudioProvider, AudioProviderConfig, AudioGenerationResult
 class ElevenLabsProvider(AudioProvider):
     """ElevenLabs premium text-to-speech provider"""
 
+    _is_stub = True  # Not yet implemented
+
     @property
     def name(self) -> str:
         return "elevenlabs"

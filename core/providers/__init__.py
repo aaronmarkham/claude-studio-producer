@@ -97,6 +97,7 @@ __all__ = [
     "S3StorageProvider",
     # Registry
     "PROVIDER_REGISTRY",
+    "get_all_providers",
 ]
 
 
@@ -251,3 +252,45 @@ PROVIDER_REGISTRY = {
         "limitations": ["Requires AWS credentials"],
     },
 }
+
+
+def get_all_providers():
+    """
+    Get all providers with auto-detected implementation status.
+
+    Dynamically detects provider status by checking the _is_stub class attribute.
+    Returns the PROVIDER_REGISTRY with updated status information.
+
+    Returns:
+        dict: Provider registry with auto-detected status
+    """
+    import importlib
+
+    # Create a copy of the registry to avoid modifying the original
+    providers = {}
+
+    for provider_name, provider_info in PROVIDER_REGISTRY.items():
+        # Copy the provider info
+        info = provider_info.copy()
+
+        try:
+            # Dynamically import the module
+            module = importlib.import_module(info["module"])
+
+            # Get the provider class
+            provider_class = getattr(module, info["class"])
+
+            # Check _is_stub attribute
+            is_stub = getattr(provider_class, "_is_stub", True)
+
+            # Update status based on _is_stub
+            info["status"] = "stub" if is_stub else "implemented"
+
+        except (ImportError, AttributeError) as e:
+            # If we can't import or find the class, mark as stub
+            info["status"] = "stub"
+            info["error"] = str(e)
+
+        providers[provider_name] = info
+
+    return providers

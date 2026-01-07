@@ -15,6 +15,8 @@ class RunwayProvider(VideoProvider):
     Pricing: ~$0.05/second for Gen-3 Alpha (as of 2025)
     """
 
+    _is_stub = False  # Fully implemented provider
+
     # Runway API endpoints
     API_BASE = "https://api.runwayml.com/v1"
     GENERATE_ENDPOINT = f"{API_BASE}/generate"

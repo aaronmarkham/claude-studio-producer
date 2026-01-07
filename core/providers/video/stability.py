@@ -17,6 +17,8 @@ from core.providers.base import VideoProvider, VideoProviderConfig, GenerationRe
 class StabilityProvider(VideoProvider):
     """Stability AI video generation provider"""
 
+    _is_stub = True  # Not yet implemented
+
     @property
     def name(self) -> str:
         return "stability"

@@ -22,6 +22,8 @@ from ..base import AudioProvider, AudioProviderConfig, AudioGenerationResult
 class GoogleTTSProvider(AudioProvider):
     """Google Cloud text-to-speech provider"""
 
+    _is_stub = True  # Not yet implemented
+
     def __init__(self, config: AudioProviderConfig, voice_type: str = "Neural2"):
         """
         Initialize Google TTS provider.

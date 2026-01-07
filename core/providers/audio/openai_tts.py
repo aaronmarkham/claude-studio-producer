@@ -21,6 +21,8 @@ from ..base import AudioProvider, AudioProviderConfig, AudioGenerationResult
 class OpenAITTSProvider(AudioProvider):
     """OpenAI text-to-speech provider"""
 
+    _is_stub = True  # Not yet implemented
+
     # Available voices
     VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
 

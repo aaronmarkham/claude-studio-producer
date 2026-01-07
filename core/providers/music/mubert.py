@@ -23,6 +23,8 @@ from ..base import MusicProvider, MusicProviderConfig, MusicGenerationResult
 class MubertProvider(MusicProvider):
     """Mubert AI music generation provider"""
 
+    _is_stub = True  # Not yet implemented
+
     # Available moods
     MOODS = ["upbeat", "calm", "energetic", "melancholic", "epic", "ambient", "corporate"]
 

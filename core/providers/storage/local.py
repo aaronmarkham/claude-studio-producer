@@ -20,6 +20,8 @@ from ..base import StorageProvider, StorageProviderConfig, StorageResult
 class LocalStorageProvider(StorageProvider):
     """Local filesystem storage provider"""
 
+    _is_stub = False  # Fully implemented provider
+
     def __init__(self, config: StorageProviderConfig):
         """
         Initialize local storage provider.

@@ -24,6 +24,8 @@ from ..base import StorageProvider, StorageProviderConfig, StorageResult
 class S3StorageProvider(StorageProvider):
     """AWS S3 cloud storage provider"""
 
+    _is_stub = True  # Not yet implemented
+
     def __init__(self, config: StorageProviderConfig):
         """
         Initialize S3 storage provider.

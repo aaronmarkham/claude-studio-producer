@@ -23,6 +23,8 @@ from ..base import MusicProvider, MusicProviderConfig, MusicGenerationResult
 class SunoProvider(MusicProvider):
     """Suno AI music generation provider"""
 
+    _is_stub = True  # Not yet implemented
+
     # Common music styles
     MOODS = [
         "upbeat", "calm", "energetic", "melancholic", "epic", "ambient",

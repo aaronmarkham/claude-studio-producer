@@ -22,6 +22,8 @@ from ..base import ImageProvider, ImageProviderConfig, ImageGenerationResult
 class DalleProvider(ImageProvider):
     """OpenAI DALL-E 3 image generation provider"""
 
+    _is_stub = True  # Not yet implemented
+
     # Size presets
     SIZES = {
         "square": "1024x1024",
