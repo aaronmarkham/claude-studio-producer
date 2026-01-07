@@ -8,6 +8,26 @@ from .seed_assets import (
     SeedAssetCollection,
 )
 from .production_request import ProductionRequest
+from .audio import (
+    AudioTier,
+    VoiceStyle,
+    MusicMood,
+    SyncPoint,
+    VoiceoverSpec,
+    MusicSpec,
+    SoundEffectSpec,
+    SceneAudio,
+    ProjectAudio,
+    WordTiming,
+    GeneratedAudio,
+    VoiceoverResult,
+    SyncPointResult,
+    TimeStretch,
+    SyncedAudioResult,
+    MixSettings,
+    MixedAudio,
+    AudioQAResult,
+)
 
 __all__ = [
     # Seed assets
@@ -18,4 +38,23 @@ __all__ = [
     "SeedAssetCollection",
     # Production request
     "ProductionRequest",
+    # Audio models
+    "AudioTier",
+    "VoiceStyle",
+    "MusicMood",
+    "SyncPoint",
+    "VoiceoverSpec",
+    "MusicSpec",
+    "SoundEffectSpec",
+    "SceneAudio",
+    "ProjectAudio",
+    "WordTiming",
+    "GeneratedAudio",
+    "VoiceoverResult",
+    "SyncPointResult",
+    "TimeStretch",
+    "SyncedAudioResult",
+    "MixSettings",
+    "MixedAudio",
+    "AudioQAResult",
 ]

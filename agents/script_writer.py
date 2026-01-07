@@ -1,9 +1,11 @@
 """Script Writer Agent - Breaks video concepts into detailed scenes"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 from core.budget import ProductionTier
 from core.claude_client import ClaudeClient, JSONExtractor
+from core.models.audio import SyncPoint
+from core.models.seed_assets import SeedAssetRef
 
 
 @dataclass
@@ -18,6 +20,17 @@ class Scene:
     transition_in: str
     transition_out: str
     prompt_hints: List[str]  # Hints for video generation
+
+    # Audio elements (NEW)
+    voiceover_text: Optional[str] = None           # What to say during this scene
+    sync_points: List[SyncPoint] = field(default_factory=list)  # Critical timing points
+    music_transition: str = "continue"             # "continue", "fade", "change", "stop"
+    sfx_cues: List[str] = field(default_factory=list)  # Sound effects needed ["notification", "whoosh"]
+    vo_start_offset: float = 0.0                   # Delay before VO starts (seconds)
+    vo_end_buffer: float = 0.5                    # Buffer after VO ends (seconds)
+
+    # Seed asset references (NEW)
+    seed_asset_refs: List[SeedAssetRef] = field(default_factory=list)  # References to brand assets
 
 
 class ScriptWriterAgent:
@@ -75,6 +88,15 @@ Break this concept into individual scenes. Each scene should:
 - Flow naturally to the next scene
 - Include specific visual elements for video generation
 - Have actionable prompt hints that work well for AI video generation
+- Include audio specifications (voiceover text, sync points, music, sound effects)
+
+AUDIO GUIDELINES:
+- Voiceover should be concise (roughly 150 words per minute = 2.5 words/second)
+- Leave 0.5s buffer at scene start/end for transitions
+- Mark sync points for critical visual moments (when specific words must match actions)
+- Consider pacing - not every scene needs narration
+- Specify music transitions between scenes ("continue", "fade", "change", "stop")
+- List sound effects with their purpose (e.g., "notification_sound", "whoosh_transition")
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{
@@ -88,14 +110,23 @@ Return ONLY valid JSON (no markdown, no explanation):
       "audio_notes": "Background music style, sound effects, voiceover notes",
       "transition_in": "fade_in",
       "transition_out": "cut",
-      "prompt_hints": ["specific visual style", "lighting notes", "camera angle"]
+      "prompt_hints": ["specific visual style", "lighting notes", "camera angle"],
+      "voiceover_text": "The exact words to be spoken during this scene (or null if no voiceover)",
+      "sync_points": [
+        {{"timestamp": 2.0, "word_or_phrase": "deploy", "visual_cue": "button click animation", "tolerance": 0.3}}
+      ],
+      "music_transition": "continue",
+      "sfx_cues": ["notification_sound"],
+      "vo_start_offset": 0.5,
+      "vo_end_buffer": 0.5
     }}
   ]
 }}
 
 Valid transitions: fade_in, fade_out, cut, dissolve, wipe, zoom_in, zoom_out, slide_left, slide_right
+Valid music_transitions: continue, fade, change, stop
 
-Make the scenes compelling, well-paced, and optimized for AI video generation."""
+Make the scenes compelling, well-paced, and optimized for AI video generation with synchronized audio."""
 
         response = await self.claude.query(prompt)
         script_data = JSONExtractor.extract(response)
@@ -103,6 +134,17 @@ Make the scenes compelling, well-paced, and optimized for AI video generation.""
         # Convert to Scene objects
         scenes = []
         for scene_dict in script_data["scenes"]:
+            # Parse sync points if present
+            sync_points = []
+            if "sync_points" in scene_dict and scene_dict["sync_points"]:
+                for sp_dict in scene_dict["sync_points"]:
+                    sync_points.append(SyncPoint(
+                        timestamp=float(sp_dict.get("timestamp", 0)),
+                        word_or_phrase=sp_dict.get("word_or_phrase", ""),
+                        visual_cue=sp_dict.get("visual_cue", ""),
+                        tolerance=float(sp_dict.get("tolerance", 0.5))
+                    ))
+
             scenes.append(Scene(
                 scene_id=scene_dict["scene_id"],
                 title=scene_dict["title"],
@@ -112,7 +154,14 @@ Make the scenes compelling, well-paced, and optimized for AI video generation.""
                 audio_notes=scene_dict["audio_notes"],
                 transition_in=scene_dict["transition_in"],
                 transition_out=scene_dict["transition_out"],
-                prompt_hints=scene_dict["prompt_hints"]
+                prompt_hints=scene_dict["prompt_hints"],
+                # Audio fields (optional, with defaults)
+                voiceover_text=scene_dict.get("voiceover_text"),
+                sync_points=sync_points,
+                music_transition=scene_dict.get("music_transition", "continue"),
+                sfx_cues=scene_dict.get("sfx_cues", []),
+                vo_start_offset=float(scene_dict.get("vo_start_offset", 0.0)),
+                vo_end_buffer=float(scene_dict.get("vo_end_buffer", 0.5))
             ))
 
         return scenes

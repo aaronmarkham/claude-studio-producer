@@ -4,6 +4,18 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict
 
+# Import AudioTier for audio cost models
+try:
+    from core.models.audio import AudioTier
+except ImportError:
+    # Fallback for when audio module isn't available yet
+    class AudioTier(Enum):
+        NONE = "none"
+        MUSIC_ONLY = "music_only"
+        SIMPLE_OVERLAY = "simple_overlay"
+        TIME_SYNCED = "time_synced"
+        FULL_PRODUCTION = "full_production"
+
 
 class ProductionTier(Enum):
     """Video production quality tiers"""
@@ -69,6 +81,63 @@ COST_MODELS = {
         typical_use_cases="High-end commercials, realistic scenes, premium content"
     )
 }
+
+
+# Audio production cost models (per minute of final audio)
+AUDIO_COST_MODELS = {
+    AudioTier.NONE: {
+        "cost_per_minute": 0,
+        "description": "No audio production",
+        "includes": []
+    },
+    AudioTier.MUSIC_ONLY: {
+        "cost_per_minute": 0.50,
+        "description": "Background music track",
+        "includes": ["Music licensing or AI generation"]
+    },
+    AudioTier.SIMPLE_OVERLAY: {
+        "cost_per_minute": 2.00,
+        "description": "AI voiceover, loose sync",
+        "includes": ["TTS generation", "Basic mixing"]
+    },
+    AudioTier.TIME_SYNCED: {
+        "cost_per_minute": 5.00,
+        "description": "Synced voiceover with music",
+        "includes": ["TTS generation", "Sync point alignment", "Music ducking", "Mixing"]
+    },
+    AudioTier.FULL_PRODUCTION: {
+        "cost_per_minute": 15.00,
+        "description": "VO + music + SFX + mixing",
+        "includes": ["Premium TTS", "Music", "Sound effects", "Multi-track mixing", "Mastering"]
+    }
+}
+
+
+def estimate_audio_cost(
+    audio_tier: AudioTier,
+    duration_seconds: float,
+    num_scenes: int
+) -> float:
+    """
+    Estimate audio production cost
+
+    Args:
+        audio_tier: Audio production tier
+        duration_seconds: Total video duration
+        num_scenes: Number of scenes (for sync overhead)
+
+    Returns:
+        Estimated cost in USD
+    """
+    minutes = duration_seconds / 60
+    base_cost = AUDIO_COST_MODELS[audio_tier]["cost_per_minute"] * minutes
+
+    # Add per-scene overhead for sync work
+    if audio_tier in [AudioTier.TIME_SYNCED, AudioTier.FULL_PRODUCTION]:
+        sync_overhead = num_scenes * 0.50  # $0.50 per scene for sync
+        base_cost += sync_overhead
+
+    return round(base_cost, 2)
 
 
 class BudgetTracker:
