@@ -156,8 +156,9 @@ Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details
 - [x] Core Producer/Critic agents
 - [x] Budget-aware orchestration
 - [x] Multi-tier cost models
+- [x] Script Writer agent
 - [ ] Real video API integration (Runway, Pika)
-- [ ] Script Writer agent
+- [ ] Video Generator agent
 - [ ] Video QA agent with vision analysis
 - [ ] Editor agent with EDL generation
 - [ ] Web UI dashboard

@@ -8,7 +8,9 @@ from .budget import (
     estimate_realistic_cost
 )
 from .claude_client import ClaudeClient, JSONExtractor
-from .orchestrator import StudioOrchestrator, ProductionResult
+
+# Note: StudioOrchestrator is NOT imported here to avoid circular imports
+# Import it directly: from core.orchestrator import StudioOrchestrator
 
 __all__ = [
     # Budget
@@ -21,8 +23,4 @@ __all__ = [
     # Claude client
     "ClaudeClient",
     "JSONExtractor",
-    
-    # Orchestrator
-    "StudioOrchestrator",
-    "ProductionResult",
 ]
