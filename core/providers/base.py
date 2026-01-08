@@ -12,6 +12,8 @@ class ProviderType(Enum):
     RUNWAY = "runway"
     PIKA = "pika"
     STABILITY = "stability"
+    LUMA = "luma"
+    KLING = "kling"
 
 
 @dataclass

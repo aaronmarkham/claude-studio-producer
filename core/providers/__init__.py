@@ -98,6 +98,8 @@ __all__ = [
     # Registry
     "PROVIDER_REGISTRY",
     "get_all_providers",
+    "get_provider_info",
+    "get_provider_instance",
 ]
 
 
@@ -111,9 +113,9 @@ PROVIDER_REGISTRY = {
         "module": "core.providers.video.runway",
         "status": "implemented",
         "api_key_env": "RUNWAY_API_KEY",
-        "cost_info": "$0.05/sec",
-        "features": ["text-to-video", "image-to-video", "turbo mode", "10s max"],
-        "limitations": ["10 second max duration"],
+        "cost_info": "$0.05/sec (5 credits/sec)",
+        "features": ["image-to-video", "Gen-3 Alpha Turbo", "5s or 10s duration"],
+        "limitations": ["Requires input image", "No pure text-to-video"],
     },
     "pika": {
         "name": "pika",
@@ -142,11 +144,11 @@ PROVIDER_REGISTRY = {
         "category": "video",
         "class": "LumaProvider",
         "module": "core.providers.video.luma",
-        "status": "stub",
+        "status": "implemented",
         "api_key_env": "LUMA_API_KEY",
-        "cost_info": "$0.30/sec",
-        "features": ["text-to-video", "image-to-video", "Dream Machine", "5s max"],
-        "limitations": ["5 second max duration"],
+        "cost_info": "$0.08/sec (720p)",
+        "features": ["text-to-video", "image-to-video", "keyframes", "scene chaining", "character ref", "camera motion", "5s or 9s"],
+        "limitations": ["9 second max duration"],
     },
     "kling": {
         "name": "kling",
@@ -262,9 +264,10 @@ def get_all_providers():
     Returns the PROVIDER_REGISTRY with updated status information.
 
     Returns:
-        dict: Provider registry with auto-detected status
+        list: List of provider info dicts with auto-detected status
     """
     import importlib
+    import os
 
     # Create a copy of the registry to avoid modifying the original
     providers = {}
@@ -291,6 +294,72 @@ def get_all_providers():
             info["status"] = "stub"
             info["error"] = str(e)
 
+        # Check if API key is set
+        if info.get("api_key_env"):
+            info["api_key_set"] = bool(os.getenv(info["api_key_env"]))
+        else:
+            info["api_key_set"] = True  # No key required
+
         providers[provider_name] = info
 
-    return providers
+    return list(providers.values())
+
+
+def get_provider_info(name: str):
+    """
+    Get detailed info for a specific provider.
+
+    Args:
+        name: Provider name
+
+    Returns:
+        dict: Provider information with status, or None if not found
+    """
+    import os
+
+    if name not in PROVIDER_REGISTRY:
+        return None
+
+    info = PROVIDER_REGISTRY[name].copy()
+
+    # Check if API key is set
+    if info["api_key_env"]:
+        info["api_key_set"] = bool(os.getenv(info["api_key_env"]))
+    else:
+        info["api_key_set"] = True  # No key required
+
+    # Auto-detect implementation status
+    try:
+        import importlib
+        module = importlib.import_module(info["module"])
+        provider_class = getattr(module, info["class"])
+        is_stub = getattr(provider_class, "_is_stub", True)
+        info["status"] = "stub" if is_stub else "implemented"
+    except (ImportError, AttributeError):
+        info["status"] = "stub"
+
+    return info
+
+
+def get_provider_instance(name: str):
+    """
+    Get an instance of a provider by name.
+
+    Args:
+        name: Provider name
+
+    Returns:
+        Provider instance or None if not found
+    """
+    if name not in PROVIDER_REGISTRY:
+        return None
+
+    info = PROVIDER_REGISTRY[name]
+
+    try:
+        import importlib
+        module = importlib.import_module(info["module"])
+        provider_class = getattr(module, info["class"])
+        return provider_class()
+    except Exception:
+        return None

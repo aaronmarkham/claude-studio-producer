@@ -28,6 +28,8 @@ __all__ = [
     "AudioGeneratorAgent",
     "EditorAgent",
     "AGENT_REGISTRY",
+    "get_all_agents",
+    "get_agent_schema",
 ]
 
 def __getattr__(name):
@@ -69,6 +71,13 @@ def __getattr__(name):
     elif name == "EditorAgent":
         from .editor import EditorAgent
         return EditorAgent
+    elif name == "AGENT_REGISTRY":
+        # Return the registry defined below
+        return globals()["AGENT_REGISTRY"]
+    elif name == "get_all_agents":
+        return globals()["get_all_agents"]
+    elif name == "get_agent_schema":
+        return globals()["get_agent_schema"]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Agent Registry for CLI introspection and dynamic loading
@@ -156,7 +165,7 @@ AGENT_REGISTRY = {
         "name": "asset_analyzer",
         "class": "AssetAnalyzerAgent",
         "module": "agents.asset_analyzer",
-        "status": "stub",
+        "status": "implemented",
         "description": "Analyzes seed assets with Claude Vision",
         "inputs": {
             "seed_assets": "SeedAssetCollection - Collection of seed assets"
@@ -167,7 +176,7 @@ AGENT_REGISTRY = {
         "name": "audio_generator",
         "class": "AudioGeneratorAgent",
         "module": "agents.audio_generator",
-        "status": "stub",
+        "status": "implemented",
         "description": "Generates voiceover, music, and sound effects",
         "inputs": {
             "scenes": "List[Scene] - Scenes with audio specifications",
@@ -176,3 +185,26 @@ AGENT_REGISTRY = {
         "outputs": "List[SceneAudio] - Audio tracks for each scene",
     },
 }
+
+
+def get_all_agents():
+    """
+    Get all agents with their metadata.
+
+    Returns:
+        list: List of all agent metadata dicts
+    """
+    return list(AGENT_REGISTRY.values())
+
+
+def get_agent_schema(name: str):
+    """
+    Get schema for a specific agent.
+
+    Args:
+        name: Agent name
+
+    Returns:
+        dict: Agent metadata including inputs/outputs, or None if not found
+    """
+    return AGENT_REGISTRY.get(name)

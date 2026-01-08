@@ -35,6 +35,15 @@ from .edit_decision import (
     EditDecisionList,
     HumanFeedback,
 )
+from .render import (
+    TrackType,
+    TransitionType,
+    AudioTrack,
+    Transition,
+    RenderConfig,
+    RenderResult,
+    RenderJob,
+)
 
 __all__ = [
     # Seed assets
@@ -70,4 +79,12 @@ __all__ = [
     "EditCandidate",
     "EditDecisionList",
     "HumanFeedback",
+    # Render models
+    "TrackType",
+    "TransitionType",
+    "AudioTrack",
+    "Transition",
+    "RenderConfig",
+    "RenderResult",
+    "RenderJob",
 ]

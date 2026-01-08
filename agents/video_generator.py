@@ -70,7 +70,8 @@ class VideoGeneratorAgent(StudioAgent):
         scene: Scene,
         production_tier: ProductionTier,
         budget_limit: float,
-        num_variations: Optional[int] = None
+        num_variations: Optional[int] = None,
+        image_url: Optional[str] = None
     ) -> List[GeneratedVideo]:
         """
         Generate video variations for a scene
@@ -80,6 +81,7 @@ class VideoGeneratorAgent(StudioAgent):
             production_tier: Quality tier for generation
             budget_limit: Maximum budget for this scene
             num_variations: Override default number of variations
+            image_url: Optional input image for image-to-video providers (e.g., Runway)
 
         Returns:
             List of generated video variations
@@ -101,7 +103,8 @@ class VideoGeneratorAgent(StudioAgent):
             video = await self._generate_with_retry(
                 scene=scene,
                 variation_id=i,
-                tier=production_tier
+                tier=production_tier,
+                image_url=image_url
             )
 
             if video:
@@ -116,7 +119,8 @@ class VideoGeneratorAgent(StudioAgent):
         self,
         scene: Scene,
         variation_id: int,
-        tier: ProductionTier
+        tier: ProductionTier,
+        image_url: Optional[str] = None
     ) -> Optional[GeneratedVideo]:
         """Generate a single video with retry logic"""
 
@@ -125,7 +129,8 @@ class VideoGeneratorAgent(StudioAgent):
                 video = await self._generate_single(
                     scene=scene,
                     variation_id=variation_id,
-                    tier=tier
+                    tier=tier,
+                    image_url=image_url
                 )
                 return video
 
@@ -143,7 +148,8 @@ class VideoGeneratorAgent(StudioAgent):
         self,
         scene: Scene,
         variation_id: int,
-        tier: ProductionTier
+        tier: ProductionTier,
+        image_url: Optional[str] = None
     ) -> GeneratedVideo:
         """Generate a single video variation using the injected provider"""
 
@@ -155,7 +161,8 @@ class VideoGeneratorAgent(StudioAgent):
             prompt=prompt,
             duration=scene.duration,
             aspect_ratio="16:9",
-            tier=tier
+            tier=tier,
+            image_url=image_url  # For image-to-video providers like Runway
         )
 
         if not result.success:
