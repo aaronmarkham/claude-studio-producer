@@ -47,6 +47,13 @@ class EditDecision:
     start_time: float = 0.0  # Position in final timeline (seconds)
     duration: Optional[float] = None  # Calculated duration after trims
 
+    # Text overlay (for post-production - AI video can't render readable text)
+    text_overlay: Optional[str] = None       # Text to display on screen
+    text_position: str = "center"            # "center", "lower_third", "upper_third", "top", "bottom"
+    text_style: str = "title"                # "title", "subtitle", "caption", "watermark"
+    text_start_time: Optional[float] = None  # When text appears (None = start of clip)
+    text_duration: Optional[float] = None    # How long text shows (None = whole clip)
+
     # Metadata
     notes: str = ""  # Editorial notes
 

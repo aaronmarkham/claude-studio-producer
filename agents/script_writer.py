@@ -34,6 +34,13 @@ class Scene:
     # Seed asset references (NEW)
     seed_asset_refs: List[SeedAssetRef] = field(default_factory=list)  # References to brand assets
 
+    # Text overlay (for post-production - AI video can't render readable text)
+    text_overlay: Optional[str] = None       # Text to display on screen
+    text_position: str = "center"            # "center", "lower_third", "upper_third", "top", "bottom"
+    text_style: str = "title"                # "title", "subtitle", "caption", "watermark"
+    text_start_time: Optional[float] = None  # When text appears (None = start of scene)
+    text_duration: Optional[float] = None    # How long text shows (None = whole scene)
+
 
 class ScriptWriterAgent(StudioAgent):
     """
@@ -95,6 +102,17 @@ Break this concept into individual scenes. Each scene should:
 - Have actionable prompt hints that work well for AI video generation
 - Include audio specifications (voiceover text, sync points, music, sound effects)
 
+CRITICAL - TEXT IN VISUALS:
+AI video models CANNOT render readable text - any text, words, letters, or writing will appear garbled/illegible.
+- Do NOT include specific text, words, logos with text, or readable writing in visual descriptions or prompt_hints
+- Instead describe abstract shapes, movements, colors, patterns, and visual effects
+- If text/titles/captions are needed on screen, put them in the "text_overlay" field - these will be added in post-production with crisp rendering
+- Examples:
+  - BAD: "Screen shows 'Welcome to CodeCraft' text"
+  - GOOD: "Glowing interface elements animate into view" + text_overlay: "Welcome to CodeCraft"
+  - BAD: "Terminal displays 'npm install' command"
+  - GOOD: "Terminal window with scrolling code-like patterns" + text_overlay: "npm install"
+
 AUDIO GUIDELINES:
 - Voiceover should be concise (roughly 150 words per minute = 2.5 words/second)
 - Leave 0.5s buffer at scene start/end for transitions
@@ -109,7 +127,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     {{
       "scene_id": "scene_1",
       "title": "Opening Scene Title",
-      "description": "Detailed description of what happens in this scene",
+      "description": "Detailed description of what happens in this scene (NO readable text!)",
       "duration": 5.0,
       "visual_elements": ["element1", "element2", "element3"],
       "audio_notes": "Background music style, sound effects, voiceover notes",
@@ -123,15 +141,21 @@ Return ONLY valid JSON (no markdown, no explanation):
       "music_transition": "continue",
       "sfx_cues": ["notification_sound"],
       "vo_start_offset": 0.5,
-      "vo_end_buffer": 0.5
+      "vo_end_buffer": 0.5,
+      "text_overlay": "Text to display on screen (or null if no text needed)",
+      "text_position": "center",
+      "text_style": "title"
     }}
   ]
 }}
 
 Valid transitions: fade_in, fade_out, cut, dissolve, wipe, zoom_in, zoom_out, slide_left, slide_right
 Valid music_transitions: continue, fade, change, stop
+Valid text_position: center, lower_third, upper_third, top, bottom
+Valid text_style: title (large centered), subtitle (medium lower), caption (small with background), watermark (corner)
 
-Make the scenes compelling, well-paced, and optimized for AI video generation with synchronized audio."""
+Make the scenes compelling, well-paced, and optimized for AI video generation with synchronized audio.
+Remember: NO readable text in visual descriptions - use text_overlay for any on-screen text."""
 
         response = await self.claude.query(prompt)
         script_data = JSONExtractor.extract(response)
@@ -150,23 +174,37 @@ Make the scenes compelling, well-paced, and optimized for AI video generation wi
                         tolerance=float(sp_dict.get("tolerance", 0.5))
                     ))
 
+            # Handle optional float fields that might be None
+            vo_start = scene_dict.get("vo_start_offset")
+            vo_end = scene_dict.get("vo_end_buffer")
+
+            # Handle optional text timing fields
+            text_start = scene_dict.get("text_start_time")
+            text_dur = scene_dict.get("text_duration")
+
             scenes.append(Scene(
                 scene_id=scene_dict["scene_id"],
                 title=scene_dict["title"],
                 description=scene_dict["description"],
                 duration=float(scene_dict["duration"]),
-                visual_elements=scene_dict["visual_elements"],
-                audio_notes=scene_dict["audio_notes"],
-                transition_in=scene_dict["transition_in"],
-                transition_out=scene_dict["transition_out"],
-                prompt_hints=scene_dict["prompt_hints"],
+                visual_elements=scene_dict.get("visual_elements", []),
+                audio_notes=scene_dict.get("audio_notes", ""),
+                transition_in=scene_dict.get("transition_in", "cut"),
+                transition_out=scene_dict.get("transition_out", "cut"),
+                prompt_hints=scene_dict.get("prompt_hints", []),
                 # Audio fields (optional, with defaults)
                 voiceover_text=scene_dict.get("voiceover_text"),
                 sync_points=sync_points,
                 music_transition=scene_dict.get("music_transition", "continue"),
                 sfx_cues=scene_dict.get("sfx_cues", []),
-                vo_start_offset=float(scene_dict.get("vo_start_offset", 0.0)),
-                vo_end_buffer=float(scene_dict.get("vo_end_buffer", 0.5))
+                vo_start_offset=float(vo_start) if vo_start is not None else 0.0,
+                vo_end_buffer=float(vo_end) if vo_end is not None else 0.5,
+                # Text overlay fields (for post-production)
+                text_overlay=scene_dict.get("text_overlay"),
+                text_position=scene_dict.get("text_position", "center"),
+                text_style=scene_dict.get("text_style", "title"),
+                text_start_time=float(text_start) if text_start is not None else None,
+                text_duration=float(text_dur) if text_dur is not None else None
             ))
 
         return scenes

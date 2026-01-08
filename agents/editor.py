@@ -138,6 +138,9 @@ class EditorAgent(StudioAgent):
         extractor = JSONExtractor()
         edit_data = extractor.extract(response)
 
+        # Build scene lookup for text overlay info
+        scene_lookup = {s.scene_id: s for s in scenes}
+
         # Build EditCandidate objects
         candidates = []
         for candidate_data in edit_data.get("candidates", []):
@@ -165,6 +168,14 @@ class EditorAgent(StudioAgent):
                 out_point = edit_data_item.get("out_point", duration)
                 actual_duration = out_point - in_point
 
+                # Get text overlay from scene (if defined)
+                scene = scene_lookup.get(scene_id)
+                text_overlay = scene.text_overlay if scene else None
+                text_position = scene.text_position if scene else "center"
+                text_style = scene.text_style if scene else "title"
+                text_start_time = scene.text_start_time if scene else None
+                text_duration = scene.text_duration if scene else None
+
                 decision = EditDecision(
                     scene_id=scene_id,
                     selected_variation=variation_idx,
@@ -177,6 +188,12 @@ class EditorAgent(StudioAgent):
                     transition_out_duration=edit_data_item.get("transition_out_duration", 0.0),
                     start_time=current_time,
                     duration=actual_duration,
+                    # Text overlay from scene
+                    text_overlay=text_overlay,
+                    text_position=text_position,
+                    text_style=text_style,
+                    text_start_time=text_start_time,
+                    text_duration=text_duration,
                     notes=edit_data_item.get("notes", "")
                 )
                 decisions.append(decision)
