@@ -1,4 +1,8 @@
-# Development dependencies
+# Development dependencies - install with: pip install -e ".[dev,server]"
+# Or directly: pip install -r requirements-dev.txt
+
+# Include base requirements
+-r requirements.txt
 
 # FastAPI server
 fastapi>=0.109.0
@@ -9,14 +13,10 @@ pydantic-settings>=2.1.0
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
-httpx>=0.26.0  # For testing FastAPI endpoints
+httpx>=0.26.0
 
 # Development tools
 black>=24.1.0
 isort>=5.13.0
-flake8>=7.0.0
+ruff>=0.1.0
 mypy>=1.8.0
-
-# Optional: Enhanced dev experience
-ipython>=8.20.0
-ipdb>=0.13.13

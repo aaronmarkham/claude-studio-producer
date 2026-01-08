@@ -1,6 +1,5 @@
 # Core dependencies
 anthropic>=0.34.0
-claude-agent-sdk>=0.1.18
 strands-agents>=0.1.0
 
 # Async & utilities
@@ -11,3 +10,6 @@ python-dotenv>=1.0.0
 # CLI
 click>=8.1.0
 rich>=13.0.0
+
+# Video providers
+lumaai>=0.1.0
