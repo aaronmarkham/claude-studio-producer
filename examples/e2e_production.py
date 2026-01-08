@@ -36,9 +36,14 @@ from core.claude_client import ClaudeClient
 from core.budget import ProductionTier
 from core.models.audio import AudioTier
 from core.models.edit_decision import EditDecisionList, ExportFormat
+from core.models.render import AudioTrack, TrackType, RenderResult
+from core.models.seed_assets import SeedAsset, SeedAssetCollection, SeedAssetType, AssetRole
+from core.renderer import FFmpegRenderer
 from core.providers import MockVideoProvider
+from core.providers.video.runway import RunwayProvider
+from core.providers.video.luma import LumaProvider
 from core.providers.audio.openai_tts import OpenAITTSProvider
-from core.providers.base import AudioProviderConfig
+from core.providers.base import AudioProviderConfig, VideoProviderConfig, ProviderType
 
 
 class ProductionPipeline:
@@ -54,7 +59,8 @@ class ProductionPipeline:
         budget: float,
         audio_tier: AudioTier = AudioTier.SIMPLE_OVERLAY,
         use_live_providers: bool = False,
-        run_id: Optional[str] = None
+        run_id: Optional[str] = None,
+        seed_assets: Optional[SeedAssetCollection] = None
     ):
         """
         Args:
@@ -63,12 +69,14 @@ class ProductionPipeline:
             audio_tier: Audio production tier
             use_live_providers: If True, use real API providers; if False, use mocks
             run_id: Optional run ID (auto-generated if not provided)
+            seed_assets: Optional collection of seed assets (images, etc.)
         """
         self.concept = concept
         self.budget = budget
         self.audio_tier = audio_tier
         self.use_live_providers = use_live_providers
         self.run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.seed_assets = seed_assets or SeedAssetCollection()
 
         # Create output directories
         self.run_dir = Path("artifacts/runs") / self.run_id
@@ -76,8 +84,9 @@ class ProductionPipeline:
         self.videos_dir = self.run_dir / "videos"
         self.audio_dir = self.run_dir / "audio"
         self.edl_dir = self.run_dir / "edl"
+        self.render_dir = self.run_dir / "renders"
 
-        for dir_path in [self.scenes_dir, self.videos_dir, self.audio_dir, self.edl_dir]:
+        for dir_path in [self.scenes_dir, self.videos_dir, self.audio_dir, self.edl_dir, self.render_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
 
         # Initialize Claude client
@@ -109,6 +118,7 @@ class ProductionPipeline:
                 "INFO": "[INFO]   ",
                 "SUCCESS": "[OK]     ",
                 "ERROR": "[ERROR]  ",
+                "WARNING": "[WARN]   ",
                 "STAGE": "[STAGE]  "
             }.get(level, "         ")
             # Remove emojis from message on Windows
@@ -119,6 +129,7 @@ class ProductionPipeline:
                 "INFO": "ℹ️ ",
                 "SUCCESS": "✅",
                 "ERROR": "❌",
+                "WARNING": "⚠️ ",
                 "STAGE": "🎬"
             }.get(level, "  ")
         print(f"[{timestamp}] {prefix} {message}")
@@ -165,12 +176,15 @@ class ProductionPipeline:
             # Stage 7: Editor - Create EDL
             edl = await self._run_editor(scenes, video_candidates, qa_results)
 
+            # Stage 8: Renderer - Combine video + audio into final output
+            render_result = await self._run_renderer(edl, scene_audio)
+
             # Finalize
             self.metadata["end_time"] = datetime.now().isoformat()
             self.metadata["status"] = "completed"
             self.save_metadata()
 
-            self._print_summary(edl)
+            self._print_summary(edl, render_result)
 
             return {
                 "success": True,
@@ -183,6 +197,7 @@ class ProductionPipeline:
                 "qa_results": qa_results,
                 "evaluation": evaluation,
                 "edl": edl,
+                "render_result": render_result,
                 "metadata": self.metadata
             }
 
@@ -294,12 +309,56 @@ class ProductionPipeline:
 
         try:
             # Create video provider
+            # Get seed images for video generation (Runway requires an input image)
+            seed_images = self.seed_assets.get_by_type(SeedAssetType.IMAGE)
+            seed_image_path = seed_images[0].file_path if seed_images else None
+
+            # Track actual provider used for clarity
+            actual_provider_name = None
+
             if self.use_live_providers:
-                # TODO: Initialize real Runway provider when available
-                self.log("Live Runway provider not yet configured, using mock", "INFO")
-                video_provider = MockVideoProvider()
+                # Prefer Luma - supports text-to-video without seed images
+                luma_key = os.getenv("LUMA_API_KEY")
+                runway_key = os.getenv("RUNWAY_API_KEY")
+
+                if luma_key:
+                    # Luma supports text-to-video - no seed image required!
+                    self.log("Using LIVE provider: Luma (text-to-video)", "SUCCESS")
+                    video_provider = LumaProvider()
+                    actual_provider_name = "luma"
+                elif runway_key and seed_image_path:
+                    # Runway requires seed image for image-to-video
+                    self.log(f"Using LIVE provider: Runway (image: {seed_image_path})", "SUCCESS")
+                    config = VideoProviderConfig(
+                        provider_type=ProviderType.RUNWAY,
+                        api_key=runway_key,
+                        timeout=300
+                    )
+                    video_provider = RunwayProvider(config=config)
+                    actual_provider_name = "runway"
+                elif runway_key:
+                    self.log("=" * 60, "WARNING")
+                    self.log("FALLBACK TO MOCK: RUNWAY_API_KEY set but no seed image!", "WARNING")
+                    self.log("Add --seed-asset path/to/image.jpg to use Runway", "WARNING")
+                    self.log("Videos will be SIMULATED, not real API calls", "WARNING")
+                    self.log("=" * 60, "WARNING")
+                    video_provider = MockVideoProvider()
+                    actual_provider_name = "mock"
+                else:
+                    self.log("=" * 60, "WARNING")
+                    self.log("FALLBACK TO MOCK: No video API keys found!", "WARNING")
+                    self.log("Set LUMA_API_KEY or RUNWAY_API_KEY for live generation", "WARNING")
+                    self.log("Videos will be SIMULATED, not real API calls", "WARNING")
+                    self.log("=" * 60, "WARNING")
+                    video_provider = MockVideoProvider()
+                    actual_provider_name = "mock"
             else:
+                self.log("Using MOCK provider (--mock mode)", "INFO")
                 video_provider = MockVideoProvider()
+                actual_provider_name = "mock"
+
+            # Store in metadata for clarity
+            self.metadata["actual_video_provider"] = actual_provider_name
 
             video_generator = VideoGeneratorAgent(
                 provider=video_provider,
@@ -317,10 +376,22 @@ class ProductionPipeline:
                     scene=scene,
                     production_tier=pilot.tier,
                     budget_limit=pilot.allocated_budget / len(scenes),
-                    num_variations=2
+                    num_variations=2,
+                    image_url=seed_image_path  # Pass seed image to provider
                 )
 
                 video_candidates[scene.scene_id] = videos
+
+                # Download videos to local storage
+                for i, video in enumerate(videos):
+                    if video.video_url and video.video_url.startswith("http"):
+                        local_path = self.videos_dir / f"{scene.scene_id}_v{i}.mp4"
+                        self.log(f"  Downloading video {i} to {local_path.name}...")
+                        success = await video_provider.download_video(video.video_url, str(local_path))
+                        if success:
+                            video.video_url = str(local_path)  # Update to local path
+                        else:
+                            self.log(f"  Warning: Failed to download video {i}", "INFO")
 
                 # Calculate cost
                 scene_cost = sum(v.generation_cost for v in videos)
@@ -357,16 +428,26 @@ class ProductionPipeline:
 
         try:
             # Create audio provider
+            actual_audio_provider = None
+
             if self.use_live_providers:
                 api_key = os.getenv("OPENAI_API_KEY")
                 if not api_key:
-                    self.log("OPENAI_API_KEY not set, using mock audio", "INFO")
+                    self.log("FALLBACK TO MOCK: OPENAI_API_KEY not set", "WARNING")
+                    self.log("Audio will be SIMULATED, not real TTS", "WARNING")
                     audio_provider = None  # Use mock
+                    actual_audio_provider = "mock"
                 else:
+                    self.log("Using LIVE provider: OpenAI TTS", "SUCCESS")
                     config = AudioProviderConfig(api_key=api_key, timeout=60)
                     audio_provider = OpenAITTSProvider(config=config, model="tts-1")
+                    actual_audio_provider = "openai_tts"
             else:
+                self.log("Using MOCK audio provider (--mock mode)", "INFO")
                 audio_provider = None  # Use mock
+                actual_audio_provider = "mock"
+
+            self.metadata["actual_audio_provider"] = actual_audio_provider
 
             audio_generator = AudioGeneratorAgent(
                 claude_client=self.claude,
@@ -592,7 +673,103 @@ class ProductionPipeline:
             self.metadata["errors"].append({"stage": "editor", "error": str(e)})
             raise
 
-    def _print_summary(self, edl: EditDecisionList):
+    async def _run_renderer(self, edl: EditDecisionList, scene_audio: List) -> RenderResult:
+        """Stage 8: Renderer - Combine video + audio into final output"""
+        self.log("Stage 8: Renderer - Creating final video", "STAGE")
+        start_time = datetime.now()
+
+        try:
+            # Initialize renderer
+            renderer = FFmpegRenderer(output_dir=str(self.render_dir))
+
+            # Check if FFmpeg is available
+            ffmpeg_check = await renderer.check_ffmpeg_installed()
+            if not ffmpeg_check["installed"]:
+                self.log("FFmpeg not installed - skipping render", "INFO")
+                self.log("Install FFmpeg to enable final video rendering", "INFO")
+                return RenderResult(
+                    success=False,
+                    error_message="FFmpeg not installed"
+                )
+
+            self.log(f"FFmpeg found: {ffmpeg_check.get('version', 'unknown')[:50]}...")
+
+            # Build audio tracks from scene_audio
+            audio_tracks = []
+            current_time = 0.0
+
+            for i, audio in enumerate(scene_audio):
+                # Extract voiceover if available
+                if hasattr(audio, 'voiceover') and audio.voiceover:
+                    vo = audio.voiceover
+                    if hasattr(vo, 'audio_path') and vo.audio_path:
+                        audio_tracks.append(AudioTrack(
+                            path=vo.audio_path,
+                            start_time=current_time,
+                            volume_db=-3.0,  # Slightly boost VO
+                            track_type=TrackType.VOICEOVER,
+                            fade_in=0.1,
+                            scene_id=audio.scene_id if hasattr(audio, 'scene_id') else f"scene_{i}"
+                        ))
+
+                # Extract music if available
+                if hasattr(audio, 'music') and audio.music:
+                    music = audio.music
+                    if hasattr(music, 'audio_path') and music.audio_path:
+                        audio_tracks.append(AudioTrack(
+                            path=music.audio_path,
+                            start_time=current_time,
+                            volume_db=-12.0,  # Music lower than VO
+                            track_type=TrackType.MUSIC,
+                            duck_under=[TrackType.VOICEOVER],
+                            fade_in=1.0,
+                            fade_out=2.0
+                        ))
+
+                # Estimate scene duration for timing
+                scene_duration = getattr(audio, 'duration', 5.0) if hasattr(audio, 'duration') else 5.0
+                current_time += scene_duration
+
+            self.log(f"Prepared {len(audio_tracks)} audio tracks for mixing")
+
+            # Render the EDL
+            render_result = await renderer.render(
+                edl=edl,
+                audio_tracks=audio_tracks,
+                run_id=self.run_id
+            )
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            self.metadata["stages"]["renderer"] = {
+                "duration_seconds": elapsed,
+                "success": render_result.success,
+                "output_path": render_result.output_path,
+                "file_size": render_result.file_size,
+                "render_time": render_result.render_time
+            }
+
+            if render_result.success:
+                self.log(f"Rendered final video: {render_result.output_path}", "SUCCESS")
+                if render_result.file_size:
+                    size_mb = render_result.file_size / (1024 * 1024)
+                    self.log(f"File size: {size_mb:.1f} MB")
+            else:
+                self.log(f"Render note: {render_result.error_message}", "INFO")
+
+            self.log(f"Duration: {elapsed:.1f}s")
+            print()
+
+            return render_result
+
+        except Exception as e:
+            self.metadata["errors"].append({"stage": "renderer", "error": str(e)})
+            self.log(f"Renderer error: {str(e)}", "ERROR")
+            return RenderResult(
+                success=False,
+                error_message=str(e)
+            )
+
+    def _print_summary(self, edl: EditDecisionList, render_result: RenderResult = None):
         """Print final summary"""
         print("\n" + "="*70)
         if sys.platform == "win32":
@@ -604,9 +781,24 @@ class ProductionPipeline:
         print(f"Run Directory: {self.run_dir}")
         print(f"\nConcept: {self.concept}")
         print(f"Budget: ${self.budget:.2f}")
-        print(f"Total Cost: ${self.metadata['costs']['total']:.2f}")
-        print(f"  - Video: ${self.metadata['costs']['video']:.2f}")
-        print(f"  - Audio: ${self.metadata['costs']['audio']:.2f}")
+
+        # Show actual providers used
+        video_provider = self.metadata.get("actual_video_provider", "unknown")
+        audio_provider = self.metadata.get("actual_audio_provider", "unknown")
+        print(f"\nProviders Used:")
+        print(f"  - Video: {video_provider.upper()}" + (" (simulated costs)" if video_provider == "mock" else " (real API)"))
+        print(f"  - Audio: {audio_provider.upper()}" + (" (simulated)" if audio_provider == "mock" else " (real API)"))
+
+        print(f"\nCosts:")
+        if video_provider == "mock":
+            print(f"  - Video: ${self.metadata['costs']['video']:.2f} (SIMULATED - no actual charges)")
+        else:
+            print(f"  - Video: ${self.metadata['costs']['video']:.2f}")
+        if audio_provider == "mock":
+            print(f"  - Audio: ${self.metadata['costs']['audio']:.2f} (SIMULATED - no actual charges)")
+        else:
+            print(f"  - Audio: ${self.metadata['costs']['audio']:.2f}")
+        print(f"  - Total: ${self.metadata['costs']['total']:.2f}")
 
         print(f"\nScenes Generated: {self.metadata['stages']['script_writer']['num_scenes']}")
         print(f"Videos Generated: {self.metadata['stages']['video_generator']['num_videos']}")
@@ -628,6 +820,19 @@ class ProductionPipeline:
             print(f"     Duration: {candidate.total_duration:.1f}s")
 
         print(f"\nRecommended Edit: {edl.recommended_candidate_id}")
+
+        # Render results
+        if render_result:
+            print(f"\nFinal Render:")
+            if render_result.success and render_result.output_path:
+                print(f"  - Output: {render_result.output_path}")
+                if render_result.file_size:
+                    size_mb = render_result.file_size / (1024 * 1024)
+                    print(f"  - Size: {size_mb:.1f} MB")
+                if render_result.duration:
+                    print(f"  - Duration: {render_result.duration:.1f}s")
+            else:
+                print(f"  - Status: {render_result.error_message or 'Not rendered'}")
 
         total_duration = (datetime.fromisoformat(self.metadata['end_time']) -
                          datetime.fromisoformat(self.metadata['start_time'])).total_seconds()
@@ -668,6 +873,13 @@ async def main():
         default="simple_overlay",
         help="Audio production tier (default: simple_overlay)"
     )
+    parser.add_argument(
+        "--seed-asset",
+        type=str,
+        action="append",
+        dest="seed_assets",
+        help="Path to seed asset (image, etc.). Can be specified multiple times."
+    )
 
     args = parser.parse_args()
 
@@ -686,12 +898,43 @@ async def main():
     }
     audio_tier = audio_tier_map[args.audio_tier]
 
+    # Build seed asset collection from CLI arguments
+    seed_collection = SeedAssetCollection()
+    if args.seed_assets:
+        for i, asset_path in enumerate(args.seed_assets):
+            path = Path(asset_path)
+            if not path.exists():
+                print(f"Warning: Seed asset not found: {asset_path}")
+                continue
+
+            # Detect asset type from extension
+            ext = path.suffix.lower()
+            if ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                asset_type = SeedAssetType.IMAGE
+            elif ext in (".mp4", ".mov", ".webm"):
+                asset_type = SeedAssetType.REFERENCE_VIDEO
+            elif ext in (".mp3", ".wav", ".ogg"):
+                asset_type = SeedAssetType.MUSIC_REFERENCE
+            else:
+                asset_type = SeedAssetType.IMAGE  # Default to image
+
+            seed_collection.add_asset(SeedAsset(
+                asset_id=f"seed_{i}",
+                asset_type=asset_type,
+                role=AssetRole.CONTENT_SOURCE,
+                file_path=str(path.absolute()),
+                description=f"Seed asset: {path.name}",
+                usage_instructions="Use as input for video generation"
+            ))
+            print(f"Loaded seed asset: {path.name} ({asset_type.value})")
+
     # Create and run pipeline
     pipeline = ProductionPipeline(
         concept=args.concept,
         budget=args.budget,
         audio_tier=audio_tier,
-        use_live_providers=use_live
+        use_live_providers=use_live,
+        seed_assets=seed_collection
     )
 
     try:

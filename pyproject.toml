@@ -39,6 +39,8 @@ dependencies = [
     "aiohttp>=3.9.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
@@ -55,8 +57,11 @@ Repository = "https://github.com/aaronmarkham/claude-studio-producer"
 Issues = "https://github.com/aaronmarkham/claude-studio-producer/issues"
 Documentation = "https://github.com/aaronmarkham/claude-studio-producer/tree/main/docs"
 
+[project.scripts]
+claude-studio = "cli:main"
+
 [tool.setuptools]
-packages = ["core", "agents"]
+packages = ["core", "agents", "cli", "server"]
 
 [tool.setuptools.package-data]
 "*" = ["*.md"]
