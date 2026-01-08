@@ -9,6 +9,7 @@ from .config import config_cmd
 from .produce import produce_cmd
 from .test_provider import test_provider_cmd
 from .render import render_cmd
+from .themes import themes_cmd
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -33,6 +34,7 @@ def main():
       providers      List and manage providers
       agents         List and manage agents
       config         Manage configuration
+      themes         List and preview color themes
     """
     pass
 
@@ -47,6 +49,7 @@ main.add_command(status_cmd, name="status")
 main.add_command(providers_cmd, name="providers")
 main.add_command(agents_cmd, name="agents")
 main.add_command(config_cmd, name="config")
+main.add_command(themes_cmd, name="themes")
 
 
 if __name__ == "__main__":
