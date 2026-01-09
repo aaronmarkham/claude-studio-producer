@@ -8,6 +8,7 @@ import asyncio
 import time
 from pathlib import Path
 from datetime import datetime
+from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
 import click
@@ -33,6 +34,8 @@ from core.claude_client import ClaudeClient
 from core.budget import ProductionTier, BudgetTracker
 from core.models.audio import AudioTier
 from core.models.edit_decision import EditDecisionList, ExportFormat
+from core.models.memory import RunStage, PilotMemory, AssetMemory
+from core.memory import memory_manager, bootstrap_all_providers
 from core.providers import MockVideoProvider
 from core.providers.base import VideoProviderConfig, AudioProviderConfig, ProviderType
 from cli.theme import get_theme, set_theme, get_default_theme_name
@@ -531,6 +534,44 @@ def get_audio_provider(live: bool):
     return OpenAITTSProvider(config=config, model="tts-1"), "openai_tts"
 
 
+@dataclass
+class SeedAsset:
+    """A seed image/asset for video generation"""
+    path: Path
+    filename: str
+    url: Optional[str] = None  # Will be set if uploaded to a hosting service
+
+    @property
+    def local_path(self) -> str:
+        return str(self.path.absolute())
+
+
+def load_seed_assets(directory: str) -> List[SeedAsset]:
+    """
+    Load image assets from a directory.
+
+    Args:
+        directory: Path to directory containing PNG/JPG images
+
+    Returns:
+        List of SeedAsset objects sorted by filename
+    """
+    assets = []
+    dir_path = Path(directory)
+
+    # Supported image extensions
+    extensions = {'.png', '.jpg', '.jpeg', '.webp'}
+
+    for file_path in sorted(dir_path.iterdir()):
+        if file_path.is_file() and file_path.suffix.lower() in extensions:
+            assets.append(SeedAsset(
+                path=file_path,
+                filename=file_path.name
+            ))
+
+    return assets
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLI COMMAND
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -553,6 +594,7 @@ def get_audio_provider(live: bool):
 @click.option("--verbose", "-V", is_flag=True, help="Show full artifacts without truncation")
 @click.option("--theme", "-t", default=None, help="Color theme (default, ocean, sunset, matrix, pro, neon, mono)")
 @click.option("--timeout", type=int, default=600, help="Video generation timeout in seconds (default: 600)")
+@click.option("--seed-assets", "-s", type=click.Path(exists=True), help="Directory containing seed images/assets (PNG/JPG)")
 def produce_cmd(
     concept: str,
     budget: float,
@@ -568,7 +610,8 @@ def produce_cmd(
     as_json: bool,
     verbose: bool,
     theme: Optional[str],
-    timeout: int
+    timeout: int,
+    seed_assets: Optional[str]
 ):
     """
     Run the full video production pipeline with multi-agent orchestration.
@@ -594,6 +637,9 @@ def produce_cmd(
 
         # Longer timeout for busy Luma queue
         claude-studio produce -c "My video" --live -p luma --timeout 900
+
+        # Use seed images for video generation
+        claude-studio produce -c "Product showcase" --live -s ./assets/product_images
     """
     # Set theme (from CLI arg or environment variable)
     theme_name = theme or get_default_theme_name()
@@ -631,6 +677,16 @@ def produce_cmd(
     }
     audio_tier_enum = audio_tier_map[audio_tier]
 
+    # Load seed assets if provided
+    loaded_assets: List[SeedAsset] = []
+    if seed_assets:
+        loaded_assets = load_seed_assets(seed_assets)
+        if not as_json and loaded_assets:
+            console.print(f"📁 Loaded {len(loaded_assets)} seed asset(s) from {seed_assets}")
+            for asset in loaded_assets:
+                console.print(f"   • {asset.filename}")
+            console.print()
+
     # Show production header (unless JSON output)
     if not as_json:
         print_header(run_id)
@@ -658,10 +714,11 @@ def produce_cmd(
             variations=variations,
             run_dir=run_dir,
             run_id=run_id,
-            debug=debug,
+            debug=debug,    
             as_json=as_json,
             verbose=verbose,
-            timeout=timeout
+            timeout=timeout,
+            seed_assets=loaded_assets
         ))
 
         total_time = time.time() - start_time
@@ -700,7 +757,8 @@ async def _run_production(
     debug: bool,
     as_json: bool,
     verbose: bool = False,
-    timeout: int = 600
+    timeout: int = 600,
+    seed_assets: Optional[List[SeedAsset]] = None
 ) -> dict:
     """Run the production pipeline with impressive agent orchestration display"""
 
@@ -725,6 +783,17 @@ async def _run_production(
         "stages": {},
         "costs": {"video": 0.0, "audio": 0.0, "total": 0.0}
     }
+
+    # Bootstrap provider knowledge if this is the first run
+    await bootstrap_all_providers(memory_manager)
+
+    # Initialize memory manager for this run
+    await memory_manager.create_run(
+        run_id=run_id,
+        concept=concept,
+        budget=budget,
+        audio_tier=audio_tier.value
+    )
 
     results = {
         "success": False,
@@ -760,13 +829,19 @@ async def _run_production(
     script_writer = ScriptWriterAgent(claude_client=claude)
     video_generator = VideoGeneratorAgent(provider=video_provider, num_variations=variations)
     audio_generator = AudioGeneratorAgent(claude_client=claude, audio_provider=audio_provider)
-    qa_verifier = QAVerifierAgent(claude_client=claude)
+    qa_verifier = QAVerifierAgent(claude_client=claude, mock_mode=not use_live)
     critic = CriticAgent(claude_client=claude)
     editor = EditorAgent(claude_client=claude)
 
     # Calculate appropriate scene count
     scene_duration_avg = 7.0
     num_scenes = max(1, min(6, int(duration / scene_duration_avg)))
+
+    # Get provider knowledge from LTM (if available)
+    provider_knowledge = await memory_manager.get_provider_guidelines(actual_video_provider)
+    if provider_knowledge and not as_json:
+        console.print(f"│   [{t.dimmed}]📚 Found {provider_knowledge.total_runs} prior runs with {actual_video_provider}[/{t.dimmed}]")
+        console.print("│")
 
     # --- Producer Agent ---
     stage_start = time.time()
@@ -775,7 +850,7 @@ async def _run_production(
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]ProducerAgent[/{t.agent_name}]")
         console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Analyzing concept & planning tiers...[/{t.dimmed}]")
 
-    pilots = await producer.analyze_and_plan(concept, budget)
+    pilots = await producer.analyze_and_plan(concept, budget, provider_knowledge=provider_knowledge)
     if not pilots:
         raise RuntimeError("No pilot strategies generated")
 
@@ -788,6 +863,12 @@ async def _run_production(
         "duration": producer_time
     }
 
+    # Update memory with planning stage
+    await memory_manager.update_stage(run_id, RunStage.PLANNING_PILOTS, {
+        "pilot_tier": pilot.tier.value,
+        "allocated_budget": pilot.allocated_budget
+    })
+
     if not as_json:
         print_pilot_artifacts(pilots, selected_idx=0, verbose=verbose)
         console.print(f"│     [{t.success}]✓ Selected: {pilot.tier.value.upper()} tier (${pilot.allocated_budget:.2f})[/{t.success}] [{t.dimmed}]({producer_time:.1f}s)[/{t.dimmed}]")
@@ -798,13 +879,18 @@ async def _run_production(
 
     if not as_json:
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]ScriptWriterAgent[/{t.agent_name}]")
-        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Generating {num_scenes} scenes with prompts...[/{t.dimmed}]")
+        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Generating script (target: ~{num_scenes} scenes)...[/{t.dimmed}]")
+
+    # Build list of available asset filenames for ScriptWriter
+    available_asset_names = [asset.filename for asset in (seed_assets or [])]
 
     scenes = await script_writer.create_script(
         video_concept=concept,
         production_tier=pilot.tier,
         target_duration=duration,
-        num_scenes=num_scenes
+        num_scenes=num_scenes,
+        available_assets=available_asset_names if available_asset_names else None,
+        provider_knowledge=provider_knowledge
     )
 
     if not scenes:
@@ -819,6 +905,12 @@ async def _run_production(
         "total_duration": total_scene_duration,
         "duration": script_time
     }
+
+    # Update memory with script generation stage
+    await memory_manager.update_stage(run_id, RunStage.GENERATING_SCRIPTS, {
+        "num_scenes": len(scenes),
+        "total_duration": total_scene_duration
+    })
 
     # Save scenes
     for scene in scenes:
@@ -851,42 +943,53 @@ async def _run_production(
     video_candidates = {}
     total_video_cost = 0.0
 
+    # Build seed asset lookup by filename
+    seed_asset_lookup = {asset.filename: asset for asset in (seed_assets or [])}
+
     if not as_json:
         # Show video generator box
         console.print(f"│   ┌─ [{t.agent_name}]VideoGeneratorAgent[/{t.agent_name}] ─────────────────────────────────")
         prov_display = actual_video_provider.capitalize()
-        console.print(f"│   │  [{t.parallel_indicator}]⚡ {prov_display} API[/{t.parallel_indicator}] [{t.dimmed}]Generating {len(scenes)} scenes...[/{t.dimmed}]")
+        console.print(f"│   │  [{t.parallel_indicator}]⚡ {prov_display} API[/{t.parallel_indicator}] [{t.dimmed}]Generating {len(scenes)} scenes in parallel...[/{t.dimmed}]")
 
-    for i, scene in enumerate(scenes):
-        scene_start = time.time()
+    # Use parallel generation for live providers that support it
+    parallel_start = time.time()
 
-        videos = await video_generator.generate_scene(
-            scene=scene,
-            production_tier=pilot.tier,
-            budget_limit=pilot.allocated_budget / len(scenes),
-            num_variations=variations
-        )
+    video_candidates = await video_generator.generate_scenes_parallel(
+        scenes=scenes,
+        production_tier=pilot.tier,
+        budget_per_scene=pilot.allocated_budget / len(scenes),
+        num_variations=variations,
+        seed_asset_lookup=seed_asset_lookup
+    )
 
-        video_candidates[scene.scene_id] = videos
-        scene_cost = sum(v.generation_cost for v in videos)
+    # Calculate total cost and download videos
+    for scene in scenes:
+        scene_videos = video_candidates.get(scene.scene_id, [])
+        scene_cost = sum(v.generation_cost for v in scene_videos)
         total_video_cost += scene_cost
-        scene_time = time.time() - scene_start
 
         # Download videos if they have URLs
-        for j, video in enumerate(videos):
+        for j, video in enumerate(scene_videos):
             if video.video_url and video.video_url.startswith("http"):
                 local_path = run_dir / "videos" / f"{scene.scene_id}_v{j}.mp4"
                 success = await video_provider.download_video(video.video_url, str(local_path))
                 if success:
                     video.video_url = str(local_path)
 
-        # Show completed scene (only final state, not intermediate)
-        if not as_json:
-            bar = "●" * PROGRESS_WIDTH
-            console.print(f"│   │  Scene {i+1}: [{t.progress_complete}]{bar}[/{t.progress_complete}] 100% [{t.success}]✓[/{t.success}] ({scene_time:.1f}s)")
-            print_video_prompt_artifact(scene, actual_video_provider, verbose=verbose)
+    video_time = time.time() - parallel_start
 
-    video_time = time.time() - stage_start
+    # Show completion summary
+    if not as_json:
+        for i, scene in enumerate(scenes):
+            scene_videos = video_candidates.get(scene.scene_id, [])
+            if scene_videos:
+                bar = "●" * PROGRESS_WIDTH
+                console.print(f"│   │  Scene {i+1}: [{t.progress_complete}]{bar}[/{t.progress_complete}] 100% [{t.success}]✓[/{t.success}]")
+                print_video_prompt_artifact(scene, actual_video_provider, verbose=verbose)
+            else:
+                bar = "○" * PROGRESS_WIDTH
+                console.print(f"│   │  Scene {i+1}: [{t.error}]{bar}[/{t.error}] [{t.error}]✗ Failed[/{t.error}]")
 
     if not as_json:
         prov_display = actual_video_provider.capitalize()
@@ -902,6 +1005,13 @@ async def _run_production(
         "cost": total_video_cost,
         "duration": video_time
     }
+
+    # Update memory with video generation stage
+    await memory_manager.update_stage(run_id, RunStage.GENERATING_VIDEO, {
+        "num_videos": sum(len(v) for v in video_candidates.values()),
+        "cost": total_video_cost,
+        "provider": actual_video_provider
+    })
 
     # --- Audio Generation (parallel with video conceptually) ---
     scene_audio = []
@@ -931,6 +1041,13 @@ async def _run_production(
             "cost": audio_cost,
             "duration": audio_time
         }
+
+        # Update memory with audio generation stage
+        await memory_manager.update_stage(run_id, RunStage.GENERATING_AUDIO, {
+            "tracks": len(scene_audio),
+            "cost": audio_cost,
+            "tier": audio_tier.value
+        })
 
         if not as_json:
             console.print(f"│   │  Voiceover: Generated {len(scene_audio)} track(s)")
@@ -998,7 +1115,32 @@ async def _run_production(
             # Mock mode - show simulated result without confusing percentages
             console.print(f"│     └─ [{t.success}]✓ Quality check: PASSED[/{t.success}] [{t.dimmed}](mock - simulated)[/{t.dimmed}] [{t.dimmed}]({qa_time:.1f}s)[/{t.dimmed}]")
         else:
-            console.print(f"│     └─ [{t.success}]✓ Pass rate: {passed_count}/{total_count} ({pass_rate}%)[/{t.success}] [{t.dimmed}]({qa_time:.1f}s)[/{t.dimmed}]")
+            # Live mode - show detailed QA feedback per scene
+            console.print(f"│     ├─ [{t.success}]Pass rate: {passed_count}/{total_count} ({pass_rate}%)[/{t.success}] [{t.dimmed}]({qa_time:.1f}s)[/{t.dimmed}]")
+
+            # Show per-scene QA breakdown
+            for scene_id, scene_qa_list in qa_results.items():
+                for i, qa in enumerate(scene_qa_list):
+                    status_color = t.success if qa.passed else t.error
+                    status_text = "PASS" if qa.passed else "FAIL"
+
+                    console.print(f"│     │")
+                    console.print(f"│     ├─ [{t.dimmed}]{scene_id} v{i}[/{t.dimmed}] [{status_color}][{status_text}][/{status_color}] [{t.dimmed}]score: {qa.overall_score:.0f}/{qa.threshold:.0f}[/{t.dimmed}]")
+
+                    # Show score breakdown
+                    console.print(f"│     │   [{t.dimmed}]Visual: {qa.visual_accuracy:.0f}  Style: {qa.style_consistency:.0f}  Tech: {qa.technical_quality:.0f}  Narrative: {qa.narrative_fit:.0f}[/{t.dimmed}]")
+
+                    # Show issues if any and if failed or verbose
+                    if qa.issues and (not qa.passed or verbose):
+                        for issue in qa.issues[:2]:  # Limit to 2 issues to keep output clean
+                            console.print(f"│     │   [{t.warning}]! {issue}[/{t.warning}]")
+
+                    # Show top suggestion if failed
+                    if not qa.passed and qa.suggestions:
+                        console.print(f"│     │   [{t.label}]→ {qa.suggestions[0]}[/{t.label}]")
+
+            console.print(f"│     │")
+            console.print(f"│     └─ [{t.dimmed}]QA analysis complete[/{t.dimmed}]")
         console.print("│")
 
     # --- Critic Agent ---
@@ -1037,9 +1179,48 @@ async def _run_production(
         "duration": critic_time
     }
 
+    # Update memory with evaluation stage
+    await memory_manager.update_stage(run_id, RunStage.EVALUATING, {
+        "approved": evaluation.approved,
+        "critic_score": evaluation.critic_score,
+        "qa_pass_rate": pass_rate
+    })
+
     if not as_json:
         print_critic_evaluation_artifact(evaluation, verbose=verbose)
         console.print("│")
+
+    # --- Analyze Provider Performance (for LTM learning) ---
+    # Only analyze if using a real provider (not mock)
+    if actual_video_provider != "mock":
+        if not as_json:
+            console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]CriticAgent[/{t.agent_name}] [{t.dimmed}](Provider Analysis)[/{t.dimmed}]")
+            console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Extracting learnings for {actual_video_provider}...[/{t.dimmed}]")
+
+        # Flatten videos and qa_results for analysis
+        all_videos = []
+        all_qa_results = []
+        for scene_id, videos in video_candidates.items():
+            all_videos.extend(videos)
+        for scene_id, qa_list in qa_results.items():
+            all_qa_results.extend(qa_list)
+
+        provider_learning = await critic.analyze_provider_performance(
+            scenes=scenes,
+            videos=all_videos,
+            qa_results=all_qa_results,
+            provider=actual_video_provider,
+            run_id=run_id,
+            concept=concept
+        )
+
+        # Record the learning to LTM
+        await memory_manager.record_provider_learning(provider_learning)
+
+        if not as_json:
+            tips_count = len(provider_learning.prompt_tips)
+            console.print(f"│     └─ [{t.success}]✓ Recorded {tips_count} prompt tips for future runs[/{t.success}]")
+            console.print("│")
 
     # --- Editor Agent ---
     stage_start = time.time()
@@ -1109,6 +1290,13 @@ async def _run_production(
         "duration": editor_time
     }
 
+    # Update memory with editing stage
+    await memory_manager.update_stage(run_id, RunStage.EDITING, {
+        "edl_id": edl.edl_id,
+        "candidates": len(edl.candidates),
+        "recommended": edl.recommended_candidate_id
+    })
+
     if not as_json:
         print_edit_candidates_artifact(edl, verbose=verbose)
         console.print(f"│     [{t.success}]✓ Recommended: \"{edl.recommended_candidate_id}\"[/{t.success}] [{t.dimmed}]({editor_time:.1f}s)[/{t.dimmed}]")
@@ -1133,7 +1321,8 @@ async def _run_production(
             console.print(f"│     └─ Concatenating {num_clips} video clip(s)...")
             console.print("│     └─ Adding transitions and overlays...")
 
-        render_result = await renderer.render(edl=edl, audio_tracks=[], run_id=run_id)
+        # Don't pass run_id since output_dir is already run-specific (run_dir/renders)
+        render_result = await renderer.render(edl=edl, audio_tracks=[])
 
         if render_result.success:
             results["output_video"] = render_result.output_path
@@ -1158,6 +1347,67 @@ async def _run_production(
     # Save metadata
     with open(run_dir / "metadata.json", 'w') as f:
         json.dump(metadata, f, indent=2)
+
+    # Update memory manager with final state and complete the run
+    run_memory = await memory_manager.get_run(run_id)
+    if run_memory:
+        # Add pilot info
+        run_memory.pilots.append(PilotMemory(
+            pilot_id=f"pilot_{pilot.tier.value.lower()}",
+            tier=pilot.tier.value,
+            allocated_budget=pilot.allocated_budget,
+            spent_budget=metadata["costs"]["total"],
+            scenes_generated=len(scenes),
+            quality_score=metadata["stages"].get("critic", {}).get("score"),
+            status="approved"
+        ))
+        run_memory.winning_pilot_id = f"pilot_{pilot.tier.value.lower()}"
+
+        # Add scene/asset info
+        run_memory.total_scenes = len(scenes)
+        run_memory.scenes_completed = len(scenes)
+        run_memory.budget_spent = metadata["costs"]["total"]
+
+        # Add video assets from video_candidates (actual video objects)
+        for scene_id, videos in video_candidates.items():
+            scene_qa_list = qa_results.get(scene_id, [])
+            for i, video in enumerate(videos):
+                # Get matching QA result if available
+                qa_metadata = {}
+                if i < len(scene_qa_list):
+                    qa = scene_qa_list[i]
+                    qa_metadata = {
+                        "qa_overall_score": qa.overall_score,
+                        "qa_visual_accuracy": qa.visual_accuracy,
+                        "qa_style_consistency": qa.style_consistency,
+                        "qa_technical_quality": qa.technical_quality,
+                        "qa_narrative_fit": qa.narrative_fit,
+                        "qa_passed": qa.passed,
+                        "qa_threshold": qa.threshold,
+                        "qa_issues": qa.issues,
+                        "qa_suggestions": qa.suggestions
+                    }
+
+                # Convert absolute path to relative path for web serving
+                # The /files route serves from artifacts/, so strip that prefix
+                asset_path = video.video_url or ""
+                if asset_path.startswith("artifacts/"):
+                    asset_path = asset_path[len("artifacts/"):]
+                elif asset_path.startswith("artifacts\\"):
+                    asset_path = asset_path[len("artifacts\\"):]
+
+                run_memory.assets.append(AssetMemory(
+                    asset_id=f"{scene_id}_v{i}",
+                    asset_type="video",
+                    path=asset_path,
+                    scene_id=scene_id,
+                    duration=video.duration,
+                    cost=video.generation_cost,
+                    metadata=qa_metadata
+                ))
+
+    # Complete the run (triggers pattern learning)
+    await memory_manager.complete_run(run_id, status="completed")
 
     results["success"] = True
     results["metadata"] = metadata

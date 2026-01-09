@@ -13,3 +13,6 @@ rich>=13.0.0
 
 # Video providers
 lumaai>=0.1.0
+
+# Templates (for server)
+jinja2>=3.1.0
