@@ -1,496 +1,298 @@
-# 🎬 Claude Studio Producer
+# Claude Studio Producer
 
-> Budget-aware multi-agent video production with AI orchestration, vision-powered seed assets, and 5-tier audio pipeline
+> Budget-aware multi-agent video production with AI orchestration. Manages competitive pilots, real video generation with Luma AI, vision-based QA analysis, and self-improving provider learnings.
 
-A production-grade AI system that manages competitive video production pilots, analyzes seed assets with Claude Vision, integrates synchronized audio, and reallocates budgets dynamically.
+## What's Working Now
 
-## 🌟 Features
+- **Real video generation** with Luma AI (image-to-video)
+- **Vision-based QA** using Claude to analyze extracted video frames
+- **Provider learning system** that improves prompts over time
+- **Web dashboard** to view runs, preview videos, and see QA scores
+- **CLI tool** with live progress and detailed feedback
 
-### Multi-Agent Orchestration
-- **🎯 Producer Agent**: Analyzes requests and budgets, creates multi-tier pilot strategies
-- **🔍 Critic Agent**: Gap analysis and quality-based budget reallocation decisions
-- **✍️ Script Writer Agent**: Breaks video concepts into detailed scene specifications with audio sync points
-- **🎥 Video Generator Agent**: Generates video content using AI providers with cost tracking
-- **🎵 Audio Generator Agent**: Produces voiceover, music, and SFX with time-synchronized audio (stub)
-- **🖼️ Asset Analyzer Agent**: Uses Claude Vision to analyze seed assets and extract themes
-- **✂️ Editor Agent**: Creates EDL candidates and final assembly from approved scenes (stub)
-
-### Seed Asset Support
-- **Vision-Powered Analysis**: Analyze images, sketches, storyboards, logos, and mood boards
-- **Theme Extraction**: Automatically identify visual themes, color palettes, and style keywords
-- **Brand Consistency**: Inform creative direction using extracted asset descriptions
-- **Supported Types**: Sketches, storyboards, photos, logos, screenshots, mood boards, character designs
-
-### Audio Pipeline
-- **5-Tier Production**: NONE → MUSIC_ONLY → SIMPLE_OVERLAY → TIME_SYNCED → FULL_PRODUCTION
-- **Synchronized Audio**: Frame-accurate sync points for audio-visual alignment
-- **Voiceover Styles**: Professional, conversational, energetic, calm, dramatic
-- **Music Integration**: Mood-based music (upbeat, corporate, emotional, ambient) with auto-ducking
-- **Sound Effects**: Timestamped SFX cues with volume control
-
-### Budget-Aware Production
-- **Real-Time Cost Tracking**: Monitor video and audio costs across all production stages
-- **Competitive Pilots**: Test 2-3 approaches in parallel, continue only the best performers
-- **Dynamic Reallocation**: Cancel underperforming pilots and redirect budget to winners
-- **Quality Feedback Loops**: Automated QA evaluation with vision analysis at every stage
-
-### Provider Support
-- **Video Providers**: Runway, Pika, Luma, Kling, Stability AI (stubs with cost models)
-- **Audio Providers**: ElevenLabs, OpenAI TTS, Google TTS (stubs)
-- **Music Providers**: Mubert, Suno (stubs)
-- **Storage**: Local filesystem, AWS S3 (stubs)
-
-## 🏗️ Architecture
-
-The full production pipeline from request to final video:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  User Request + Seed Assets                                     │
-│  "Create a 60s product demo video"                              │
-│  + logo.png, sketch.png, brand_colors.png                       │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Asset Analyzer (Claude Vision)                                 │
-│  • Analyzes visual seed assets                                  │
-│  • Extracts themes, colors, style keywords                      │
-│  • Creates enriched SeedAssetCollection                         │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Producer Agent                                                  │
-│  • Analyzes request + enriched seed assets                      │
-│  • Estimates costs (video + audio tiers)                        │
-│  • Creates 2-3 competitive pilot strategies                     │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Script Writer Agent                                            │
-│  • Breaks concept into scenes (using seed asset refs)          │
-│  • Adds voiceover text and sync points                         │
-│  • Specifies music transitions and SFX cues                    │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Parallel Competitive Pilots                                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │ Pilot 1      │  │ Pilot 2      │  │ Pilot 3      │         │
-│  │ Motion+Audio │  │ Static+Music │  │ Animated+VO  │         │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘         │
-│         │                  │                  │                 │
-│         └──────────────────┴──────────────────┘                 │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Critic Agent                                                    │
-│  • Evaluates test scenes (vision QA)                           │
-│  • Cancels underperforming pilots                              │
-│  • Reallocates budget to winners                               │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Full Production (Winners Only)                                 │
-│  • VideoGenerator: Generates all scenes                        │
-│  • AudioGenerator: Creates synced audio tracks                 │
-│  • QAVerifier: Vision analysis of final quality                │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Editor Agent                                                    │
-│  • Creates EDL candidates for each pilot                        │
-│  • Human selects best final cut                                 │
-│  • Exports final video with mixed audio                         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## 💵 Cost Models (2025 Pricing)
-
-### Video Production Tiers
-
-| Tier | Cost/Second | Use Case | Quality Ceiling |
-|------|-------------|----------|-----------------|
-| Static Images | $0.04 | Slideshows, presentations | 75/100 |
-| Motion Graphics | $0.15 | Explainers, product demos | 85/100 |
-| Animated | $0.25 | Storytelling, characters | 90/100 |
-| Photorealistic | $0.50 | High-end commercials | 95/100 |
-
-### Audio Production Tiers
-
-| Tier | Cost/Minute | Description | Includes |
-|------|-------------|-------------|----------|
-| NONE | $0.00 | No audio | Silent video |
-| MUSIC_ONLY | $0.50 | Background music | AI-generated music track |
-| SIMPLE_OVERLAY | $2.00 | Basic voiceover | VO + music, loose sync |
-| TIME_SYNCED | $5.00 | Synchronized audio | VO + music, frame-accurate sync |
-| FULL_PRODUCTION | $15.00 | Professional mix | VO + music + SFX + mixing |
-
-**Note**: TIME_SYNCED and FULL_PRODUCTION include $0.50 per scene sync overhead.
-
-## 📦 Installation
-
-### Prerequisites
-
-- Python 3.9+
-- Anthropic API key ([get one here](https://console.anthropic.com/))
-
-### Quick Install (Recommended)
+## Quick Start
 
 ```bash
-# Install directly from GitHub
-pip install git+https://github.com/aaronmarkham/claude-studio-producer.git
-
-# Or install in editable mode for development
+# Clone and install
 git clone https://github.com/aaronmarkham/claude-studio-producer.git
 cd claude-studio-producer
-pip install -e .
-```
+pip install -e ".[server]"
 
-### Manual Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/aaronmarkham/claude-studio-producer.git
-cd claude-studio-producer
-
-# Create virtual environment
-python -m venv .venv
-
-# Activate virtual environment
-# On Windows (Git Bash):
-source .venv/Scripts/activate
-# On macOS/Linux:
-source .venv/bin/activate
-
-# Install the package
-pip install -e .
-
-# Configure environment
+# Set up API keys
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Add ANTHROPIC_API_KEY and LUMA_API_KEY
+
+# Run a production (mock mode - no API costs)
+python -m cli.produce "A serene mountain lake at sunset" --budget 5
+
+# Run with real video generation
+python -m cli.produce "A serene mountain lake at sunset" --budget 5 --live
 ```
 
-## ⚡ Quick Start
+## Architecture
 
-### Basic Production
-```python
-import asyncio
-from core import StudioOrchestrator
+```mermaid
+flowchart TB
+    subgraph Input["Input"]
+        Request["Production Request<br/>concept + budget + seed assets"]
+    end
 
-async def main():
-    # Create orchestrator
-    orchestrator = StudioOrchestrator(num_variations=3)
+    subgraph Memory["Memory System"]
+        STM["Short-Term Memory<br/>Run state, progress, assets"]
+        LTM["Long-Term Memory<br/>Patterns, preferences,<br/>provider learnings"]
+    end
 
-    # Run production
-    result = await orchestrator.produce_video(
-        user_request="""
-        Create a 60-second video: 'A day in the life of a developer
-        using AI tools'. Show: standup, coding, debugging, deploying.
-        """,
-        total_budget=150.00
-    )
+    subgraph Planning["Planning Stage"]
+        Producer["ProducerAgent<br/>Creates pilot strategies"]
+        ScriptWriter["ScriptWriterAgent<br/>Generates scenes"]
+    end
 
-    print(f"Status: {result.status}")
-    print(f"Best pilot: {result.best_pilot.pilot_id}")
-    print(f"Cost: ${result.budget_used:.2f}")
+    subgraph Generation["Parallel Generation"]
+        Video["VideoGenerator<br/>Luma / Runway"]
+        Audio["AudioGenerator<br/>OpenAI TTS"]
+    end
 
-asyncio.run(main())
+    subgraph Evaluation["Real Evaluation Pipeline"]
+        QA["QAVerifier<br/>Claude Vision<br/>Frame extraction + analysis"]
+        Critic["CriticAgent<br/>Scores + decisions +<br/>provider analysis"]
+    end
+
+    subgraph Output["Output Stage"]
+        Editor["EditorAgent<br/>Edit candidates"]
+        Renderer["FFmpegRenderer<br/>Final video + text overlays"]
+    end
+
+    Request --> Producer
+    Producer --> ScriptWriter
+    ScriptWriter --> Video
+    ScriptWriter --> Audio
+    Video --> QA
+    Audio --> QA
+    QA --> Critic
+    Critic --> Editor
+    Editor --> Renderer
+
+    LTM -.->|"provider guidelines"| Producer
+    LTM -.->|"prompt tips"| ScriptWriter
+    Critic -.->|"provider learnings"| LTM
 ```
 
-### With Seed Assets
-```python
-from core.models.seed_assets import SeedAsset, SeedAssetCollection, SeedAssetType, AssetRole
-from agents import AssetAnalyzerAgent
+## Features
 
-async def main_with_assets():
-    # Create seed asset collection
-    seed_assets = SeedAssetCollection(
-        assets=[
-            SeedAsset(
-                asset_id="logo_001",
-                asset_type=SeedAssetType.LOGO,
-                role=AssetRole.BRAND_GUIDE,
-                file_path="assets/company_logo.png",
-                description="Company logo with brand colors",
-                usage_instructions="Include logo in intro and outro"
-            ),
-            SeedAsset(
-                asset_id="sketch_001",
-                asset_type=SeedAssetType.SKETCH,
-                role=AssetRole.STYLE_REFERENCE,
-                file_path="assets/ui_sketch.png",
-                description="Hand-drawn UI mockup",
-                usage_instructions="Match this sketch style for interface scenes"
-            )
-        ],
-        global_instructions="Create modern, professional tech-focused video"
-    )
+### CLI with Live Progress
 
-    # Analyze assets with Claude Vision
-    analyzer = AssetAnalyzerAgent()
-    enriched_assets = await analyzer.analyze_collection(seed_assets)
-
-    # View extracted themes
-    print(f"Themes: {enriched_assets.extracted_themes}")
-    print(f"Colors: {enriched_assets.extracted_color_palette}")
-    print(f"Styles: {enriched_assets.extracted_style_keywords}")
-
-    # Run production with analyzed assets
-    orchestrator = StudioOrchestrator()
-    result = await orchestrator.produce_video(
-        user_request="Create 60s product demo",
-        total_budget=200.00,
-        seed_assets=enriched_assets  # Pass enriched assets
-    )
-
-asyncio.run(main_with_assets())
-```
-
-Or use the included examples:
 ```bash
-python examples/full_production.py
-python examples/test_asset_analyzer.py
+# Basic production
+python -m cli.produce "Product demo for mobile app" --budget 10
+
+# With seed image (image-to-video)
+python -m cli.produce "Animate this logo" --budget 5 --seed logo.png
+
+# Live mode with real generation
+python -m cli.produce "Tech startup intro" --budget 15 --live --provider luma
 ```
 
-## 📁 Project Structure
+The CLI shows:
+- Real-time agent progress
+- QA scores per scene (Visual, Style, Technical, Narrative)
+- Issues found and suggestions
+- Provider learnings extracted
+
+### Web Dashboard
+
+```bash
+# Start the server
+python -m server.main
+
+# Open http://localhost:8000
+```
+
+View all runs, preview generated videos, and inspect QA scores.
+
+### Real QA with Claude Vision
+
+When using `--live` mode, the QA system:
+1. Extracts frames from generated videos using ffmpeg
+2. Sends frames to Claude Vision for analysis
+3. Scores on 4 dimensions (0-100 each):
+   - **Visual Accuracy**: Do visuals match the scene description?
+   - **Style Consistency**: Does it match the production tier?
+   - **Technical Quality**: Any artifacts, blur, or issues?
+   - **Narrative Fit**: Does it work in the overall story?
+4. Records issues and improvement suggestions
+
+### Provider Learning (Self-Improving)
+
+The system learns from every run:
+
+```
+Run 1: "magical transformation effect" -> Score: 45
+  -> Learning: "Luma struggles with VFX transformations"
+  -> Added to avoid_list
+
+Run 2: System avoids VFX, uses "slow camera pan" -> Score: 88
+  -> Learning: "Detailed physical descriptions work well"
+  -> Added to prompt_guidelines
+
+Run 3+: Better prompts, higher scores
+```
+
+Learnings are stored in `artifacts/memory.json` and used to improve future runs.
+
+## Screenshots
+
+### CLI Production Stages
+
+The CLI shows real-time progress through each stage of production:
+
+**Stage 1: Planning** - Producer creates pilot strategy, ScriptWriter generates scenes
+
+![Planning Stage](docs/screenshots/luma-gen1-stage1.png)
+
+**Stage 2: Generation** - Video generation with Luma AI
+
+![Generation Stage](docs/screenshots/luma-gen1-stage2.png)
+
+**Stage 3: QA & Evaluation** - Claude Vision analyzes frames, Critic extracts learnings
+
+![QA Stage](docs/screenshots/luma-gen1-stage3.png)
+
+**Stage 4: Output** - Editor creates EDL, Renderer produces final video
+
+![Output Stage](docs/screenshots/luma-gen1-stage4.png)
+
+### Generated Videos
+
+Example outputs from Luma AI image-to-video generation:
+
+| Pencil Animation | Keyboard Animation |
+|------------------|-------------------|
+| ![Pencil Video](docs/screenshots/luma-gen1-pencil-video.png) | ![Keyboard Video](docs/screenshots/luma-gen2-keyboard-video.png) |
+
+### Provider Learnings
+
+The system accumulates learnings from each run to improve future prompts:
+
+![Recent Learnings](docs/screenshots/recent-learnings.png)
+
+## Agents
+
+| Agent | Status | Description |
+|-------|--------|-------------|
+| **ProducerAgent** | Implemented | Analyzes requests, creates pilot strategies using provider knowledge |
+| **ScriptWriterAgent** | Implemented | Breaks concepts into scenes, applies learned prompt guidelines |
+| **VideoGeneratorAgent** | Implemented | Generates video with Luma AI (real) or mock providers |
+| **QAVerifierAgent** | Implemented | Vision-based quality analysis with Claude |
+| **CriticAgent** | Implemented | Evaluates results, extracts provider learnings |
+| **EditorAgent** | Implemented | Creates EDL candidates for final assembly |
+| **AudioGeneratorAgent** | Stub | Audio generation (interface ready) |
+| **AssetAnalyzerAgent** | Stub | Seed asset analysis with Claude Vision |
+
+## Providers
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| **Luma AI** | Implemented | Image-to-video, real API integration |
+| Runway ML | Stub | Interface + cost model ready |
+| Pika Labs | Stub | Interface + cost model ready |
+| Kling AI | Stub | Interface + cost model ready |
+
+## Project Structure
 
 ```
 claude-studio-producer/
-├── agents/                          # Agent implementations
-│   ├── producer.py                  # Producer agent (implemented)
-│   ├── critic.py                    # Critic agent (implemented)
-│   ├── script_writer.py             # Script writer agent (implemented)
-│   ├── video_generator.py           # Video generator agent (implemented)
-│   ├── qa_verifier.py               # QA verifier agent (implemented)
-│   ├── asset_analyzer.py            # Asset analyzer agent (stub)
-│   ├── audio_generator.py           # Audio generator agent (stub)
-│   └── editor.py                    # Editor agent (stub)
+├── agents/                 # Agent implementations
+│   ├── producer.py         # Pilot strategy creation
+│   ├── script_writer.py    # Scene generation with provider guidelines
+│   ├── video_generator.py  # Video generation orchestration
+│   ├── qa_verifier.py      # Real vision-based QA
+│   ├── critic.py           # Evaluation + provider learning extraction
+│   └── editor.py           # EDL generation
+│
+├── cli/
+│   ├── produce.py          # Main CLI with --live mode
+│   └── luma.py             # Luma testing CLI
 │
 ├── core/
-│   ├── orchestrator.py              # Main pipeline coordinator
-│   ├── claude_client.py             # Claude SDK wrapper with vision support
-│   ├── budget.py                    # Cost models and tracking
-│   │
-│   ├── models/                      # Data models
-│   │   ├── seed_assets.py           # Seed asset data structures
-│   │   ├── audio.py                 # Audio production models
-│   │   ├── video.py                 # Video production models
-│   │   └── edl.py                   # Edit decision list models
-│   │
-│   └── providers/                   # Provider stubs
-│       ├── video/                   # Video generation providers
-│       │   ├── runway.py            # Runway ML (stub)
-│       │   ├── pika.py              # Pika Labs (stub)
-│       │   ├── luma.py              # Luma AI (stub)
-│       │   ├── kling.py             # Kling AI (stub)
-│       │   └── stability.py         # Stability AI (stub)
-│       │
-│       ├── audio/                   # Audio generation providers
-│       │   ├── elevenlabs.py        # ElevenLabs (stub)
-│       │   ├── openai_tts.py        # OpenAI TTS (stub)
-│       │   └── google_tts.py        # Google TTS (stub)
-│       │
-│       ├── music/                   # Music generation providers
-│       │   ├── mubert.py            # Mubert (stub)
-│       │   └── suno.py              # Suno (stub)
-│       │
-│       └── storage/                 # Storage providers
-│           ├── local.py             # Local filesystem (stub)
-│           └── s3.py                # AWS S3 (stub)
+│   ├── claude_client.py    # Claude SDK wrapper with vision support
+│   ├── budget.py           # Cost models and tracking
+│   ├── renderer.py         # FFmpeg video rendering
+│   ├── memory/             # Memory system
+│   │   ├── manager.py      # MemoryManager (STM + LTM)
+│   │   └── bootstrap.py    # Provider knowledge seeding
+│   ├── models/
+│   │   └── memory.py       # ProviderKnowledge, ProviderLearning, etc.
+│   └── providers/
+│       └── video/
+│           ├── luma.py     # Real Luma AI integration
+│           └── ...         # Other provider stubs
 │
-├── workflows/                       # Production workflows
-│   └── competitive_pilots.py        # Multi-pilot orchestration
+├── server/
+│   ├── main.py             # FastAPI server
+│   ├── routes/
+│   │   ├── runs.py         # Run list and preview API
+│   │   └── memory.py       # Memory/LTM API
+│   └── templates/          # Dashboard HTML templates
 │
 ├── docs/
-│   └── specs/                       # Detailed specifications
-│       ├── 01-architecture.md       # System architecture
-│       ├── 02-agents.md             # Agent specifications
-│       ├── 03-seed-assets.md        # Seed asset system
-│       ├── 04-audio-pipeline.md     # Audio production pipeline
-│       ├── 05-video-providers.md    # Video provider integrations
-│       └── 06-budget-models.md      # Cost models and tracking
+│   ├── architecture_current.md    # Current system diagram
+│   ├── architecture_future_strands.md  # Future Strands memory integration
+│   └── specs/              # Detailed specifications
 │
-├── tests/
-│   ├── unit/                        # Unit tests
-│   └── integration/                 # Integration tests
-│
-├── examples/                        # Usage examples
-│   ├── full_production.py           # Complete production example
-│   ├── test_producer.py             # Test producer agent
-│   ├── test_critic.py               # Test critic agent
-│   └── test_asset_analyzer.py       # Test asset analyzer
-│
-├── setup.py                         # Package setup
-├── requirements.txt                 # Dependencies
-└── README.md                        # This file
+└── artifacts/              # Run outputs
+    ├── memory.json         # LTM with provider learnings
+    └── runs/               # Per-run data and videos
 ```
 
-## 📚 Examples
+## Configuration
 
-### Test Individual Agents
 ```bash
-# Test Producer
-python examples/test_producer.py
-
-# Test Critic
-python examples/test_critic.py
-
-# Full production pipeline
-python examples/full_production.py
+# .env file
+ANTHROPIC_API_KEY=sk-ant-...    # Required
+LUMA_API_KEY=luma-...           # For live video generation
+RUNWAY_API_KEY=...              # For Runway provider (optional)
 ```
 
-### Cost Estimation
+## Development
+
 ```bash
-# Estimate costs for different tiers
-python scripts/estimate_costs.py
+# Install dev dependencies
+pip install -e ".[dev,server]"
+
+# Run tests
+pytest
+
+# Start server with auto-reload
+uvicorn server.main:app --reload
 ```
 
-## 🔧 Configuration
+## Roadmap
 
-Edit `.env`:
-```bash
-# Required
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+### Completed
+- [x] Multi-agent orchestration with Strands
+- [x] Real video generation (Luma AI)
+- [x] Vision-based QA with Claude
+- [x] Provider learning system (LTM)
+- [x] Web dashboard
+- [x] CLI with live progress
+- [x] FFmpeg rendering
 
-# Optional
-DEFAULT_BUDGET=100.00
-DEFAULT_VARIATIONS=3
-```
+### In Progress
+- [ ] Strands native memory integration (currently custom JSON)
+- [ ] Audio generation pipeline
+- [ ] Additional video providers (Runway, Pika)
 
-## 🎯 Use Cases
-
-- **Product Demos**: Automated demo video generation
-- **Educational Content**: Tutorial and explainer videos
-- **Marketing**: Social media content at scale
-- **Documentation**: Visual documentation generation
-- **Prototyping**: Rapid video concept testing
-
-## 🤝 Contributing
-
-Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-## 🔧 Provider Support
-
-| Category | Provider | Status | Cost Model | Notes |
-|----------|----------|--------|------------|-------|
-| **Video** | Runway ML | ✅ **Implemented** | ✅ | Gen-3 Alpha Turbo integration |
-| | Pika Labs | Stub | ✅ | v1.0 pricing |
-| | Luma AI | Stub | ✅ | Dream Machine pricing |
-| | Kling AI | Stub | ✅ | v1.5 pricing |
-| | Stability AI | Stub | ✅ | Stable Video pricing |
-| **Audio** | ElevenLabs | Stub | ✅ | TTS pricing |
-| | OpenAI TTS | Stub | ✅ | TTS-1 HD pricing |
-| | Google TTS | Stub | ✅ | Cloud TTS pricing |
-| **Music** | Mubert | Stub | ✅ | API pricing |
-| | Suno | Stub | ✅ | v3 pricing |
-| **Storage** | Local FS | Stub | ✅ | Free |
-| | AWS S3 | Stub | ✅ | Standard storage |
-
-**Implementation Status**:
-- ✅ **Runway ML**: Fully implemented with async generation, polling, and download
-- All other providers have interface definitions and cost models ready for integration
-
-## 📊 Development Status
-
-### Implemented Agents
-- ✅ **Producer Agent**: Full implementation with multi-tier strategy creation
-- ✅ **Critic Agent**: Gap analysis, pilot evaluation, budget reallocation
-- ✅ **Script Writer Agent**: Scene breakdown with audio specifications
-- ✅ **Video Generator Agent**: Multi-provider abstraction with mock mode
-- ✅ **QA Verifier Agent**: Vision-based quality analysis with scoring
-
-### Stub Agents (Interface + Tests)
-- 🚧 **Asset Analyzer Agent**: Claude Vision integration (code complete, awaiting orchestrator integration)
-- 🚧 **Audio Generator Agent**: 5-tier audio pipeline (models complete, generation pending)
-- 🚧 **Editor Agent**: EDL generation and final assembly (planned)
-
-### Core Systems
-- ✅ Multi-agent orchestration
-- ✅ Budget tracking and cost estimation
-- ✅ Seed asset data models
-- ✅ Audio production models (5 tiers)
-- ✅ Competitive pilot workflow
-- ✅ Claude Vision support in client
-- ✅ Comprehensive test coverage (63 tests)
-
-### Provider Integration
-- ✅ **Runway ML video provider** (fully implemented)
-- 🚧 Additional video providers (Pika, Luma, Kling, Stability - interface + cost models)
-- 🚧 Audio providers (interface + cost models)
-- 🚧 Music providers (interface + cost models)
-- 🚧 Storage providers (interface + cost models)
-
-## 📋 Roadmap
-
-### Phase 1: Foundation (Complete)
-- [x] Core Producer/Critic agents
-- [x] Budget-aware orchestration
-- [x] Multi-tier cost models
-- [x] Script Writer agent
-- [x] Video Generator agent (mock mode)
-- [x] Video QA agent with vision analysis
-- [x] Full agent integration in orchestrator
-- [x] Seed asset models
-- [x] Audio pipeline models
-
-### Phase 2: Vision & Audio (Current)
-- [x] Asset Analyzer with Claude Vision
-- [x] Audio tier system (NONE → FULL_PRODUCTION)
-- [ ] Audio Generator implementation
-- [ ] Time-synchronized audio-video alignment
-- [ ] Orchestrator integration for seed assets
-
-### Phase 3: Provider Integration (In Progress)
-- [x] **Runway ML integration** (Gen-3 Alpha Turbo)
-- [ ] Pika Labs integration
-- [ ] Luma AI integration
-- [ ] ElevenLabs TTS integration
-- [ ] Mubert music generation
+### Future
+- [ ] Semantic search over memories
+- [ ] Multi-pilot competitive generation
+- [ ] Audio-video synchronization
 - [ ] S3 storage integration
 
-### Phase 4: Advanced Features (Future)
-- [ ] Editor agent with EDL generation
-- [ ] Web UI dashboard
-- [ ] Prompt library & templates
-- [ ] Performance benchmarks
-- [ ] Multi-language support
+## License
 
-## 📄 License
+MIT-0 (MIT No Attribution) - see [LICENSE](LICENSE)
 
-MIT-0 (MIT No Attribution) - see [LICENSE](LICENSE) for details
+## Links
 
-This project is released under the most permissive open source license. Use it freely without attribution requirements.
-
-## 📖 Documentation
-
-Detailed specifications are available in [docs/specs/](docs/specs/):
-
-- [01-architecture.md](docs/specs/01-architecture.md) - System architecture and data flow
-- [02-agents.md](docs/specs/02-agents.md) - Agent specifications and interfaces
-- [03-seed-assets.md](docs/specs/03-seed-assets.md) - Seed asset system and vision analysis
-- [04-audio-pipeline.md](docs/specs/04-audio-pipeline.md) - Audio production pipeline and sync system
-- [05-video-providers.md](docs/specs/05-video-providers.md) - Video provider integrations
-- [06-budget-models.md](docs/specs/06-budget-models.md) - Cost models and budget tracking
-
-## 🙏 Acknowledgments
-
-- Built on [Claude Agent SDK](https://docs.anthropic.com/agent-sdk)
-- Inspired by real production workflows
-- Cost models based on 2025 AI video generation pricing
-- Claude Vision for seed asset analysis
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/aaronmarkham/claude-studio-producer/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/aaronmarkham/claude-studio-producer/discussions)
-
----
-
-**Note**: This is a production-ready framework for AI video orchestration. **Runway ML integration is fully implemented** and ready to use with an API key. Other video providers (Pika, Luma, Kling, Stability) have interfaces and cost models defined, with integration pending.
+- [GitHub Issues](https://github.com/aaronmarkham/claude-studio-producer/issues)
+- [Architecture Docs](docs/)
