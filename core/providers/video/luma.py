@@ -250,19 +250,154 @@ class LumaProvider(VideoProvider):
 
         return ratio_map.get(aspect_ratio, "16:9")
 
+    async def submit_generation(
+        self,
+        prompt: str,
+        duration: float = 5.0,
+        aspect_ratio: str = "16:9",
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Submit a generation request without waiting for completion.
+
+        Returns immediately with generation ID and metadata for later polling.
+
+        Args:
+            prompt: Text description of desired video
+            duration: Target duration in seconds (5 or 9)
+            aspect_ratio: Video aspect ratio
+            **kwargs: Same as generate_video
+
+        Returns:
+            Dict with:
+                - generation_id: ID for polling
+                - request_params: Parameters used
+                - resolution: Resolution setting
+                - duration_str: Duration string used
+                - cost_estimate: Estimated cost
+        """
+        # Map duration to Luma format (5s or 9s)
+        duration_str = "5s" if duration <= 7 else "9s"
+        actual_duration = 5.0 if duration_str == "5s" else 9.0
+
+        # Determine resolution from kwargs or default to 720p
+        resolution = kwargs.get("resolution", "720p")
+
+        # Validate and normalize aspect ratio
+        if aspect_ratio not in self.ASPECT_RATIOS:
+            aspect_ratio = self._normalize_aspect_ratio(aspect_ratio)
+
+        # Build keyframes if provided
+        keyframes = self._build_keyframes(kwargs)
+
+        # Build concepts (camera motion)
+        concepts = []
+        if kwargs.get("camera_motion"):
+            concepts.append({"key": kwargs["camera_motion"]})
+
+        # Build request parameters
+        request_params = {
+            "prompt": prompt[:2000],
+            "model": kwargs.get("model", self.model),
+            "aspect_ratio": aspect_ratio,
+            "loop": kwargs.get("loop", False),
+        }
+
+        # Add optional params
+        if keyframes:
+            request_params["keyframes"] = keyframes
+        if concepts:
+            request_params["concepts"] = concepts
+        if kwargs.get("character_ref_url"):
+            request_params["character_ref"] = {
+                "type": "image",
+                "url": kwargs["character_ref_url"]
+            }
+
+        # Submit generation (returns immediately)
+        generation = self.client.generations.create(**request_params)
+
+        return {
+            "generation_id": generation.id,
+            "request_params": request_params,
+            "resolution": resolution,
+            "duration_str": duration_str,
+            "actual_duration": actual_duration,
+            "cost_estimate": self.COST_MAP.get((resolution, duration_str), 0.40),
+            "aspect_ratio": aspect_ratio,
+            "prompt": prompt[:200],
+        }
+
+    async def wait_for_generation(
+        self,
+        generation_id: str,
+        submission_info: Dict[str, Any],
+        timeout: int = 600,
+        poll_interval: int = 10,
+        quiet: bool = False
+    ) -> GenerationResult:
+        """
+        Wait for a previously submitted generation to complete.
+
+        Args:
+            generation_id: ID from submit_generation
+            submission_info: Info dict from submit_generation
+            timeout: Maximum wait time in seconds
+            poll_interval: Seconds between status checks
+            quiet: If True, suppress progress output
+
+        Returns:
+            GenerationResult with video URL and metadata
+        """
+        try:
+            video_url = await self._wait_for_completion(
+                generation_id,
+                timeout=timeout,
+                poll_interval=poll_interval,
+                quiet=quiet
+            )
+
+            return GenerationResult(
+                success=True,
+                video_url=video_url,
+                duration=submission_info.get("actual_duration", 5.0),
+                cost=submission_info.get("cost_estimate", 0.40),
+                provider_metadata={
+                    "provider": "luma",
+                    "generation_id": generation_id,
+                    "model": submission_info.get("request_params", {}).get("model", "ray-2"),
+                    "resolution": submission_info.get("resolution", "720p"),
+                    "aspect_ratio": submission_info.get("aspect_ratio", "16:9"),
+                    "prompt": submission_info.get("prompt", ""),
+                }
+            )
+
+        except TimeoutError as e:
+            return GenerationResult(
+                success=False,
+                error_message=f"Luma generation timed out: {str(e)}"
+            )
+        except Exception as e:
+            return GenerationResult(
+                success=False,
+                error_message=f"Luma generation failed: {str(e)}"
+            )
+
     async def _wait_for_completion(
         self,
         generation_id: str,
-        timeout: int = 300,
-        poll_interval: int = 5
+        timeout: int = 600,
+        poll_interval: int = 10,
+        quiet: bool = False
     ) -> str:
         """
         Poll until generation completes.
 
         Args:
             generation_id: Luma generation ID
-            timeout: Maximum wait time in seconds
-            poll_interval: Seconds between status checks
+            timeout: Maximum wait time in seconds (default: 600 = 10 min)
+            poll_interval: Seconds between status checks (default: 10)
+            quiet: If True, suppress progress output
 
         Returns:
             Video URL
@@ -271,15 +406,26 @@ class LumaProvider(VideoProvider):
             TimeoutError: If generation doesn't complete in time
             Exception: If generation fails
         """
+        import time
+        start_time = time.time()
         elapsed = 0
+
+        if not quiet:
+            print(f"[Luma] Waiting for generation {generation_id}...")
 
         while elapsed < timeout:
             # Get current status (synchronous call)
             generation = self.client.generations.get(generation_id)
+            elapsed = int(time.time() - start_time)
+
+            if not quiet:
+                print(f"[Luma] Status: {generation.state} (elapsed: {elapsed}s)")
 
             if generation.state == "completed":
                 # Return video URL from assets
                 if hasattr(generation, 'assets') and generation.assets:
+                    if not quiet:
+                        print(f"[Luma] Completed! URL: {generation.assets.video}")
                     return generation.assets.video
                 raise Exception("Generation completed but no video URL found")
 
@@ -289,9 +435,8 @@ class LumaProvider(VideoProvider):
 
             # Still processing (queued, dreaming, etc.)
             await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
 
-        raise TimeoutError(f"Luma generation timed out after {timeout}s")
+        raise TimeoutError(f"Luma generation timed out after {timeout}s (last state: {generation.state})")
 
     async def generate_continuous(
         self,
@@ -440,3 +585,82 @@ class LumaProvider(VideoProvider):
             return [c.key for c in concepts] if concepts else []
         except Exception:
             return []
+
+    async def list_generations(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        List all generations from Luma API.
+
+        Args:
+            limit: Maximum number of generations to return
+
+        Returns:
+            List of generation info dicts
+        """
+        try:
+            response = self.client.generations.list(limit=limit)
+
+            # The response is a GenerationListResponse object
+            # Access the generations list from the response
+            generations_list = getattr(response, 'generations', None)
+            if generations_list is None:
+                # Fallback: try to access as dict-like
+                if hasattr(response, '__getitem__'):
+                    generations_list = response.get('generations', [])
+                else:
+                    generations_list = []
+
+            results = []
+            for g in generations_list:
+                # Safely extract prompt
+                prompt = "N/A"
+                if hasattr(g, 'request') and g.request and hasattr(g.request, 'prompt'):
+                    prompt = g.request.prompt[:50] if g.request.prompt else "N/A"
+
+                # Safely extract video URL
+                video_url = None
+                if g.state == "completed" and hasattr(g, 'assets') and g.assets:
+                    video_url = g.assets.video
+
+                # Safely extract failure reason
+                failure_reason = None
+                if g.state == "failed":
+                    failure_reason = getattr(g, 'failure_reason', 'Unknown')
+
+                results.append({
+                    "id": g.id,
+                    "state": g.state,
+                    "created_at": getattr(g, 'created_at', None),
+                    "prompt": prompt,
+                    "video_url": video_url,
+                    "failure_reason": failure_reason,
+                })
+            return results
+        except Exception as e:
+            raise Exception(f"Failed to list generations: {e}")
+
+    async def download_generation(self, generation_id: str, output_path: str) -> str:
+        """
+        Download a specific generation by ID.
+
+        Args:
+            generation_id: Luma generation ID
+            output_path: Local path to save the video
+
+        Returns:
+            The output path if successful
+
+        Raises:
+            Exception: If generation is not completed or download fails
+        """
+        gen = self.client.generations.get(generation_id)
+        if gen.state != "completed":
+            raise Exception(f"Generation {generation_id} is not completed (state: {gen.state})")
+
+        if not hasattr(gen, 'assets') or not gen.assets or not gen.assets.video:
+            raise Exception(f"Generation {generation_id} has no video URL")
+
+        success = await self.download_video(gen.assets.video, output_path)
+        if not success:
+            raise Exception(f"Failed to download video from {gen.assets.video}")
+
+        return output_path

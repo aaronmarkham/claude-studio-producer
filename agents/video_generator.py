@@ -184,6 +184,154 @@ class VideoGeneratorAgent(StudioAgent):
             }
         )
 
+    async def generate_scenes_parallel(
+        self,
+        scenes: List[Scene],
+        production_tier: ProductionTier,
+        budget_per_scene: float,
+        num_variations: int = 1,
+        seed_asset_lookup: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Any] = None
+    ) -> Dict[str, List[GeneratedVideo]]:
+        """
+        Generate videos for multiple scenes in parallel.
+
+        Submits all generation requests at once, then waits for all to complete.
+        This is much faster than sequential generation for providers like Luma.
+
+        Args:
+            scenes: List of scenes to generate
+            production_tier: Quality tier
+            budget_per_scene: Budget limit per scene
+            num_variations: Number of variations per scene
+            seed_asset_lookup: Optional dict mapping asset IDs to asset objects
+            progress_callback: Optional callback(scene_id, status, elapsed) for updates
+
+        Returns:
+            Dict mapping scene_id to list of GeneratedVideo objects
+        """
+        # Check if provider supports parallel generation
+        if not hasattr(self.provider, 'submit_generation'):
+            # Fall back to sequential for providers without parallel support
+            results = {}
+            for scene in scenes:
+                start_image_url = self._get_seed_image(scene, seed_asset_lookup)
+                videos = await self.generate_scene(
+                    scene=scene,
+                    production_tier=production_tier,
+                    budget_limit=budget_per_scene,
+                    num_variations=num_variations,
+                    image_url=start_image_url
+                )
+                results[scene.scene_id] = videos
+            return results
+
+        # Phase 1: Submit all generations
+        pending = []  # List of (scene, variation_id, generation_id, submission_info)
+
+        for scene in scenes:
+            start_image_url = self._get_seed_image(scene, seed_asset_lookup)
+            prompt = self._build_prompt(scene, production_tier)
+
+            for var_id in range(num_variations):
+                try:
+                    kwargs = {}
+                    if start_image_url:
+                        kwargs["start_image_url"] = start_image_url
+
+                    submission = await self.provider.submit_generation(
+                        prompt=prompt,
+                        duration=scene.duration,
+                        aspect_ratio="16:9",
+                        **kwargs
+                    )
+
+                    pending.append({
+                        "scene": scene,
+                        "variation_id": var_id,
+                        "generation_id": submission["generation_id"],
+                        "submission_info": submission,
+                        "prompt": prompt
+                    })
+
+                    print(f"[Parallel] Submitted {scene.scene_id} v{var_id}: {submission['generation_id'][:12]}...")
+
+                except Exception as e:
+                    print(f"[Parallel] Failed to submit {scene.scene_id} v{var_id}: {e}")
+
+        if not pending:
+            return {}
+
+        print(f"[Parallel] All {len(pending)} generations submitted, waiting for completion...")
+
+        # Phase 2: Wait for all generations in parallel
+        async def wait_single(item):
+            try:
+                result = await self.provider.wait_for_generation(
+                    generation_id=item["generation_id"],
+                    submission_info=item["submission_info"],
+                    quiet=True  # Suppress individual status messages
+                )
+                return {
+                    "scene": item["scene"],
+                    "variation_id": item["variation_id"],
+                    "result": result,
+                    "prompt": item["prompt"]
+                }
+            except Exception as e:
+                return {
+                    "scene": item["scene"],
+                    "variation_id": item["variation_id"],
+                    "result": None,
+                    "error": str(e),
+                    "prompt": item["prompt"]
+                }
+
+        # Wait for all in parallel
+        completed = await asyncio.gather(*[wait_single(item) for item in pending])
+
+        # Phase 3: Organize results by scene
+        results: Dict[str, List[GeneratedVideo]] = {}
+
+        for item in completed:
+            scene = item["scene"]
+            if scene.scene_id not in results:
+                results[scene.scene_id] = []
+
+            if item.get("result") and item["result"].success:
+                video = GeneratedVideo(
+                    scene_id=scene.scene_id,
+                    variation_id=item["variation_id"],
+                    video_url=item["result"].video_url or "",
+                    thumbnail_url="",
+                    duration=item["result"].duration or scene.duration,
+                    generation_cost=item["result"].cost or 0.0,
+                    provider=item["result"].provider_metadata.get("provider", "unknown"),
+                    metadata={
+                        "prompt": item["prompt"],
+                        "tier": production_tier.value,
+                        **item["result"].provider_metadata
+                    }
+                )
+                results[scene.scene_id].append(video)
+                print(f"[Parallel] Completed {scene.scene_id} v{item['variation_id']}")
+            else:
+                error = item.get("error", "Unknown error")
+                print(f"[Parallel] Failed {scene.scene_id} v{item['variation_id']}: {error}")
+
+        return results
+
+    def _get_seed_image(self, scene: Scene, seed_asset_lookup: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Get seed image URL for a scene if available"""
+        if not scene.seed_asset_refs or not seed_asset_lookup:
+            return None
+
+        for ref in scene.seed_asset_refs:
+            if ref.usage == "source_frame" and ref.asset_id in seed_asset_lookup:
+                asset = seed_asset_lookup[ref.asset_id]
+                return getattr(asset, 'local_path', None)
+        return None
+
     def _build_prompt(self, scene: Scene, tier: ProductionTier) -> str:
         """Build optimized video generation prompt"""
 
