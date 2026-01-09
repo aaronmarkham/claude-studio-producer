@@ -474,7 +474,7 @@ def print_final_summary(result: dict, run_dir: Path, total_time: float):
 # PROVIDER SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_video_provider(provider_name: str, live: bool):
+def get_video_provider(provider_name: str, live: bool, timeout: int = 300):
     """Get video provider instance based on name and mode"""
     if not live:
         return MockVideoProvider(), "mock"
@@ -488,7 +488,13 @@ def get_video_provider(provider_name: str, live: bool):
             console.print(f"     [{t.warning}]⚠ LUMA_API_KEY not set - using mock[/{t.warning}]")
             return MockVideoProvider(), "mock"
         from core.providers.video.luma import LumaProvider
-        return LumaProvider(), "luma"
+        from core.providers.base import VideoProviderConfig, ProviderType
+        config = VideoProviderConfig(
+            provider_type=ProviderType.LUMA,
+            api_key=api_key,
+            timeout=timeout
+        )
+        return LumaProvider(config=config), "luma"
 
     elif provider_name == "runway":
         api_key = os.getenv("RUNWAY_API_KEY")
@@ -499,7 +505,7 @@ def get_video_provider(provider_name: str, live: bool):
         config = VideoProviderConfig(
             provider_type=ProviderType.RUNWAY,
             api_key=api_key,
-            timeout=300
+            timeout=timeout
         )
         return RunwayProvider(config=config), "runway"
 
@@ -546,6 +552,7 @@ def get_audio_provider(live: bool):
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
 @click.option("--verbose", "-V", is_flag=True, help="Show full artifacts without truncation")
 @click.option("--theme", "-t", default=None, help="Color theme (default, ocean, sunset, matrix, pro, neon, mono)")
+@click.option("--timeout", type=int, default=600, help="Video generation timeout in seconds (default: 600)")
 def produce_cmd(
     concept: str,
     budget: float,
@@ -560,7 +567,8 @@ def produce_cmd(
     debug: bool,
     as_json: bool,
     verbose: bool,
-    theme: Optional[str]
+    theme: Optional[str],
+    timeout: int
 ):
     """
     Run the full video production pipeline with multi-agent orchestration.
@@ -583,6 +591,9 @@ def produce_cmd(
 
         # Use a different color theme
         claude-studio produce -c "test" --mock --theme matrix
+
+        # Longer timeout for busy Luma queue
+        claude-studio produce -c "My video" --live -p luma --timeout 900
     """
     # Set theme (from CLI arg or environment variable)
     theme_name = theme or get_default_theme_name()
@@ -649,7 +660,8 @@ def produce_cmd(
             run_id=run_id,
             debug=debug,
             as_json=as_json,
-            verbose=verbose
+            verbose=verbose,
+            timeout=timeout
         ))
 
         total_time = time.time() - start_time
@@ -687,7 +699,8 @@ async def _run_production(
     run_id: str,
     debug: bool,
     as_json: bool,
-    verbose: bool = False
+    verbose: bool = False,
+    timeout: int = 600
 ) -> dict:
     """Run the production pipeline with impressive agent orchestration display"""
 
@@ -736,7 +749,7 @@ async def _run_production(
         console.print("│")
 
     # Get providers
-    video_provider, actual_video_provider = get_video_provider(provider_name, use_live)
+    video_provider, actual_video_provider = get_video_provider(provider_name, use_live, timeout)
     audio_provider, actual_audio_provider = get_audio_provider(use_live)
     metadata["actual_video_provider"] = actual_video_provider
     metadata["actual_audio_provider"] = actual_audio_provider
@@ -760,7 +773,7 @@ async def _run_production(
 
     if not as_json:
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]ProducerAgent[/{t.agent_name}]")
-        console.print("│     └─ Analyzing request...")
+        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Analyzing concept & planning tiers...[/{t.dimmed}]")
 
     pilots = await producer.analyze_and_plan(concept, budget)
     if not pilots:
@@ -785,7 +798,7 @@ async def _run_production(
 
     if not as_json:
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]ScriptWriterAgent[/{t.agent_name}]")
-        console.print("│     └─ Generating scenes with audio specs...")
+        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Generating {num_scenes} scenes with prompts...[/{t.dimmed}]")
 
     scenes = await script_writer.create_script(
         video_concept=concept,
@@ -841,6 +854,8 @@ async def _run_production(
     if not as_json:
         # Show video generator box
         console.print(f"│   ┌─ [{t.agent_name}]VideoGeneratorAgent[/{t.agent_name}] ─────────────────────────────────")
+        prov_display = actual_video_provider.capitalize()
+        console.print(f"│   │  [{t.parallel_indicator}]⚡ {prov_display} API[/{t.parallel_indicator}] [{t.dimmed}]Generating {len(scenes)} scenes...[/{t.dimmed}]")
 
     for i, scene in enumerate(scenes):
         scene_start = time.time()
@@ -895,6 +910,10 @@ async def _run_production(
         console.print(f"│   ┌─ [{t.agent_name}]AudioGeneratorAgent[/{t.agent_name}] [{t.dimmed}](parallel)[/{t.dimmed}] ─────────────────────")
 
     if audio_tier != AudioTier.NONE:
+        # Show audio provider API call
+        audio_prov_display = "OpenAI TTS" if use_live else "Mock"
+        if not as_json:
+            console.print(f"│   │  [{t.parallel_indicator}]⚡ {audio_prov_display} API[/{t.parallel_indicator}] [{t.dimmed}]Generating voiceover & music...[/{t.dimmed}]")
         stage_start = time.time()
 
         scene_audio = await audio_generator.run(
@@ -941,7 +960,7 @@ async def _run_production(
 
     if not as_json:
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]QAVerifierAgent[/{t.agent_name}]")
-        console.print("│     └─ Verifying video quality...")
+        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Analyzing video quality & coherence...[/{t.dimmed}]")
 
     qa_results = {}
     passed_count = 0
@@ -987,7 +1006,7 @@ async def _run_production(
 
     if not as_json:
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]CriticAgent[/{t.agent_name}]")
-        console.print("│     └─ Evaluating pilot results...")
+        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Scoring production quality & approval...[/{t.dimmed}]")
 
     scene_results = []
     for scene in scenes:
@@ -1027,7 +1046,7 @@ async def _run_production(
 
     if not as_json:
         console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]EditorAgent[/{t.agent_name}]")
-        console.print("│     └─ Creating edit candidates...")
+        console.print(f"│     ├─ [{t.strands_pattern}]◆ Claude API[/{t.strands_pattern}] [{t.dimmed}]Creating edit decision list (EDL)...[/{t.dimmed}]")
 
     edl = await editor.run(
         scenes=scenes,
