@@ -5,6 +5,7 @@ from typing import List, Optional
 from strands import tool
 from core.budget import ProductionTier, COST_MODELS
 from core.claude_client import ClaudeClient, JSONExtractor
+from core.models.memory import ProviderKnowledge
 from .base import StudioAgent
 
 
@@ -37,7 +38,8 @@ class ProducerAgent(StudioAgent):
     async def analyze_and_plan(
         self,
         user_request: str,
-        total_budget: float
+        total_budget: float,
+        provider_knowledge: Optional[ProviderKnowledge] = None
     ) -> List[PilotStrategy]:
         """
         Analyze request to determine production strategy
@@ -45,16 +47,40 @@ class ProducerAgent(StudioAgent):
         Args:
             user_request: Description of the video to create
             total_budget: Total budget available
+            provider_knowledge: Optional learned knowledge about the video provider
 
         Returns:
             List of pilot strategies to test
         """
+        # Build provider guidelines section if we have knowledge
+        provider_guidelines = ""
+        if provider_knowledge:
+            provider_guidelines = f"""
+IMPORTANT - PROVIDER LEARNINGS (from {provider_knowledge.total_runs} previous runs with {provider_knowledge.provider}):
+
+Provider Strengths (leverage these):
+{self._format_list(provider_knowledge.known_strengths)}
+
+Provider Weaknesses (avoid these):
+{self._format_list(provider_knowledge.known_weaknesses)}
+
+Prompt Guidelines (follow these):
+{self._format_list(provider_knowledge.prompt_guidelines)}
+
+Things to Avoid:
+{self._format_list(provider_knowledge.avoid_list)}
+
+Average Quality Score: {provider_knowledge.avg_quality:.0f}/100
+Average Prompt Adherence: {provider_knowledge.avg_adherence:.0f}/100
+
+Consider these learnings when planning the production strategy.
+"""
 
         prompt = f"""You are a video production planner.
 
 REQUEST: {user_request}
 BUDGET: ${total_budget}
-
+{provider_guidelines}
 Available production tiers:
 - static_images: $0.02/sec - Slideshows (quality ceiling: 75/100)
 - motion_graphics: $0.08/sec - Explainers, infographics (quality ceiling: 85/100)
@@ -130,3 +156,9 @@ Return ONLY valid JSON (no markdown, no explanation):
         )
 
         return round(video_cost + claude_cost, 2)
+
+    def _format_list(self, items: List[str]) -> str:
+        """Format a list of items as bullet points"""
+        if not items:
+            return "  (none yet)"
+        return "\n".join(f"  - {item}" for item in items[:10])  # Limit to 10 items

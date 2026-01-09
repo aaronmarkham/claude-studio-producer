@@ -6,6 +6,7 @@ from strands import tool
 from core.budget import ProductionTier
 from core.claude_client import ClaudeClient, JSONExtractor
 from core.models.audio import SyncPoint
+from core.models.memory import ProviderKnowledge
 from core.models.seed_assets import SeedAssetRef
 from .base import StudioAgent
 
@@ -63,7 +64,9 @@ class ScriptWriterAgent(StudioAgent):
         video_concept: str,
         target_duration: float = 60.0,
         production_tier: ProductionTier = ProductionTier.ANIMATED,
-        num_scenes: Optional[int] = None
+        num_scenes: Optional[int] = None,
+        available_assets: Optional[List[str]] = None,
+        provider_knowledge: Optional[ProviderKnowledge] = None
     ) -> List[Scene]:
         """
         Break down video concept into detailed scenes
@@ -73,6 +76,8 @@ class ScriptWriterAgent(StudioAgent):
             target_duration: Total video length in seconds
             production_tier: The quality tier (affects scene complexity)
             num_scenes: Optional override for number of scenes (auto-calculated if None)
+            available_assets: Optional list of available seed asset filenames
+            provider_knowledge: Optional learned knowledge about the video provider
 
         Returns:
             List of Scene objects with detailed breakdowns
@@ -85,6 +90,47 @@ class ScriptWriterAgent(StudioAgent):
         # Adjust complexity based on production tier
         tier_guidance = self._get_tier_guidance(production_tier)
 
+        # Build seed assets guidance if provided
+        seed_assets_guidance = ""
+        if available_assets:
+            asset_list = "\n".join(f"  - {asset}" for asset in available_assets)
+            seed_assets_guidance = f"""
+AVAILABLE SEED ASSETS:
+The following images are available to use as starting frames for video generation.
+Reference them by filename in scenes where they would enhance the visual:
+{asset_list}
+
+When using a seed asset:
+- Add the filename to the scene's seed_asset_refs array with usage "source_frame"
+- The video will animate FROM this image
+- Best for: product shots, logos, UI screenshots, storyboard frames
+"""
+
+        # Build provider-specific guidance if we have learned knowledge
+        provider_guidance = ""
+        if provider_knowledge and provider_knowledge.total_runs > 0:
+            provider_guidance = f"""
+CRITICAL - VIDEO PROVIDER GUIDELINES (learned from {provider_knowledge.total_runs} runs with {provider_knowledge.provider}):
+
+What works well with this provider:
+{self._format_bullet_list(provider_knowledge.known_strengths)}
+
+What this provider struggles with (AVOID these in descriptions):
+{self._format_bullet_list(provider_knowledge.known_weaknesses)}
+
+Prompt writing tips (FOLLOW these for better results):
+{self._format_bullet_list(provider_knowledge.prompt_guidelines)}
+
+Things to AVOID in your scene descriptions:
+{self._format_bullet_list(provider_knowledge.avoid_list)}
+
+Best prompt patterns that work well:
+{self._format_bullet_list(provider_knowledge.best_prompt_patterns)}
+
+IMPORTANT: Apply these guidelines to EVERY scene description and prompt_hints!
+Keep descriptions simple and concrete. Avoid abstract concepts.
+"""
+
         prompt = f"""You are a professional video scriptwriter and production planner.
 
 VIDEO CONCEPT: {video_concept}
@@ -93,7 +139,8 @@ PRODUCTION TIER: {production_tier.value}
 ESTIMATED SCENES: {num_scenes}
 
 {tier_guidance}
-
+{seed_assets_guidance}
+{provider_guidance}
 Break this concept into individual scenes. Each scene should:
 - Be 3-8 seconds long (total should sum to approximately {target_duration} seconds)
 - Have a clear visual focus
@@ -144,7 +191,10 @@ Return ONLY valid JSON (no markdown, no explanation):
       "vo_end_buffer": 0.5,
       "text_overlay": "Text to display on screen (or null if no text needed)",
       "text_position": "center",
-      "text_style": "title"
+      "text_style": "title",
+      "seed_asset_refs": [
+        {{"asset_id": "product_hero.png", "usage": "source_frame"}}
+      ]
     }}
   ]
 }}
@@ -248,6 +298,12 @@ TIER GUIDANCE (Photorealistic):
         }
 
         return guidance_map.get(tier, "")
+
+    def _format_bullet_list(self, items: List[str]) -> str:
+        """Format a list of items as bullet points for prompts"""
+        if not items:
+            return "  (no data yet)"
+        return "\n".join(f"  - {item}" for item in items[:8])  # Limit to 8 items
 
     def get_total_duration(self, scenes: List[Scene]) -> float:
         """Calculate total duration of all scenes"""

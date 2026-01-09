@@ -1,9 +1,11 @@
 """Critic Agent - Evaluates pilot results and makes budget decisions"""
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from datetime import datetime, timezone
+from typing import List, Dict, Optional, Any
 from strands import tool
 from core.claude_client import ClaudeClient, JSONExtractor
+from core.models.memory import ProviderLearning
 from .base import StudioAgent
 
 
@@ -195,3 +197,143 @@ Return ONLY valid JSON:
         ))
 
         return best
+
+    @tool
+    async def analyze_provider_performance(
+        self,
+        scenes: List[Any],  # Scene objects
+        videos: List[Any],  # GeneratedVideo objects
+        qa_results: List[Any],  # QA results
+        provider: str,
+        run_id: str,
+        concept: str
+    ) -> ProviderLearning:
+        """
+        Analyze how well the provider performed and extract learnings.
+        Uses Claude to compare prompts vs results and identify patterns.
+
+        Args:
+            scenes: List of Scene objects with descriptions
+            videos: List of GeneratedVideo objects
+            qa_results: List of QA verification results
+            provider: Provider name (e.g., "luma", "runway")
+            run_id: Current run ID
+            concept: Original concept description
+
+        Returns:
+            ProviderLearning with insights about what worked and didn't
+        """
+        # Format scenes and results for analysis
+        scene_analysis = self._format_scenes_for_provider_analysis(scenes, videos, qa_results)
+
+        prompt = f"""You are analyzing AI video generation results to extract learnings about the provider.
+
+PROVIDER: {provider}
+CONCEPT: {concept}
+
+SCENES AND RESULTS:
+{scene_analysis}
+
+Analyze what worked and what didn't. Consider:
+1. Did the videos match the scene descriptions/prompts?
+2. What types of prompts produced good results?
+3. What types of prompts failed or produced unexpected results?
+4. Any patterns in successful vs unsuccessful generations?
+5. What should we do differently next time with this provider?
+
+Return ONLY valid JSON:
+{{
+    "overall_success": true,
+    "adherence_score": 75,
+    "quality_score": 80,
+    "effective_patterns": ["pattern that worked well", "another good pattern"],
+    "strengths_observed": ["what the provider did well"],
+    "ineffective_patterns": ["pattern that didn't work"],
+    "weaknesses_observed": ["what the provider struggled with"],
+    "prompt_tips": ["specific actionable tip for future prompts"],
+    "avoid_list": ["things to avoid in prompts"],
+    "concept_type": "demo",
+    "prompt_analysis": [
+        {{"prompt": "the prompt used", "result": "good", "notes": "why it worked/failed"}}
+    ]
+}}
+
+Be specific and actionable. Focus on patterns that can help improve future prompts."""
+
+        response = await self.claude.query(prompt)
+        data = JSONExtractor.extract(response)
+
+        # Build ProviderLearning from response
+        return ProviderLearning(
+            provider=provider,
+            run_id=run_id,
+            timestamp=datetime.now(timezone.utc),
+            overall_success=data.get("overall_success", True),
+            adherence_score=data.get("adherence_score", 70),
+            quality_score=data.get("quality_score", 70),
+            effective_patterns=data.get("effective_patterns", []),
+            strengths_observed=data.get("strengths_observed", []),
+            ineffective_patterns=data.get("ineffective_patterns", []),
+            weaknesses_observed=data.get("weaknesses_observed", []),
+            prompt_tips=data.get("prompt_tips", []),
+            avoid_list=data.get("avoid_list", []),
+            concept_type=data.get("concept_type", ""),
+            prompt_samples=data.get("prompt_analysis", [])
+        )
+
+    def _format_scenes_for_provider_analysis(
+        self,
+        scenes: List[Any],
+        videos: List[Any],
+        qa_results: List[Any]
+    ) -> str:
+        """Format scenes, videos, and QA results for provider analysis"""
+        lines = []
+
+        # Create lookup dicts
+        video_lookup = {}
+        for video in videos:
+            scene_id = getattr(video, 'scene_id', None)
+            if scene_id:
+                if scene_id not in video_lookup:
+                    video_lookup[scene_id] = []
+                video_lookup[scene_id].append(video)
+
+        qa_lookup = {}
+        for qa in qa_results:
+            scene_id = getattr(qa, 'scene_id', None)
+            if scene_id:
+                qa_lookup[scene_id] = qa
+
+        for i, scene in enumerate(scenes, 1):
+            scene_id = getattr(scene, 'scene_id', f'scene_{i}')
+            description = getattr(scene, 'description', '')
+            title = getattr(scene, 'title', '')
+            prompt_hints = getattr(scene, 'prompt_hints', [])
+
+            lines.append(f"\n=== Scene {i}: {title} ===")
+            lines.append(f"PROMPT/DESCRIPTION: {description}")
+            if prompt_hints:
+                lines.append(f"HINTS: {', '.join(prompt_hints)}")
+
+            # Add video results
+            scene_videos = video_lookup.get(scene_id, [])
+            if scene_videos:
+                for j, video in enumerate(scene_videos):
+                    quality = getattr(video, 'quality_score', None)
+                    cost = getattr(video, 'generation_cost', 0)
+                    lines.append(f"  Video {j+1}: Quality={quality}/100, Cost=${cost:.2f}")
+            else:
+                lines.append("  No videos generated")
+
+            # Add QA result
+            qa = qa_lookup.get(scene_id)
+            if qa:
+                passed = getattr(qa, 'passed', False)
+                score = getattr(qa, 'overall_score', 0)
+                feedback = getattr(qa, 'feedback', '')
+                lines.append(f"  QA: {'PASSED' if passed else 'FAILED'} (Score: {score})")
+                if feedback:
+                    lines.append(f"  QA Feedback: {feedback[:200]}")
+
+        return "\n".join(lines)
