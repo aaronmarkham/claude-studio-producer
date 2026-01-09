@@ -23,11 +23,13 @@ class Settings(BaseSettings):
     runway_api_key: str = ""
     elevenlabs_api_key: str = ""
     openai_api_key: str = ""
+    luma_api_key: str = ""
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra env vars not defined here
 
 
 # Global settings instance

@@ -1,0 +1,463 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Claude Studio Producer{% endblock %}
+
+{% block extra_styles %}
+/* Dashboard-specific styles */
+.runs-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.runs-table th,
+.runs-table td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.runs-table th {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--bg-secondary);
+}
+
+.runs-table tr:hover {
+    background: var(--bg-hover);
+}
+
+.runs-table tr:last-child td {
+    border-bottom: none;
+}
+
+.run-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+}
+
+.run-link:hover {
+    text-decoration: underline;
+}
+
+.concept-text {
+    max-width: 300px;
+    color: var(--text-primary);
+}
+
+.budget-display {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.budget-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.budget-text span {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.time-display {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.progress-cell {
+    min-width: 120px;
+}
+
+.progress-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.quick-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+}
+
+.action-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    flex: 1;
+    min-width: 280px;
+}
+
+.action-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+
+.action-card-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.code-block {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    overflow-x: auto;
+}
+
+/* Filter and Sort Controls */
+.controls-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.filter-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    transition: all 0.15s;
+}
+
+.filter-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.filter-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.filter-chip .count {
+    background: rgba(255,255,255,0.2);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+}
+
+.filter-chip.active .count {
+    background: rgba(255,255,255,0.3);
+}
+
+.sort-select {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.sort-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Pagination */
+.pagination-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+}
+
+.pagination-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.page-btn {
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+
+.page-btn:hover:not(.disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.page-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+/* Status badge for mock */
+.status-badge.mock {
+    background: rgba(156, 163, 175, 0.1);
+    color: #9ca3af;
+}
+
+.status-badge.mock .status-dot {
+    background: #9ca3af;
+}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">Overview of your video production runs</p>
+</div>
+
+<!-- Stats Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Runs</div>
+        <div class="stat-value accent">{{ stats.total_runs }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Spent</div>
+        <div class="stat-value">${{ "%.2f"|format(stats.total_spent) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Success Rate</div>
+        <div class="stat-value success">{{ stats.success_rate }}%</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Patterns Learned</div>
+        <div class="stat-value warning">{{ stats.patterns_learned }}</div>
+    </div>
+</div>
+
+<!-- Recent Runs -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">All Runs</h2>
+    </div>
+
+    <!-- Controls Bar -->
+    <div class="controls-bar" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+        <div class="filter-group">
+            <span class="filter-label">Filter:</span>
+            {% for status_name, count in status_counts.items() %}
+            <label class="filter-chip {% if status_name in status_filter %}active{% endif %}" data-status="{{ status_name }}">
+                <input type="checkbox" style="display:none;"
+                    {% if status_name in status_filter %}checked{% endif %}
+                    onchange="updateFilters()">
+                {{ status_name }}
+                <span class="count">{{ count }}</span>
+            </label>
+            {% endfor %}
+        </div>
+        <div class="filter-group">
+            <span class="filter-label">Sort:</span>
+            <select class="sort-select" onchange="updateSort(this.value)">
+                <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest First</option>
+                <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>Oldest First</option>
+                <option value="budget_high" {% if sort == 'budget_high' %}selected{% endif %}>Budget (High-Low)</option>
+                <option value="budget_low" {% if sort == 'budget_low' %}selected{% endif %}>Budget (Low-High)</option>
+                <option value="name" {% if sort == 'name' %}selected{% endif %}>Name</option>
+            </select>
+        </div>
+    </div>
+
+    {% if runs %}
+    <table class="runs-table">
+        <thead>
+            <tr>
+                <th>Run ID</th>
+                <th>Concept</th>
+                <th>Status</th>
+                <th>Progress</th>
+                <th>Budget</th>
+                <th>Duration</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for run in runs %}
+            <tr>
+                <td>
+                    <a href="/runs/{{ run.run_id }}/preview" class="run-link">{{ run.run_id[:12] }}...</a>
+                </td>
+                <td>
+                    <div class="concept-text truncate">{{ run.concept }}</div>
+                </td>
+                <td>
+                    <span class="status-badge {{ run.status }}">
+                        <span class="status-dot"></span>
+                        {{ run.status.replace('_', ' ') }}
+                    </span>
+                </td>
+                <td class="progress-cell">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ run.progress }}%"></div>
+                    </div>
+                    <div class="progress-text">{{ run.progress }}%</div>
+                </td>
+                <td>
+                    <div class="budget-display">
+                        <div class="budget-text"><span>${{ "%.2f"|format(run.budget_spent) }}</span> / ${{ "%.2f"|format(run.budget_total) }}</div>
+                    </div>
+                </td>
+                <td>
+                    <div class="time-display">{{ run.duration or '-' }}</div>
+                </td>
+                <td>
+                    <div class="time-display">{{ run.created_at }}</div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div class="pagination-bar" style="padding: 16px 20px;">
+        <div class="pagination-info">
+            Showing {{ pagination.showing_start }}-{{ pagination.showing_end }} of {{ pagination.total_runs }} runs
+        </div>
+        <div class="pagination-controls">
+            {% if pagination.has_prev %}
+            <a href="?page={{ pagination.page - 1 }}&sort={{ sort }}&status_filter={{ status_filter }}" class="page-btn">&larr; Prev</a>
+            {% else %}
+            <span class="page-btn disabled">&larr; Prev</span>
+            {% endif %}
+
+            {% for p in range(1, pagination.total_pages + 1) %}
+                {% if p == pagination.page %}
+                <span class="page-btn active">{{ p }}</span>
+                {% elif p <= 3 or p > pagination.total_pages - 2 or (p >= pagination.page - 1 and p <= pagination.page + 1) %}
+                <a href="?page={{ p }}&sort={{ sort }}&status_filter={{ status_filter }}" class="page-btn">{{ p }}</a>
+                {% elif p == 4 and pagination.page > 5 %}
+                <span class="page-btn disabled">...</span>
+                {% elif p == pagination.total_pages - 2 and pagination.page < pagination.total_pages - 4 %}
+                <span class="page-btn disabled">...</span>
+                {% endif %}
+            {% endfor %}
+
+            {% if pagination.has_next %}
+            <a href="?page={{ pagination.page + 1 }}&sort={{ sort }}&status_filter={{ status_filter }}" class="page-btn">Next &rarr;</a>
+            {% else %}
+            <span class="page-btn disabled">Next &rarr;</span>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">&#127916;</div>
+        <div class="empty-state-title">No runs match your filters</div>
+        <p>Try adjusting your filters or start a new video production run</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function updateFilters() {
+    const chips = document.querySelectorAll('.filter-chip');
+    const activeStatuses = [];
+    chips.forEach(chip => {
+        if (chip.querySelector('input').checked) {
+            activeStatuses.push(chip.dataset.status);
+        }
+    });
+    const sort = document.querySelector('.sort-select').value;
+    const filterParam = activeStatuses.length > 0 ? activeStatuses.join(',') : '';
+    window.location.href = `?page=1&sort=${sort}&status_filter=${filterParam}`;
+}
+
+function updateSort(sortValue) {
+    const chips = document.querySelectorAll('.filter-chip');
+    const activeStatuses = [];
+    chips.forEach(chip => {
+        if (chip.querySelector('input').checked) {
+            activeStatuses.push(chip.dataset.status);
+        }
+    });
+    const filterParam = activeStatuses.length > 0 ? activeStatuses.join(',') : '';
+    window.location.href = `?page=1&sort=${sortValue}&status_filter=${filterParam}`;
+}
+</script>
+
+<!-- Quick Actions -->
+<div class="quick-actions">
+    <div class="action-card">
+        <div class="action-card-title">Start a New Run</div>
+        <div class="action-card-desc">Use the CLI to start a new video production</div>
+        <div class="code-block">claude-studio produce -c "Your video concept" --mock</div>
+    </div>
+    <div class="action-card">
+        <div class="action-card-title">Live Production</div>
+        <div class="action-card-desc">Run with real AI providers (requires API keys)</div>
+        <div class="code-block">claude-studio produce -c "Your concept" --live -p luma</div>
+    </div>
+</div>
+{% endblock %}

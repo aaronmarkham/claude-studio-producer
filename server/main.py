@@ -9,13 +9,17 @@ import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from server.routes import agents, workflows, artifacts
+from server.routes import memory as memory_routes
+from server.routes import runs as runs_routes
 from server.config import settings
 
 
@@ -67,10 +71,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static files mounted after app definition below
+
 # Include routers
 app.include_router(agents.router, prefix="/agents", tags=["Agents"])
 app.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
 app.include_router(artifacts.router, prefix="/artifacts", tags=["Artifacts"])
+app.include_router(memory_routes.router, prefix="/memory", tags=["Memory"])
+app.include_router(runs_routes.router, prefix="/runs", tags=["Runs"])
 
 
 @app.get("/health")
@@ -111,28 +119,50 @@ async def root():
                 "list": "GET /artifacts",
                 "category": "GET /artifacts/{category}",
                 "runs": "GET /artifacts/runs/{run_id}"
+            },
+            "runs": {
+                "list": "GET /runs",
+                "detail": "GET /runs/{run_id}",
+                "assets": "GET /runs/{run_id}/assets",
+                "preview": "GET /runs/{run_id}/preview (HTML)",
+                "live": "WS /runs/{run_id}/live"
+            },
+            "memory": {
+                "overview": "GET /memory",
+                "preferences": "GET/PUT /memory/preferences",
+                "patterns": "GET /memory/patterns",
+                "history": "GET /memory/history",
+                "analytics": "GET /memory/analytics"
             }
         }
     }
 
 
-# Error handlers
-@app.exception_handler(404)
-async def not_found_handler(request, exc):
-    return {
-        "error": "Not Found",
-        "detail": str(exc.detail) if hasattr(exc, "detail") else "Resource not found",
-        "path": str(request.url.path)
-    }
+# Error handlers - Note: Don't catch 404 for API routes, let FastAPI/Starlette handle them
+# The StaticFiles mount handles its own 404s for /files/ paths
 
 
 @app.exception_handler(500)
-async def internal_error_handler(request, exc):
-    return {
-        "error": "Internal Server Error",
-        "detail": str(exc),
-        "path": str(request.url.path)
-    }
+async def internal_error_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal Server Error",
+            "detail": str(exc),
+            "path": str(request.url.path)
+        }
+    )
+
+
+# Mount static files for serving artifacts (videos, audio, etc.)
+# Using /files prefix to avoid any conflict with API routes
+artifacts_path = Path(settings.artifact_dir)
+print(f"[DEBUG] Artifacts path: {artifacts_path}, exists: {artifacts_path.exists()}")
+if artifacts_path.exists():
+    print(f"[DEBUG] Mounting static files at /files from {artifacts_path}")
+    app.mount("/files", StaticFiles(directory=str(artifacts_path)), name="static_files")
+else:
+    print(f"[WARN] Artifacts path does not exist, static files not mounted!")
 
 
 if __name__ == "__main__":

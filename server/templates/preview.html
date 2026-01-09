@@ -1,0 +1,585 @@
+{% extends "base.html" %}
+
+{% block title %}Run {{ run.run_id[:12] }} - Claude Studio Producer{% endblock %}
+
+{% block extra_styles %}
+/* Preview-specific styles */
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.back-link:hover {
+    color: var(--accent);
+}
+
+.run-header {
+    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
+    padding: 24px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+}
+
+.run-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.run-title h1 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.run-concept {
+    color: var(--text-secondary);
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.run-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.meta-item {
+    background: var(--bg-primary);
+    padding: 12px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.meta-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.meta-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.meta-value.success { color: var(--success); }
+.meta-value.warning { color: var(--warning); }
+.meta-value.accent { color: var(--accent); }
+
+/* Content sections */
+.content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+@media (max-width: 1024px) {
+    .content-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.section-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+.section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.section-content {
+    padding: 20px;
+}
+
+/* Media player */
+.media-container {
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.media-container video,
+.media-container audio {
+    width: 100%;
+    display: block;
+}
+
+.media-placeholder {
+    aspect-ratio: 16/9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    background: var(--bg-primary);
+}
+
+/* Pilot cards */
+.pilots-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pilot-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.pilot-card.winner {
+    border-color: var(--success);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.pilot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.pilot-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.pilot-tier {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--accent);
+}
+
+.pilot-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.pilot-stat {
+    text-align: center;
+}
+
+.pilot-stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.pilot-stat-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Timeline */
+.timeline {
+    position: relative;
+    padding-left: 24px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: var(--border);
+}
+
+.timeline-item {
+    position: relative;
+    padding-bottom: 16px;
+}
+
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+.timeline-dot {
+    position: absolute;
+    left: -20px;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+}
+
+.timeline-item.completed .timeline-dot {
+    background: var(--success);
+    border-color: var(--success);
+}
+
+.timeline-item.current .timeline-dot {
+    background: var(--warning);
+    border-color: var(--warning);
+}
+
+.timeline-stage {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.timeline-time {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* Assets list */
+.assets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.asset-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+}
+
+.asset-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.asset-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+
+.asset-name {
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.asset-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.asset-actions a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+}
+
+.asset-actions a:hover {
+    text-decoration: underline;
+}
+
+.empty-section {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+{% endblock %}
+
+{% block content %}
+<a href="/runs/dashboard" class="back-link">&larr; Back to Dashboard</a>
+
+<div class="run-header">
+    <div class="run-title">
+        <h1>{{ run.run_id }}</h1>
+        <span class="status-badge {{ run.current_stage }}">
+            <span class="status-dot"></span>
+            {{ run.current_stage.replace('_', ' ') }}
+        </span>
+    </div>
+    <p class="run-concept">{{ run.concept }}</p>
+
+    <div class="run-meta">
+        <div class="meta-item">
+            <div class="meta-label">Progress</div>
+            <div class="meta-value accent">{{ run.progress_percent }}%</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Budget</div>
+            <div class="meta-value">${{ "%.2f"|format(run.budget_spent) }} / ${{ "%.2f"|format(run.budget_total) }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Audio Tier</div>
+            <div class="meta-value">{{ run.audio_tier }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Scenes</div>
+            <div class="meta-value">{{ run.scenes_completed }} / {{ run.total_scenes }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="progress-bar" style="height: 8px; margin-bottom: 24px;">
+    <div class="progress-fill" style="width: {{ run.progress_percent }}%"></div>
+</div>
+
+<div class="content-grid">
+    <!-- Video Preview -->
+    <div class="section">
+        <div class="section-header">
+            <h3 class="section-title">Video Preview</h3>
+        </div>
+        <div class="section-content">
+            <div class="media-container">
+                {% if run.final_video_path %}
+                <video controls>
+                    <source src="/files/{{ run.final_video_path }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                {% else %}
+                <div class="media-placeholder">No video generated yet</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Preview -->
+    <div class="section">
+        <div class="section-header">
+            <h3 class="section-title">Audio Preview</h3>
+        </div>
+        <div class="section-content">
+            {% if run.audio_path %}
+            <audio controls style="width: 100%;">
+                <source src="/files/{{ run.audio_path }}" type="audio/mpeg">
+                Your browser does not support the audio tag.
+            </audio>
+            {% else %}
+            <div class="media-placeholder" style="aspect-ratio: auto; padding: 40px;">No audio generated yet</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Pilots -->
+    <div class="section">
+        <div class="section-header">
+            <h3 class="section-title">Pilots ({{ run.pilots|length }})</h3>
+        </div>
+        <div class="section-content">
+            {% if run.pilots %}
+            <div class="pilots-grid">
+                {% for pilot in run.pilots %}
+                <div class="pilot-card {% if pilot.pilot_id == run.winning_pilot_id %}winner{% endif %}">
+                    <div class="pilot-header">
+                        <span class="pilot-name">
+                            {{ pilot.pilot_id }}
+                            {% if pilot.pilot_id == run.winning_pilot_id %}
+                            <span class="text-success">(Winner)</span>
+                            {% endif %}
+                        </span>
+                        <span class="pilot-tier">{{ pilot.tier }}</span>
+                    </div>
+                    <div class="pilot-stats">
+                        <div class="pilot-stat">
+                            <div class="pilot-stat-label">Budget</div>
+                            <div class="pilot-stat-value">${{ "%.2f"|format(pilot.spent_budget) }}/${{ "%.2f"|format(pilot.allocated_budget) }}</div>
+                        </div>
+                        <div class="pilot-stat">
+                            <div class="pilot-stat-label">Scenes</div>
+                            <div class="pilot-stat-value">{{ pilot.scenes_generated }}</div>
+                        </div>
+                        <div class="pilot-stat">
+                            <div class="pilot-stat-label">Score</div>
+                            <div class="pilot-stat-value">{{ pilot.quality_score or '-' }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-section">No pilots created yet</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="section">
+        <div class="section-header">
+            <h3 class="section-title">Timeline</h3>
+        </div>
+        <div class="section-content">
+            {% if run.timeline %}
+            <div class="timeline">
+                {% for event in run.timeline %}
+                <div class="timeline-item {% if loop.last %}current{% else %}completed{% endif %}">
+                    <div class="timeline-dot"></div>
+                    <div class="timeline-stage">{{ event.stage.replace('_', ' ').title() }}</div>
+                    <div class="timeline-time">
+                        {{ event.timestamp }}
+                        {% if event.duration_ms %}({{ event.duration_ms }}ms){% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-section">No timeline events yet</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Seed Assets -->
+    {% if run.seed_assets %}
+    <div class="section" style="grid-column: span 2;">
+        <div class="section-header">
+            <h3 class="section-title">Seed Assets ({{ run.seed_assets|length }})</h3>
+        </div>
+        <div class="section-content">
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;">
+                {% for seed in run.seed_assets %}
+                <div style="background: var(--bg-secondary); border-radius: 8px; overflow: hidden;">
+                    {% if seed.path.endswith('.png') or seed.path.endswith('.jpg') or seed.path.endswith('.jpeg') or seed.path.endswith('.gif') or seed.path.endswith('.webp') %}
+                    <img src="/files/{{ seed.path }}" alt="{{ seed.asset_id }}" style="width: 100%; height: 150px; object-fit: cover;">
+                    {% else %}
+                    <div style="width: 100%; height: 150px; display: flex; align-items: center; justify-content: center; background: var(--bg-primary); color: var(--text-muted);">
+                        {% if seed.asset_type == 'video' %}&#127916;{% elif seed.asset_type == 'audio' %}&#127925;{% else %}&#128196;{% endif %}
+                    </div>
+                    {% endif %}
+                    <div style="padding: 12px;">
+                        <div style="font-size: 12px; color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ seed.asset_id }}</div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">{{ seed.asset_type }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if run.extracted_themes %}
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Extracted Themes</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {% for theme in run.extracted_themes %}
+                    <span style="background: var(--accent); color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px;">{{ theme }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if run.extracted_colors %}
+            <div style="margin-top: 12px;">
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Extracted Colors</div>
+                <div style="display: flex; gap: 8px;">
+                    {% for color in run.extracted_colors %}
+                    <div style="width: 32px; height: 32px; background: {{ color }}; border-radius: 6px; border: 1px solid var(--border);" title="{{ color }}"></div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Assets -->
+    <div class="section" style="grid-column: span 2;">
+        <div class="section-header">
+            <h3 class="section-title">Assets ({{ run.assets|length }})</h3>
+        </div>
+        <div class="section-content">
+            {% if run.assets %}
+            <div class="assets-list">
+                {% for asset in run.assets %}
+                <div class="asset-item" style="flex-direction: column; align-items: stretch;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="asset-info">
+                            <div class="asset-icon">
+                                {% if asset.asset_type == 'video' %}&#127916;{% elif asset.asset_type == 'audio' %}&#127925;{% elif asset.asset_type == 'image' %}&#128247;{% else %}&#128196;{% endif %}
+                            </div>
+                            <div>
+                                <div class="asset-name">{{ asset.asset_id }}</div>
+                                <div class="asset-meta">{{ asset.asset_type }} {% if asset.duration %}| {{ asset.duration }}s{% endif %} {% if asset.cost %}| ${{ "%.2f"|format(asset.cost) }}{% endif %}</div>
+                            </div>
+                        </div>
+                        <div class="asset-actions">
+                            <a href="/files/{{ asset.path }}" target="_blank">View</a>
+                        </div>
+                    </div>
+                    {% if asset.metadata and asset.metadata.qa_overall_score is defined %}
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 8px;">
+                            <span style="font-size: 12px; color: var(--text-muted);">QA Score:</span>
+                            <span style="font-weight: 600; color: {% if asset.metadata.qa_passed %}var(--success){% else %}var(--error){% endif %};">
+                                {{ asset.metadata.qa_overall_score }}/100 {% if asset.metadata.qa_passed %}PASSED{% else %}FAILED{% endif %}
+                            </span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px;">
+                            <div><span style="color: var(--text-muted);">Visual:</span> {{ asset.metadata.qa_visual_accuracy }}</div>
+                            <div><span style="color: var(--text-muted);">Style:</span> {{ asset.metadata.qa_style_consistency }}</div>
+                            <div><span style="color: var(--text-muted);">Technical:</span> {{ asset.metadata.qa_technical_quality }}</div>
+                            <div><span style="color: var(--text-muted);">Narrative:</span> {{ asset.metadata.qa_narrative_fit }}</div>
+                        </div>
+                        {% if asset.metadata.qa_issues %}
+                        <div style="margin-top: 8px; font-size: 11px;">
+                            <span style="color: var(--text-muted);">Issues:</span>
+                            <ul style="margin: 4px 0 0 16px; color: var(--text-secondary);">
+                                {% for issue in asset.metadata.qa_issues[:3] %}
+                                <li>{{ issue }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-section">No assets generated yet</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if run.errors %}
+<div class="section" style="margin-top: 24px; border-color: var(--error);">
+    <div class="section-header" style="background: rgba(239, 68, 68, 0.1);">
+        <h3 class="section-title text-error">Errors ({{ run.errors|length }})</h3>
+    </div>
+    <div class="section-content">
+        {% for error in run.errors %}
+        <div style="padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text-secondary);">{{ error }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
