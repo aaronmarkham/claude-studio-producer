@@ -166,12 +166,128 @@ class ClaudeClient:
             ]
 
             # Create message with vision
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",  # Supports vision
-                max_tokens=4096,
-                messages=[{"role": "user", "content": message_content}],
-                system=system_prompt if system_prompt else None
+            create_kwargs = {
+                "model": "claude-sonnet-4-20250514",  # Supports vision
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": message_content}],
+            }
+            # Only add system if provided (API doesn't accept None)
+            if system_prompt:
+                create_kwargs["system"] = system_prompt
+
+            response = client.messages.create(**create_kwargs)
+
+            response_text = response.content[0].text
+
+            if self.debug:
+                print(f"[DEBUG] Received vision response ({len(response_text)} chars)")
+
+            return response_text.strip()
+
+        except ImportError:
+            raise ImportError(
+                "anthropic SDK is required for vision queries. "
+                "Install with: pip install anthropic"
             )
+
+    async def query_with_images(
+        self,
+        prompt: str,
+        images: list,
+        system_prompt: Optional[str] = None
+    ) -> str:
+        """
+        Send a query to Claude with multiple images for vision analysis
+
+        Args:
+            prompt: The user prompt
+            images: List of dicts with 'data' (base64) and 'media_type' keys,
+                    or list of file paths (str/Path)
+            system_prompt: Optional system prompt
+
+        Returns:
+            Clean text response from Claude
+
+        Raises:
+            ValueError: If image format is not supported
+            ImportError: If Anthropic SDK is not available
+        """
+        if self.debug:
+            print(f"\n[DEBUG] Sending vision query with {len(images)} images")
+
+        # Vision queries require direct Anthropic SDK
+        try:
+            import anthropic
+            import os
+
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "ANTHROPIC_API_KEY environment variable not set. "
+                    "Vision queries require the Anthropic SDK."
+                )
+
+            client = anthropic.Anthropic(api_key=api_key)
+
+            # Build message content with all images
+            message_content = []
+
+            for img in images:
+                if isinstance(img, dict):
+                    # Already formatted as {data: base64, media_type: ...}
+                    message_content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": img.get("media_type", "image/jpeg"),
+                            "data": img["data"],
+                        },
+                    })
+                elif isinstance(img, (str, Path)):
+                    # File path - read and encode
+                    img_path = Path(img)
+                    if not img_path.exists():
+                        raise FileNotFoundError(f"Image not found: {img_path}")
+
+                    image_data = img_path.read_bytes()
+                    image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
+
+                    extension = img_path.suffix.lower()
+                    media_type_map = {
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".png": "image/png",
+                        ".gif": "image/gif",
+                        ".webp": "image/webp"
+                    }
+                    media_type = media_type_map.get(extension, "image/jpeg")
+
+                    message_content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_b64,
+                        },
+                    })
+
+            # Add the text prompt at the end
+            message_content.append({
+                "type": "text",
+                "text": prompt
+            })
+
+            # Create message with vision
+            create_kwargs = {
+                "model": "claude-sonnet-4-20250514",  # Supports vision
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": message_content}],
+            }
+            # Only add system if provided (API doesn't accept None)
+            if system_prompt:
+                create_kwargs["system"] = system_prompt
+
+            response = client.messages.create(**create_kwargs)
 
             response_text = response.content[0].text
 

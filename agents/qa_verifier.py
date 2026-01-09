@@ -1,9 +1,17 @@
 """QA Verifier Agent - Video quality analysis with vision"""
 
 import asyncio
+import base64
+import os
 import random
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
+
+import httpx
 from strands import tool
 
 from core.budget import ProductionTier, COST_MODELS
@@ -152,33 +160,120 @@ class QAVerifierAgent(StudioAgent):
 
         return await asyncio.gather(*tasks)
 
-    async def _extract_frames(self, video_url: str) -> List[str]:
+    async def _extract_frames(self, video_path: str) -> List[Dict[str, str]]:
         """
         Extract key frames from video as base64 images
 
         Args:
-            video_url: URL of the video to extract frames from
+            video_path: URL or local path of the video to extract frames from
 
         Returns:
-            List of base64-encoded frame images
+            List of dicts with 'data' (base64) and 'media_type' keys
         """
-        # TODO: Implement real frame extraction using ffmpeg
-        # For now, return mock frames
-        # In production, this would:
-        # 1. Download video from URL
-        # 2. Use ffmpeg to extract frames at start, middle, end
-        # 3. Encode frames as base64
-        # 4. Return list of base64 strings
+        # Download video if it's a URL
+        if video_path.startswith("http"):
+            local_path = await self._download_video(video_path)
+            cleanup_after = True
+        else:
+            local_path = video_path
+            cleanup_after = False
 
-        raise NotImplementedError(
-            "Frame extraction not yet implemented. "
-            "Use mock_mode=True for testing."
+        try:
+            # Get video duration using ffprobe
+            duration = await self._get_video_duration(local_path)
+
+            frames = []
+            # Extract frames at evenly spaced intervals
+            for i in range(self.num_frames):
+                # Calculate timestamp (avoid very start/end)
+                timestamp = (duration / (self.num_frames + 1)) * (i + 1)
+
+                # Create temp file for frame
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                    tmp_path = tmp.name
+
+                try:
+                    # Extract frame with ffmpeg
+                    result = subprocess.run(
+                        [
+                            'ffmpeg', '-ss', str(timestamp),
+                            '-i', local_path,
+                            '-vframes', '1',
+                            '-q:v', '2',  # High quality JPEG
+                            '-y', tmp_path
+                        ],
+                        capture_output=True,
+                        timeout=30
+                    )
+
+                    if result.returncode != 0:
+                        print(f"[QA] Warning: ffmpeg frame extraction failed: {result.stderr.decode()[:200]}")
+                        continue
+
+                    # Read and encode as base64
+                    with open(tmp_path, 'rb') as f:
+                        frame_data = base64.b64encode(f.read()).decode('utf-8')
+
+                    frames.append({
+                        "data": frame_data,
+                        "media_type": "image/jpeg"
+                    })
+                finally:
+                    # Clean up temp frame file
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+
+            if not frames:
+                raise RuntimeError("Failed to extract any frames from video")
+
+            return frames
+
+        finally:
+            # Clean up downloaded video
+            if cleanup_after and os.path.exists(local_path):
+                os.unlink(local_path)
+
+    async def _download_video(self, url: str) -> str:
+        """Download video from URL to temp file"""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+
+            # Create temp file with appropriate extension
+            parsed = urlparse(url)
+            ext = Path(parsed.path).suffix or '.mp4'
+
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp.write(response.content)
+                return tmp.name
+
+    async def _get_video_duration(self, video_path: str) -> float:
+        """Get video duration in seconds using ffprobe"""
+        result = subprocess.run(
+            [
+                'ffprobe', '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                video_path
+            ],
+            capture_output=True,
+            timeout=30
         )
+
+        if result.returncode != 0:
+            # Default to 5 seconds if we can't determine duration
+            print(f"[QA] Warning: Could not determine video duration, defaulting to 5s")
+            return 5.0
+
+        try:
+            return float(result.stdout.decode().strip())
+        except ValueError:
+            return 5.0
 
     async def _analyze_with_vision(
         self,
         scene: Scene,
-        frames: List[str],
+        frames: List[Dict[str, str]],
         original_request: str,
         production_tier: ProductionTier
     ) -> Dict[str, Any]:
@@ -187,7 +282,7 @@ class QAVerifierAgent(StudioAgent):
 
         Args:
             scene: Scene specification
-            frames: List of base64-encoded frames
+            frames: List of dicts with 'data' (base64) and 'media_type' keys
             original_request: High-level video concept
             production_tier: Expected quality tier
 
@@ -195,7 +290,7 @@ class QAVerifierAgent(StudioAgent):
             Dictionary with scores and feedback
         """
 
-        prompt = f"""You are a video QA specialist evaluating generated content.
+        prompt = f"""You are a video QA specialist evaluating AI-generated video content.
 
 SCENE SPECIFICATION:
 - Title: {scene.title}
@@ -207,26 +302,31 @@ SCENE SPECIFICATION:
 ORIGINAL REQUEST CONTEXT:
 {original_request}
 
-I'm showing you {len(frames)} frames from the generated video (start, middle, end).
+I'm showing you {len(frames)} frames from the generated video (extracted at evenly-spaced intervals from start to end).
 
 Evaluate the video on these criteria:
 
 1. **Visual Accuracy** (0-100): Do the visuals match the scene description?
-   - Are all specified visual elements present?
-   - Is the composition appropriate?
+   - Are the specified visual elements present?
+   - Is the composition appropriate for the description?
+   - Does it capture the intended mood/atmosphere?
 
 2. **Style Consistency** (0-100): Does it match the expected production tier?
    - For {production_tier.value}: Does it meet that quality level?
-   - Is the aesthetic consistent?
+   - Is the aesthetic consistent across frames?
+   - Does it look like professional {production_tier.value} content?
 
 3. **Technical Quality** (0-100): Any artifacts, blur, or rendering issues?
-   - Resolution and clarity
-   - Smoothness and continuity
-   - Any technical defects
+   - Resolution and clarity of the frames
+   - Any visual glitches, artifacts, or distortions
+   - Color consistency and lighting quality
 
 4. **Narrative Fit** (0-100): Does this scene work in the overall story?
-   - Does it advance the narrative?
-   - Does it fit the tone?
+   - Does it fit the tone of the original request?
+   - Would it work well in context?
+
+Be honest and critical. AI video generation often has issues - call them out.
+Common issues to look for: morphing/warping, unnatural motion blur, inconsistent objects between frames, text/writing problems.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{
@@ -235,15 +335,17 @@ Return ONLY valid JSON (no markdown, no explanation):
   "style_consistency": 82,
   "technical_quality": 85,
   "narrative_fit": 85,
-  "issues": ["List any issues found"],
-  "suggestions": ["List actionable improvements"]
+  "issues": ["Specific issue 1", "Specific issue 2"],
+  "suggestions": ["Actionable improvement 1", "Actionable improvement 2"]
 }}"""
 
-        # Note: In production, this would include the frames as images
-        # Using Claude's multimodal capabilities:
-        # response = await self.claude.query_with_images(prompt, frames)
+        # Use Claude's vision API with the extracted frames
+        if self.use_vision and frames:
+            response = await self.claude.query_with_images(prompt, frames)
+        else:
+            # Fallback to text-only (won't have frame context)
+            response = await self.claude.query(prompt)
 
-        response = await self.claude.query(prompt)
         return JSONExtractor.extract(response)
 
     async def _mock_verify(
