@@ -17,6 +17,11 @@ class SceneResult:
     video_url: str
     qa_score: float  # 0-100
     generation_cost: float
+    # QA details for Critic to consider
+    qa_passed: bool = True
+    qa_threshold: float = 70.0
+    qa_issues: List[str] = None
+    qa_suggestions: List[str] = None
 
 
 @dataclass
@@ -35,6 +40,9 @@ class PilotResults:
     gap_analysis: Dict = None
     critic_reasoning: str = ""
     adjustments_needed: List[str] = None
+    # QA override tracking
+    qa_failures_count: int = 0
+    qa_override_reasoning: str = ""  # Why Critic approved despite QA failures
 
 
 class CriticAgent(StudioAgent):
@@ -72,9 +80,11 @@ class CriticAgent(StudioAgent):
             PilotResults with critic's evaluation and decision
         """
         
-        # Calculate average QA score
+        # Calculate average QA score and count failures
         avg_qa = sum(s.qa_score for s in scene_results) / len(scene_results)
-        
+        qa_failures = [s for s in scene_results if not s.qa_passed]
+        qa_failure_count = len(qa_failures)
+
         # Prepare scene summaries for analysis
         scene_summaries = []
         for scene in scene_results:
@@ -82,9 +92,25 @@ class CriticAgent(StudioAgent):
                 "scene_id": scene.scene_id,
                 "description": scene.description,
                 "qa_score": scene.qa_score,
+                "qa_passed": scene.qa_passed,
+                "qa_threshold": scene.qa_threshold,
+                "qa_issues": scene.qa_issues or [],
                 "cost": scene.generation_cost
             })
         
+        # Build QA status summary
+        if qa_failure_count > 0:
+            qa_status_summary = f"""
+QA STATUS: {qa_failure_count}/{len(scene_results)} scenes FAILED QA verification
+- QA uses vision analysis to check technical quality (blur, artifacts, coherence)
+- Failed scenes did not meet the quality threshold for this production tier
+- You may override QA failures if the creative value justifies it, but you MUST explain why
+"""
+        else:
+            qa_status_summary = f"""
+QA STATUS: All {len(scene_results)} scenes PASSED QA verification
+"""
+
         prompt = f"""You are a production critic evaluating test scenes from a video pilot.
 
 ORIGINAL REQUEST:
@@ -96,7 +122,7 @@ PILOT DETAILS:
 - Budget allocated: ${budget_allocated}
 - Budget spent: ${budget_spent}
 - Scenes produced: {len(scene_results)}
-
+{qa_status_summary}
 TEST SCENE RESULTS:
 {self._format_scene_results(scene_summaries)}
 
@@ -109,6 +135,12 @@ Perform a gap analysis between the original request and what was generated.
 2. What's missing or incorrectly interpreted?
 3. Is the quality acceptable for this tier?
 4. Should we continue this pilot with more budget?
+
+IMPORTANT - QA FAILURES:
+If any scenes failed QA verification, you must explicitly address this:
+- Acknowledge which scenes failed and why
+- Explain whether the technical issues are acceptable for the use case
+- If approving despite failures, provide clear justification (e.g., "motion blur is minor and doesn't detract from the creative intent")
 
 SCORING RUBRIC:
 - 90-100: Excellent match, continue with 100% remaining budget
@@ -127,8 +159,11 @@ Return ONLY valid JSON:
   "decision": "continue",
   "budget_multiplier": 0.75,
   "reasoning": "Good execution but needs adjustment in X",
-  "adjustments_needed": ["adjustment1", "adjustment2"]
-}}"""
+  "adjustments_needed": ["adjustment1", "adjustment2"],
+  "qa_override_reasoning": "Scene 1 failed QA due to motion blur, but the blur adds cinematic effect appropriate for this style"
+}}
+
+Note: "qa_override_reasoning" is REQUIRED if any scenes failed QA and you're approving. Leave empty string if all scenes passed or if rejecting."""
 
         response = await self.claude.query(prompt)
         critique_data = JSONExtractor.extract(response)
@@ -157,19 +192,27 @@ Return ONLY valid JSON:
             budget_remaining=recommended_budget,
             gap_analysis=critique_data["gap_analysis"],
             critic_reasoning=critique_data["reasoning"],
-            adjustments_needed=critique_data.get("adjustments_needed", [])
+            adjustments_needed=critique_data.get("adjustments_needed", []),
+            qa_failures_count=qa_failure_count,
+            qa_override_reasoning=critique_data.get("qa_override_reasoning", "")
         )
-        
+
         return result
     
     def _format_scene_results(self, scenes: List[Dict]) -> str:
-        """Format scene results for the prompt"""
+        """Format scene results for the prompt, highlighting QA failures"""
         lines = []
         for i, scene in enumerate(scenes, 1):
-            lines.append(f"Scene {i}:")
+            qa_status = "PASSED" if scene.get('qa_passed', True) else "FAILED"
+            lines.append(f"Scene {i}: [{qa_status}]")
             lines.append(f"  ID: {scene['scene_id']}")
             lines.append(f"  Description: {scene['description']}")
-            lines.append(f"  QA Score: {scene['qa_score']}/100")
+            lines.append(f"  QA Score: {scene['qa_score']}/100 (threshold: {scene.get('qa_threshold', 70)})")
+            lines.append(f"  QA Status: {qa_status}")
+            if not scene.get('qa_passed', True):
+                issues = scene.get('qa_issues', [])
+                if issues:
+                    lines.append(f"  QA Issues: {'; '.join(issues[:3])}")
             lines.append(f"  Cost: ${scene['cost']:.2f}")
         return "\n".join(lines)
     

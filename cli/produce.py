@@ -306,6 +306,8 @@ def print_critic_evaluation_artifact(evaluation, verbose: bool = False):
 
     score = evaluation.critic_score if hasattr(evaluation, 'critic_score') else 70
     approved = evaluation.approved if hasattr(evaluation, 'approved') else True
+    qa_failures = getattr(evaluation, 'qa_failures_count', 0)
+    qa_override = getattr(evaluation, 'qa_override_reasoning', '')
 
     # Create visual score bars
     def score_bar(value: int, max_val: int = 10) -> str:
@@ -331,10 +333,16 @@ def print_critic_evaluation_artifact(evaluation, verbose: bool = False):
         lines.append(f"Feedback: \"{truncate_text(feedback, 42, verbose)}\"")
         lines.append("")
 
-    # Decision
+    # Decision with QA context
     status = f"[{t.approved}]APPROVED[/{t.approved}]" if approved else f"[{t.rejected}]REJECTED[/{t.rejected}]"
     threshold = "70+" if approved else "below 70"
     lines.append(f"Decision: {status} - meets threshold ({threshold})")
+
+    # Show QA override reasoning if applicable
+    if qa_failures > 0 and approved and qa_override:
+        lines.append("")
+        lines.append(f"[{t.warning}]QA Override ({qa_failures} scene(s) failed QA):[/{t.warning}]")
+        lines.append(f"  {truncate_text(qa_override, 50, verbose)}")
 
     color = t.approved if approved else t.rejected
     print_artifact_box("Quality Assessment", lines, color=color)
@@ -1153,14 +1161,21 @@ async def _run_production(
     scene_results = []
     for scene in scenes:
         videos = video_candidates.get(scene.scene_id, [])
+        scene_qa_list = qa_results.get(scene.scene_id, [])
         if videos:
             video = videos[0]
+            # Get QA data for this scene (first variation)
+            qa = scene_qa_list[0] if scene_qa_list else None
             scene_results.append(SceneResult(
                 scene_id=scene.scene_id,
                 description=scene.description,
                 video_url=video.video_url,
                 qa_score=video.quality_score or 0.0,
-                generation_cost=video.generation_cost
+                generation_cost=video.generation_cost,
+                qa_passed=qa.passed if qa else True,
+                qa_threshold=qa.threshold if qa else 70.0,
+                qa_issues=qa.issues if qa else None,
+                qa_suggestions=qa.suggestions if qa else None
             ))
 
     evaluation = await critic.evaluate_pilot(
@@ -1176,14 +1191,18 @@ async def _run_production(
     metadata["stages"]["critic"] = {
         "approved": evaluation.approved,
         "score": evaluation.critic_score,
-        "duration": critic_time
+        "duration": critic_time,
+        "qa_failures_count": evaluation.qa_failures_count,
+        "qa_override_reasoning": evaluation.qa_override_reasoning
     }
 
     # Update memory with evaluation stage
     await memory_manager.update_stage(run_id, RunStage.EVALUATING, {
         "approved": evaluation.approved,
         "critic_score": evaluation.critic_score,
-        "qa_pass_rate": pass_rate
+        "qa_pass_rate": pass_rate,
+        "qa_failures_count": evaluation.qa_failures_count,
+        "qa_override_reasoning": evaluation.qa_override_reasoning
     })
 
     if not as_json:

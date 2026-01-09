@@ -146,9 +146,13 @@ class FFmpegRenderer:
             )
 
         # Create output directory for this render
-        run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        render_dir = self.output_dir / run_id
-        render_dir.mkdir(parents=True, exist_ok=True)
+        # Only create a subdirectory if run_id is explicitly provided
+        if run_id:
+            render_dir = self.output_dir / run_id
+            render_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            render_dir = self.output_dir
+            render_dir.mkdir(parents=True, exist_ok=True)
 
         # Render the candidate
         return await self.render_candidate(
