@@ -34,10 +34,10 @@ I thought putting a feedback loop in where the agents store learning in memory f
 
 ![make-it-rain-coffee](docs/screenshots/make-it-rain-coffee.gif)
 
-**Prompt**
+**Prompt:**
 *A 15-second story of a developer having a breakthrough: Scene 1 - Wide shot of developer at desk in cozy home office at night, hunched over laptop, frustrated expression, warm desk lamp lighting. Scene 2 - They lean back with a satisfied smile, stretch arms up in victory celebration, coffee cup visible nearby, cinematic triumph moment.* 
 
-**Result:** make it rain coffee... grounds!
+**Result:** make it rain coffee...!
 
 ## Quick Start
 

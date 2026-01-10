@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -96,46 +96,8 @@ async def health():
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information"""
-    return {
-        "name": "Claude Studio Producer",
-        "version": "0.1.0",
-        "description": "Multi-agent video production API",
-        "docs": "/docs",
-        "redoc": "/redoc",
-        "health": "/health",
-        "endpoints": {
-            "agents": {
-                "list": "GET /agents",
-                "run": "POST /agents/{name}/run",
-                "schema": "GET /agents/{name}/schema"
-            },
-            "workflows": {
-                "list": "GET /workflows",
-                "run": "POST /workflows/{name}/run",
-                "status": "GET /workflows/status/{run_id}"
-            },
-            "artifacts": {
-                "list": "GET /artifacts",
-                "category": "GET /artifacts/{category}",
-                "runs": "GET /artifacts/runs/{run_id}"
-            },
-            "runs": {
-                "list": "GET /runs",
-                "detail": "GET /runs/{run_id}",
-                "assets": "GET /runs/{run_id}/assets",
-                "preview": "GET /runs/{run_id}/preview (HTML)",
-                "live": "WS /runs/{run_id}/live"
-            },
-            "memory": {
-                "overview": "GET /memory",
-                "preferences": "GET/PUT /memory/preferences",
-                "patterns": "GET /memory/patterns",
-                "history": "GET /memory/history",
-                "analytics": "GET /memory/analytics"
-            }
-        }
-    }
+    """Redirect to dashboard"""
+    return RedirectResponse(url="/runs/dashboard")
 
 
 # Error handlers - Note: Don't catch 404 for API routes, let FastAPI/Starlette handle them
