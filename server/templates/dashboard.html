@@ -270,6 +270,98 @@
 .status-badge.mock .status-dot {
     background: #9ca3af;
 }
+
+/* Delete button */
+.delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: all 0.15s;
+}
+
+.delete-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+}
+
+/* Modal */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 400px;
+    width: 90%;
+}
+
+.modal-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+.modal-body {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.modal-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+}
+
+.modal-btn-cancel {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.modal-btn-cancel:hover {
+    background: var(--bg-hover);
+}
+
+.modal-btn-danger {
+    background: var(--error);
+    border-color: var(--error);
+    color: white;
+}
+
+.modal-btn-danger:hover {
+    opacity: 0.9;
+}
 {% endblock %}
 
 {% block content %}
@@ -341,11 +433,12 @@
                 <th>Budget</th>
                 <th>Duration</th>
                 <th>Created</th>
+                <th style="width: 60px;"></th>
             </tr>
         </thead>
         <tbody>
             {% for run in runs %}
-            <tr>
+            <tr data-run-id="{{ run.run_id }}">
                 <td>
                     <a href="/runs/{{ run.run_id }}/preview" class="run-link">{{ run.run_id[:12] }}...</a>
                 </td>
@@ -374,6 +467,11 @@
                 </td>
                 <td>
                     <div class="time-display">{{ run.created_at }}</div>
+                </td>
+                <td>
+                    <button class="delete-btn" onclick="confirmDelete('{{ run.run_id }}')" title="Delete run">
+                        &#128465;
+                    </button>
                 </td>
             </tr>
             {% endfor %}
@@ -420,7 +518,25 @@
     {% endif %}
 </div>
 
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+        <div class="modal-title">Delete Run</div>
+        <div class="modal-body">
+            Are you sure you want to delete run <strong id="deleteRunId"></strong>?
+            <br><br>
+            This will permanently delete all videos, audio, and other artifacts associated with this run.
+        </div>
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+            <button class="modal-btn modal-btn-danger" onclick="executeDelete()">Delete</button>
+        </div>
+    </div>
+</div>
+
 <script>
+let runToDelete = null;
+
 function updateFilters() {
     const chips = document.querySelectorAll('.filter-chip');
     const activeStatuses = [];
@@ -445,6 +561,60 @@ function updateSort(sortValue) {
     const filterParam = activeStatuses.length > 0 ? activeStatuses.join(',') : '';
     window.location.href = `?page=1&sort=${sortValue}&status_filter=${filterParam}`;
 }
+
+function confirmDelete(runId) {
+    runToDelete = runId;
+    document.getElementById('deleteRunId').textContent = runId;
+    document.getElementById('deleteModal').classList.add('active');
+}
+
+function closeDeleteModal() {
+    runToDelete = null;
+    document.getElementById('deleteModal').classList.remove('active');
+}
+
+async function executeDelete() {
+    if (!runToDelete) return;
+
+    const deleteBtn = document.querySelector('.modal-btn-danger');
+    deleteBtn.textContent = 'Deleting...';
+    deleteBtn.disabled = true;
+
+    try {
+        const response = await fetch(`/runs/${runToDelete}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            // Remove the row from the table
+            const row = document.querySelector(`tr[data-run-id="${runToDelete}"]`);
+            if (row) {
+                row.style.opacity = '0';
+                row.style.transition = 'opacity 0.3s';
+                setTimeout(() => row.remove(), 300);
+            }
+            closeDeleteModal();
+        } else {
+            const data = await response.json();
+            alert('Failed to delete: ' + (data.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Failed to delete: ' + error.message);
+    } finally {
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.disabled = false;
+    }
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDeleteModal();
+});
+
+// Close modal on overlay click
+document.getElementById('deleteModal').addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal-overlay')) closeDeleteModal();
+});
 </script>
 
 <!-- Quick Actions -->

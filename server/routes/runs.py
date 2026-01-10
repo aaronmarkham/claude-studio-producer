@@ -256,6 +256,17 @@ async def get_run_assets(run_id: str, asset_type: str = None):
     }
 
 
+@router.delete("/{run_id}")
+async def delete_run(run_id: str):
+    """Delete a run and all its artifacts"""
+    deleted = await memory_manager.delete_run(run_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    return {"status": "deleted", "run_id": run_id}
+
+
 @router.get("/{run_id}/preview", response_class=HTMLResponse)
 async def get_run_preview(request: Request, run_id: str):
     """Get HTML preview page for a run"""
@@ -264,13 +275,59 @@ async def get_run_preview(request: Request, run_id: str):
     if not memory:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Get final video path (prefer the direct field, fallback to searching assets)
+    # Get final video path (prefer the direct field, fallback to searching assets/renders)
     final_video_path = memory.final_video_path
     if not final_video_path:
+        # First try to find in assets
         for asset in memory.assets:
             if asset.asset_type == "video" and "final" in asset.path.lower():
                 final_video_path = asset.path
                 break
+
+    # If still no final video, look for rendered videos in the renders directory
+    rendered_videos = []
+    renders_dir = Path(f"artifacts/runs/{run_id}/renders")
+    if renders_dir.exists():
+        # Search recursively for all mp4 files in renders/
+        for video_file in renders_dir.glob("**/*.mp4"):
+            if video_file.is_file():
+                # Get relative path from artifacts dir
+                rel_path = str(video_file.relative_to(Path("artifacts"))).replace("\\", "/")
+                rendered_videos.append({
+                    "name": video_file.name,
+                    "path": rel_path,
+                    "size": video_file.stat().st_size,
+                    "mtime": video_file.stat().st_mtime
+                })
+        # Sort by modification time, newest first
+        rendered_videos.sort(key=lambda x: x["mtime"], reverse=True)
+
+        # Use the most recent render as final video if not set
+        # Prefer "final" in name, otherwise use most recent
+        if not final_video_path and rendered_videos:
+            final_candidates = [v for v in rendered_videos if "final" in v["name"].lower()]
+            if final_candidates:
+                final_video_path = final_candidates[0]["path"]
+            else:
+                final_video_path = rendered_videos[0]["path"]
+
+    # Also collect individual scene videos if no renders found
+    scene_videos = []
+    videos_dir = Path(f"artifacts/runs/{run_id}/videos")
+    if videos_dir.exists():
+        for video_file in videos_dir.glob("*.mp4"):
+            if video_file.is_file():
+                rel_path = f"runs/{run_id}/videos/{video_file.name}"
+                scene_videos.append({
+                    "name": video_file.name,
+                    "path": rel_path,
+                    "size": video_file.stat().st_size
+                })
+        scene_videos.sort(key=lambda x: x["name"])
+
+    # If still no final video but we have scene videos, use first scene
+    if not final_video_path and scene_videos:
+        final_video_path = scene_videos[0]["path"]
 
     # Find audio path
     audio_path = None
@@ -311,6 +368,8 @@ async def get_run_preview(request: Request, run_id: str):
         "scenes_completed": memory.scenes_completed,
         "winning_pilot_id": memory.winning_pilot_id,
         "final_video_path": final_video_path,
+        "rendered_videos": rendered_videos,
+        "scene_videos": scene_videos,
         "audio_path": audio_path,
         "seed_assets": seed_assets,
         "extracted_themes": memory.extracted_themes,

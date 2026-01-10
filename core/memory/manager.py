@@ -70,6 +70,22 @@ class MemoryManager:
                     break
         return run_dirs
 
+    async def delete_run(self, run_id: str) -> bool:
+        """Delete a run and all its artifacts"""
+        import shutil
+
+        run_path = self.base_path / "runs" / run_id
+        if not run_path.exists():
+            return False
+
+        # Remove from in-memory cache
+        if run_id in self._short_term:
+            del self._short_term[run_id]
+
+        # Delete the directory and all contents
+        shutil.rmtree(run_path)
+        return True
+
     async def update_stage(self, run_id: str, stage: RunStage, details: dict = None):
         """Update current stage of a run"""
         memory = await self.get_run(run_id)

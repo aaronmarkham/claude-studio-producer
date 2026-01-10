@@ -373,6 +373,32 @@
                 <div class="media-placeholder">No video generated yet</div>
                 {% endif %}
             </div>
+            {% if run.rendered_videos and run.rendered_videos|length > 1 %}
+            <div style="margin-top: 12px;">
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Other Rendered Videos:</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {% for video in run.rendered_videos %}
+                    {% if video.path != run.final_video_path %}
+                    <a href="/files/{{ video.path }}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--accent); text-decoration: none;">
+                        &#127916; {{ video.name }}
+                    </a>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if run.scene_videos %}
+            <div style="margin-top: 12px;">
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Individual Scene Videos:</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {% for video in run.scene_videos %}
+                    <a href="/files/{{ video.path }}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--accent); text-decoration: none;">
+                        &#127916; {{ video.name }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 
