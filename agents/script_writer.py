@@ -42,6 +42,12 @@ class Scene:
     text_start_time: Optional[float] = None  # When text appears (None = start of scene)
     text_duration: Optional[float] = None    # How long text shows (None = whole scene)
 
+    # Continuity settings (for execution graph)
+    continuity_group: Optional[str] = None   # Group ID for scenes that must be visually continuous
+    requires_continuity_from: Optional[str] = None  # Previous scene ID this must chain from
+    is_continuity_anchor: bool = False       # First scene in a continuity chain
+    continuity_elements: List[str] = field(default_factory=list)  # ["character", "location", "lighting"]
+
 
 class ScriptWriterAgent(StudioAgent):
     """
@@ -168,6 +174,14 @@ AUDIO GUIDELINES:
 - Specify music transitions between scenes ("continue", "fade", "change", "stop")
 - List sound effects with their purpose (e.g., "notification_sound", "whoosh_transition")
 
+CONTINUITY GUIDELINES (IMPORTANT for visual consistency):
+- Scenes with the SAME character, person, or actor should share a "continuity_group"
+- Set "is_continuity_anchor": true on the FIRST scene that establishes a character/location
+- List "continuity_elements" that must stay consistent: ["character", "location", "lighting"]
+- Scenes in the same group will be generated SEQUENTIALLY to maintain visual consistency
+- B-roll, establishing shots, product shots, and transitions can be independent (no continuity_group needed)
+- Example: If scenes 2, 4, and 6 all show the same developer at a desk, give them continuity_group: "developer_desk"
+
 Return ONLY valid JSON (no markdown, no explanation):
 {{
   "scenes": [
@@ -194,7 +208,10 @@ Return ONLY valid JSON (no markdown, no explanation):
       "text_style": "title",
       "seed_asset_refs": [
         {{"asset_id": "product_hero.png", "usage": "source_frame"}}
-      ]
+      ],
+      "continuity_group": "main_character",
+      "is_continuity_anchor": true,
+      "continuity_elements": ["character", "location"]
     }}
   ]
 }}
@@ -254,7 +271,12 @@ Remember: NO readable text in visual descriptions - use text_overlay for any on-
                 text_position=scene_dict.get("text_position", "center"),
                 text_style=scene_dict.get("text_style", "title"),
                 text_start_time=float(text_start) if text_start is not None else None,
-                text_duration=float(text_dur) if text_dur is not None else None
+                text_duration=float(text_dur) if text_dur is not None else None,
+                # Continuity fields (for execution graph)
+                continuity_group=scene_dict.get("continuity_group"),
+                requires_continuity_from=scene_dict.get("requires_continuity_from"),
+                is_continuity_anchor=scene_dict.get("is_continuity_anchor", False),
+                continuity_elements=scene_dict.get("continuity_elements", [])
             ))
 
         return scenes
@@ -319,6 +341,20 @@ TIER GUIDANCE (Photorealistic):
         print(f"Total Scenes: {len(scenes)}")
         print(f"Total Duration: {total_duration:.1f} seconds\n")
 
+        # Collect continuity groups for summary
+        continuity_groups = {}
+        for scene in scenes:
+            if scene.continuity_group:
+                if scene.continuity_group not in continuity_groups:
+                    continuity_groups[scene.continuity_group] = []
+                continuity_groups[scene.continuity_group].append(scene.scene_id)
+
+        if continuity_groups:
+            print("CONTINUITY GROUPS:")
+            for group_id, scene_ids in continuity_groups.items():
+                print(f"  [{group_id}]: {' -> '.join(scene_ids)}")
+            print()
+
         for i, scene in enumerate(scenes, 1):
             print(f"\n[{i}] {scene.scene_id.upper()}: {scene.title}")
             print(f"    Duration: {scene.duration}s")
@@ -326,5 +362,9 @@ TIER GUIDANCE (Photorealistic):
             print(f"    Visual Elements: {', '.join(scene.visual_elements)}")
             print(f"    Transitions: {scene.transition_in} → {scene.transition_out}")
             print(f"    Prompt Hints: {', '.join(scene.prompt_hints)}")
+            if scene.continuity_group:
+                anchor = " [ANCHOR]" if scene.is_continuity_anchor else ""
+                elements = f" ({', '.join(scene.continuity_elements)})" if scene.continuity_elements else ""
+                print(f"    Continuity: {scene.continuity_group}{anchor}{elements}")
 
         print("\n" + "="*60 + "\n")

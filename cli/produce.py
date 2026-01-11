@@ -603,6 +603,8 @@ def load_seed_assets(directory: str) -> List[SeedAsset]:
 @click.option("--theme", "-t", default=None, help="Color theme (default, ocean, sunset, matrix, pro, neon, mono)")
 @click.option("--timeout", type=int, default=600, help="Video generation timeout in seconds (default: 600)")
 @click.option("--seed-assets", "-s", type=click.Path(exists=True), help="Directory containing seed images/assets (PNG/JPG)")
+@click.option("--execution-strategy", "-e", type=click.Choice(["auto", "all_parallel", "all_sequential", "manual"]),
+              default="auto", help="Scene execution strategy for continuity (auto detects from script)")
 def produce_cmd(
     concept: str,
     budget: float,
@@ -619,7 +621,8 @@ def produce_cmd(
     verbose: bool,
     theme: Optional[str],
     timeout: int,
-    seed_assets: Optional[str]
+    seed_assets: Optional[str],
+    execution_strategy: str
 ):
     """
     Run the full video production pipeline with multi-agent orchestration.
@@ -722,11 +725,12 @@ def produce_cmd(
             variations=variations,
             run_dir=run_dir,
             run_id=run_id,
-            debug=debug,    
+            debug=debug,
             as_json=as_json,
             verbose=verbose,
             timeout=timeout,
-            seed_assets=loaded_assets
+            seed_assets=loaded_assets,
+            execution_strategy=execution_strategy
         ))
 
         total_time = time.time() - start_time
@@ -766,7 +770,8 @@ async def _run_production(
     as_json: bool,
     verbose: bool = False,
     timeout: int = 600,
-    seed_assets: Optional[List[SeedAsset]] = None
+    seed_assets: Optional[List[SeedAsset]] = None,
+    execution_strategy: str = "auto"
 ) -> dict:
     """Run the production pipeline with impressive agent orchestration display"""
 
@@ -954,22 +959,56 @@ async def _run_production(
     # Build seed asset lookup by filename
     seed_asset_lookup = {asset.filename: asset for asset in (seed_assets or [])}
 
+    # Build execution graph based on strategy
+    from core.execution import ExecutionGraphBuilder
+
+    execution_graph = ExecutionGraphBuilder.from_scenes(scenes, strategy=execution_strategy)
+
+    # Determine execution mode description
+    if execution_strategy == "all_parallel":
+        exec_mode_desc = "all parallel (no continuity)"
+    elif execution_strategy == "all_sequential":
+        exec_mode_desc = "all sequential (max continuity)"
+    elif execution_strategy == "manual":
+        exec_mode_desc = "manual groups from script"
+    else:
+        # Auto - describe what was detected
+        num_groups = len(execution_graph.groups)
+        parallel_groups = sum(1 for g in execution_graph.groups if g.mode.value == "parallel")
+        sequential_groups = num_groups - parallel_groups
+        exec_mode_desc = f"auto ({parallel_groups} parallel, {sequential_groups} sequential groups)"
+
     if not as_json:
         # Show video generator box
         console.print(f"│   ┌─ [{t.agent_name}]VideoGeneratorAgent[/{t.agent_name}] ─────────────────────────────────")
         prov_display = actual_video_provider.capitalize()
-        console.print(f"│   │  [{t.parallel_indicator}]⚡ {prov_display} API[/{t.parallel_indicator}] [{t.dimmed}]Generating {len(scenes)} scenes in parallel...[/{t.dimmed}]")
+        console.print(f"│   │  [{t.parallel_indicator}]⚡ {prov_display} API[/{t.parallel_indicator}] [{t.dimmed}]Generating {len(scenes)} scenes ({exec_mode_desc})...[/{t.dimmed}]")
 
     # Use parallel generation for live providers that support it
     parallel_start = time.time()
 
-    video_candidates = await video_generator.generate_scenes_parallel(
-        scenes=scenes,
-        production_tier=pilot.tier,
-        budget_per_scene=pilot.allocated_budget / len(scenes),
-        num_variations=variations,
-        seed_asset_lookup=seed_asset_lookup
-    )
+    # Use graph-based execution if we have mixed modes or sequential groups
+    has_sequential = any(g.mode.value == "sequential" for g in execution_graph.groups)
+
+    if has_sequential and hasattr(video_generator.provider, 'submit_generation'):
+        # Use graph execution for continuity-aware generation
+        video_candidates = await video_generator.generate_with_graph(
+            scenes=scenes,
+            graph=execution_graph,
+            production_tier=pilot.tier,
+            budget_per_scene=pilot.allocated_budget / len(scenes),
+            num_variations=variations,
+            seed_asset_lookup=seed_asset_lookup
+        )
+    else:
+        # Fall back to simple parallel generation
+        video_candidates = await video_generator.generate_scenes_parallel(
+            scenes=scenes,
+            production_tier=pilot.tier,
+            budget_per_scene=pilot.allocated_budget / len(scenes),
+            num_variations=variations,
+            seed_asset_lookup=seed_asset_lookup
+        )
 
     # Calculate total cost and download videos
     for scene in scenes:
@@ -1011,7 +1050,9 @@ async def _run_production(
     metadata["stages"]["video_generator"] = {
         "num_videos": sum(len(v) for v in video_candidates.values()),
         "cost": total_video_cost,
-        "duration": video_time
+        "duration": video_time,
+        "execution_strategy": execution_strategy,
+        "execution_groups": len(execution_graph.groups)
     }
 
     # Update memory with video generation stage
