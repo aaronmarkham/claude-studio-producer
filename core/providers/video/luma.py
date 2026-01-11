@@ -210,11 +210,12 @@ class LumaProvider(VideoProvider):
                 "type": "image",
                 "url": kwargs["start_image_url"]
             }
-        # Or continue from previous generation
-        elif kwargs.get("continue_from"):
+        # Or continue from previous generation (support both naming conventions)
+        elif kwargs.get("continue_from") or kwargs.get("continue_from_generation_id"):
+            gen_id = kwargs.get("continue_from") or kwargs.get("continue_from_generation_id")
             keyframes["frame0"] = {
                 "type": "generation",
-                "id": kwargs["continue_from"]
+                "id": gen_id
             }
 
         # End frame from image URL
@@ -266,7 +267,16 @@ class LumaProvider(VideoProvider):
             prompt: Text description of desired video
             duration: Target duration in seconds (5 or 9)
             aspect_ratio: Video aspect ratio
-            **kwargs: Same as generate_video
+            **kwargs: Additional options:
+                - start_image_url: URL of image to start from
+                - end_image_url: URL of image to end at
+                - continue_from: Generation ID to continue from (for chaining)
+                - continue_from_generation_id: Alias for continue_from
+                - character_ref_url: URL of character reference image (ray-3 only)
+                - camera_motion: Camera concept key (e.g., "orbit", "pan_left")
+                - loop: Whether to create a looping video
+                - resolution: "540p", "720p", "1080p"
+                - model: Override default model
 
         Returns:
             Dict with:
@@ -315,7 +325,11 @@ class LumaProvider(VideoProvider):
             }
 
         # Submit generation (returns immediately)
-        generation = self.client.generations.create(**request_params)
+        try:
+            generation = self.client.generations.create(**request_params)
+        except Exception as e:
+            # Re-raise with more context about what failed
+            raise Exception(f"Luma submit_generation failed: {str(e)}") from e
 
         return {
             "generation_id": generation.id,

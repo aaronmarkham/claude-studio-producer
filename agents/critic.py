@@ -80,6 +80,22 @@ class CriticAgent(StudioAgent):
             PilotResults with critic's evaluation and decision
         """
         
+        # Handle empty scene results
+        if not scene_results:
+            return PilotResults(
+                pilot_id=pilot.pilot_id,
+                tier=pilot.tier.value if hasattr(pilot.tier, 'value') else str(pilot.tier),
+                scenes_generated=[],
+                total_cost=budget_spent,
+                avg_qa_score=0.0,
+                critic_score=0,
+                approved=False,
+                budget_remaining=budget_allocated - budget_spent,
+                critic_reasoning="No scenes were generated - video generation failed",
+                qa_failures_count=0,
+                qa_override_reasoning=""
+            )
+
         # Calculate average QA score and count failures
         avg_qa = sum(s.qa_score for s in scene_results) / len(scene_results)
         qa_failures = [s for s in scene_results if not s.qa_passed]
