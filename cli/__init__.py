@@ -11,6 +11,7 @@ from .test_provider import test_provider_cmd
 from .render import render_cmd
 from .themes import themes_cmd
 from .luma import luma_cmd
+from .memory import memory_cmd
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -32,6 +33,7 @@ def main():
       render         Render final video from existing run
       test-provider  Test a single provider (quick validation)
       luma           Luma API management (list, download, recover)
+      memory         Memory and learnings management
       status         Show system status
       providers      List and manage providers
       agents         List and manage agents
@@ -46,6 +48,7 @@ main.add_command(produce_cmd, name="produce")
 main.add_command(render_cmd, name="render")
 main.add_command(test_provider_cmd, name="test-provider")
 main.add_command(luma_cmd, name="luma")
+main.add_command(memory_cmd, name="memory")
 
 # Status and info commands
 main.add_command(status_cmd, name="status")

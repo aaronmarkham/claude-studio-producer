@@ -30,7 +30,23 @@ claude-studio
 │   ├── show            # Show current config
 │   ├── validate        # Validate API keys
 │   └── init            # Create .env template
-├── produce             # Run production (later)
+├── memory              # Memory and learnings management
+│   ├── stats           # Show memory statistics
+│   ├── list [provider] # List learnings by provider
+│   ├── search <query>  # Search learnings
+│   ├── add <provider> <pattern>  # Add a learning
+│   ├── export          # Export learnings to JSON
+│   ├── import <file>   # Import learnings from JSON
+│   ├── promote         # Promote a learning to higher level
+│   ├── clear           # Clear learnings (with confirmation)
+│   ├── tree            # Show namespace hierarchy
+│   ├── preferences     # Show user preferences
+│   └── set-pref <k> <v> # Set a preference
+├── produce             # Run production
+├── render              # Render video from existing run
+├── test-provider       # Test a single provider
+├── luma                # Luma API management
+├── themes              # List and preview color themes
 └── version             # Version info
 ```
 
