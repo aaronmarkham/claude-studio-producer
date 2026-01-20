@@ -122,7 +122,7 @@ INTENT PRESERVATION ANALYSIS
      - Use more descriptive language while keeping visuals concrete
 ```
 
-A chief concern is something like overfitting, or what I'm calling a race to the bottom. If I have to keep similifying the prompt to get better alignment, how far way from the original intent am I?
+A chief concern is something like overfitting, or what I'm calling a race to the bottom. If I have to keep simplifying the prompt to get better alignment, how far way from the original intent am I?
 
 The good news is that the feedback system works - to a degree. We'll just have to implement a smarter memory system and adjust how feedback is incorporated in subsequent runs.
 
@@ -151,11 +151,6 @@ python -m cli.produce "A serene mountain lake at sunset" --budget 5 --live
 flowchart TB
     subgraph Input["Input"]
         Request["Production Request<br/>concept + budget + seed assets"]
-    end
-
-    subgraph Memory["Memory System"]
-        STM["Short-Term Memory<br/>Run state, progress, assets"]
-        LTM["Long-Term Memory<br/>Patterns, preferences,<br/>provider learnings"]
     end
 
     subgraph Planning["Planning Stage"]
@@ -187,11 +182,56 @@ flowchart TB
     QA --> Critic
     Critic --> Editor
     Editor --> Renderer
-
-    LTM -.->|"provider guidelines"| Producer
-    LTM -.->|"prompt tips"| ScriptWriter
-    Critic -.->|"provider learnings"| LTM
 ```
+
+### Multi-Tenant Memory System
+
+The memory system uses a hierarchical namespace structure for learnings:
+
+```mermaid
+flowchart TB
+    subgraph Platform["Platform Level (Curated)"]
+        PlatformLearnings["Platform Learnings<br/>Cross-tenant best practices"]
+    end
+
+    subgraph Org["Organization Level"]
+        OrgLearnings["Org Learnings<br/>Team-specific patterns"]
+        OrgConfig["Org Config"]
+    end
+
+    subgraph User["User Level"]
+        UserLearnings["User Learnings<br/>Personal preferences"]
+        UserPrefs["Preferences"]
+    end
+
+    subgraph Session["Session Level"]
+        SessionLearnings["Session Learnings<br/>Experimental/temporary"]
+    end
+
+    subgraph Agents["Agent Integration"]
+        Producer["Producer"]
+        ScriptWriter["ScriptWriter"]
+        Critic["Critic"]
+    end
+
+    PlatformLearnings -->|"priority: 1.0"| Producer
+    OrgLearnings -->|"priority: 0.8"| Producer
+    UserLearnings -->|"priority: 0.65"| Producer
+    SessionLearnings -->|"priority: 0.5"| Producer
+
+    PlatformLearnings -->|"guidelines"| ScriptWriter
+    OrgLearnings -->|"patterns"| ScriptWriter
+    UserLearnings -->|"tips"| ScriptWriter
+
+    Critic -->|"new learnings"| UserLearnings
+    Critic -->|"promote if validated"| OrgLearnings
+```
+
+**Key Features:**
+- **Priority-based retrieval**: Platform learnings override org, org overrides user
+- **Automatic promotion**: Learnings can be promoted up the hierarchy based on validation count
+- **CLI management**: `claude-studio memory` commands for viewing, adding, and managing learnings
+- **Categories**: avoid, prefer, tip, pattern - for different types of provider knowledge
 
 ## Features
 
@@ -273,7 +313,7 @@ Run 2: System avoids VFX, uses "slow camera pan" -> Score: 88
 Run 3+: Better prompts, higher scores
 ```
 
-Learnings are stored in `artifacts/memory.json` and used to improve future runs.
+Learnings are stored in the multi-tenant memory system (`artifacts/memory/`) and used to improve future runs. Use `claude-studio memory list luma` to see current learnings.
 
 ## Screenshots
 
@@ -371,9 +411,9 @@ claude-studio-producer/
 │   └── templates/          # Dashboard HTML templates
 │
 ├── docs/
-│   ├── architecture_current.md    # Current system diagram
-│   ├── architecture_future_strands.md  # Future Strands memory integration
 │   └── specs/              # Detailed specifications
+│       ├── MULTI_TENANT_MEMORY_ARCHITECTURE.md  # Memory system design
+│       └── ...             # Other specs
 │
 └── artifacts/              # Run outputs
     ├── memory.json         # LTM with provider learnings
@@ -412,14 +452,16 @@ uvicorn server.main:app --reload
 - [x] Web dashboard
 - [x] CLI with live progress
 - [x] FFmpeg rendering
+- [x] Multi-tenant memory system with namespace hierarchy
+- [x] Memory CLI (`claude-studio memory` commands)
+- [x] Learning promotion system (session → user → org → platform)
 
 ### In Progress
-- [ ] Strands native memory integration (currently custom JSON)
 - [ ] Audio generation pipeline
 - [ ] Additional video providers (Runway, Pika)
 
 ### Future
-- [ ] Semantic search over memories
+- [ ] AWS AgentCore memory backend (production)
 - [ ] Multi-pilot competitive generation
 - [ ] Audio-video synchronization
 - [ ] S3 storage integration
