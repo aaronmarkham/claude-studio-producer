@@ -153,6 +153,10 @@ flowchart TB
         Request["Production Request<br/>concept + budget + seed assets"]
     end
 
+    subgraph Memory["Memory System"]
+        LTM["Long-Term Memory<br/>Multi-tenant namespace hierarchy<br/>Platform → Org → User → Session"]
+    end
+
     subgraph Planning["Planning Stage"]
         Producer["ProducerAgent<br/>Creates pilot strategies"]
         ScriptWriter["ScriptWriterAgent<br/>Generates scenes"]
@@ -182,6 +186,10 @@ flowchart TB
     QA --> Critic
     Critic --> Editor
     Editor --> Renderer
+
+    LTM -.->|"provider guidelines<br/>avoid patterns"| Producer
+    LTM -.->|"prompt tips<br/>what works"| ScriptWriter
+    Critic -.->|"new learnings<br/>what worked/failed"| LTM
 ```
 
 ### Multi-Tenant Memory System
