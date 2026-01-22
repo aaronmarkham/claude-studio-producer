@@ -341,6 +341,52 @@ class MemoryManager:
             long_term.provider_knowledge[provider] = knowledge
             await self._save_long_term()
 
+    async def record_onboarding_learnings(
+        self,
+        provider: str,
+        tips: List[str] = None,
+        gotchas: List[str] = None,
+        model_limitations: List[str] = None,
+    ):
+        """
+        Record learnings from provider onboarding.
+
+        This is used during provider onboarding to store tips, gotchas,
+        and limitations discovered from API documentation analysis.
+
+        Args:
+            provider: Provider name (e.g., "elevenlabs", "luma")
+            tips: List of helpful tips for using the provider
+            gotchas: List of things to avoid or watch out for
+            model_limitations: List of model-specific limitations
+        """
+        long_term = await self.get_long_term()
+
+        # Get or create provider knowledge
+        if provider not in long_term.provider_knowledge:
+            long_term.provider_knowledge[provider] = ProviderKnowledge(
+                provider=provider
+            )
+
+        knowledge = long_term.provider_knowledge[provider]
+
+        # Add tips to prompt guidelines (deduplicated)
+        for tip in (tips or []):
+            if tip and tip not in knowledge.prompt_guidelines:
+                knowledge.prompt_guidelines.append(tip)
+
+        # Add gotchas to avoid list (deduplicated)
+        for gotcha in (gotchas or []):
+            if gotcha and gotcha not in knowledge.avoid_list:
+                knowledge.avoid_list.append(gotcha)
+
+        # Add model limitations to weaknesses (deduplicated)
+        for limitation in (model_limitations or []):
+            if limitation and limitation not in knowledge.known_weaknesses:
+                knowledge.known_weaknesses.append(limitation)
+
+        await self._save_long_term()
+
     async def _transfer_to_long_term(self, short_term: ShortTermMemory):
         """Transfer learnings from completed run to long-term memory"""
         long_term = await self.get_long_term()

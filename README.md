@@ -1,12 +1,12 @@
 # Claude Studio Producer
 
-> Budget-aware multi-agent video production with AI orchestration. Manages competitive pilots, real video generation with Luma AI, vision-based QA analysis, and self-improving provider learnings.
+> Budget-aware multi-agent video production with AI orchestration. Manages competitive pilots, real video generation with Luma AI, text to audio generation with ElevenLabs, vision-based QA analysis, and self-improving provider learnings.
 
 ## Developer Notes
 
 ### What's Working Now
 
-- **Content generation** with Luma AI (image-to-video) and Runway (implemented); several other image, text to audio, music, and storage providers are stubbed out
+- **Content generation** with Luma AI (image-to-video), ElevenLabs (text to speech), and Runway (implemented); several other image, text to audio, music, and storage providers are stubbed out
 - **Vision-based QA** using Claude to analyze extracted video frames
 - **Provider onboarding and learning system** that improves prompts and production quality over time
 - **Web dashboard** to view runs, preview videos, and see QA scores
