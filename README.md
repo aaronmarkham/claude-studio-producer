@@ -142,7 +142,7 @@ $ claude-studio provider list
 │ video   │ pika       │ Stub   │ core\providers\video\pika.py       │
 │ video   │ runway     │ Ready  │ core\providers\video\runway.py     │
 │ video   │ stability  │ Stub   │ core\providers\video\stability.py  │
-│ audio   │ elevenlabs │ Stub   │ core\providers\audio\elevenlabs.py │
+│ audio   │ elevenlabs │ Ready  │ core\providers\audio\elevenlabs.py │
 │ audio   │ google_tts │ Stub   │ core\providers\audio\google_tts.py │
 │ audio   │ inworld    │ Stub   │ core\providers\audio\inworld.py    │
 │ audio   │ openai_tts │ Ready  │ core\providers\audio\openai_tts.py │
@@ -233,6 +233,330 @@ Notes:
   • The **kwargs in generate_speech likely for: stability, similarity_boost, style,     
 use_speaker_boost parameters
 ```
+
+Two hours later...
+
+```
+claude-studio provider test elevenlabs -t audio -p "Hello, this is a test of Claude Studio Producer onboarding a new provider in under two hours." --live
+udio Producer onboarding a new provider in under two hours." --live                     
+Testing ElevenLabsProvider...
+Prompt/Text: Hello, this is a test of Claude Studio Producer onboarding a new provider 
+in under two hours.
+
+╭──────────── Test Result ────────────╮
+│ ✓ Generation successful!            │
+│                                     │
+│ Audio saved to: test_elevenlabs.mp3 │
+│ Size: 76948 bytes                   │
+│ Format: mp3                         │
+╰─────────────────────────────────────╯
+⠇ Complete!
+```
+
+So the onboarding flow had a few things to work out. Namely: checkpointing. See, the first part of the agentic flow to fetch docs and create a spec worked great, but it was time consuming and each time we worked through some kink later in the pipeline, we were re-doing that step. Then we realized that there was some emojis breaking things in the implementation - Claude does love those emojis. And then instead of generating code, it was generating plans or summaries. Ah yes, always with the plans. So we improve the prompt, and the validation, and we make sure that the resume steps works well so what's done is done and we don't have to repeat it. 
+
+What's really nice though is that my planning ahead about the memory was a good call. Check this out, so not only does the resume feature work, we've got the "auto" feature in there so Claude can interate through the tests and fix them... and we also record the provider learnings to the long term memory. Even during onboarding we have learning opportunities and can record them for future sessions!
+
+```
+$ claude-studio provider onboard -n elevenlabs -t audio --resume --auto
+╭───── 📂 Resume Session ──────╮
+│ Resuming Provider Onboarding │
+│                              │
+│ Name: elevenlabs             │
+╰──────────────────────────────╯
+📂 Resumed session for elevenlabs
+   Status: in_progress
+   Current step: testing
+   Stub path: core/providers/audio/elevenlabs.py
+   Implementation: core/providers/audio/elevenlabs.py
+
+Current step: testing
+Spec loaded: ElevenLabs
+Implementation: core/providers/audio/elevenlabs.py
+╭──────────────────────────────── 📊 Analysis Results ─────────────────────────────────╮
+│                                                                                      │
+│ ╭────────────────────────────────────────────────────────────────╮                   │
+│ │  Provider Onboarding Summary:                     elevenlabs │                     │
+│ ╰────────────────────────────────────────────────────────────────╯                   │
+│                                                                                      │
+│ Status: in_progress                                                                  │
+│ Started: 2026-01-22T04:55:02.530400                                                  │
+│                                                                                      │
+│ SPECIFICATION:                                                                       │
+│   Name: ElevenLabs                                                                   │
+│   Type: audio                                                                        │
+│   Base URL: https://api.elevenlabs.io                                                │
+│   Auth: api_key_header                                                               │
+│   Confidence: 70%                                                                    │
+│                                                                                      │
+│ MODELS:                                                                              │
+│   • eleven_monolingual_v1: English-only model with high quality and low laten...     │
+│   • eleven_multilingual_v1: Supports multiple languages with good quality...         │
+│   • eleven_multilingual_v2: Improved multilingual model with better quality an...    │
+│   • eleven_turbo_v2: Fastest model optimized for low latency...                      │
+│                                                                                      │
+│ ENDPOINTS: 8                                                                         │
+│   • POST /v1/text-to-speech/{voice_id} - Convert text to speech using a specified... │
+│   • POST /v1/text-to-speech/{voice_id}/stream - Stream text to speech audio in       │
+│ real-time...                                                                         │
+│   • GET /v1/voices - Get list of available voices...                                 │
+│   • GET /v1/voices/{voice_id} - Get details of a specific voice...                   │
+│   • GET /v1/models - Get list of available models...                                 │
+│                                                                                      │
+│ LEARNINGS:                                                                           │
+│   Tips: 9                                                                            │
+│   Gotchas: 11                                                                        │
+│                                                                                      │
+│ QUESTIONS: 0 (0 answered)                                                            │
+│ TESTS: 19 run                                                                        │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+Completed steps: init, docs, spec, questions, implementation, testing
+
+                                  📦 Available Models
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Model ID               ┃ Description                              ┃ Inputs ┃ Outputs ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ eleven_monolingual_v1  │ English-only model with high quality     │        │         │
+│                        │ and...                                   │        │         │
+│ eleven_multilingual_v1 │ Supports multiple languages with good    │        │         │
+│                        │ qu...                                    │        │         │
+│ eleven_multilingual_v2 │ Improved multilingual model with better  │        │         │
+│                        │ ...                                      │        │         │
+│ eleven_turbo_v2        │ Fastest model optimized for low latency  │        │         │
+└────────────────────────┴──────────────────────────────────────────┴────────┴─────────┘
+                                    🔌 API Endpoints
+┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Method ┃ Path                             ┃ Description                      ┃ Async ┃
+┡━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ POST   │ /v1/text-to-speech/{voice_id}    │ Convert text to speech using a   │ -     │
+│        │                                  │ specified...                     │       │
+│ POST   │ /v1/text-to-speech/{voice_id}/s… │ Stream text to speech audio in   │ -     │
+│        │                                  │ real-time                        │       │
+│ GET    │ /v1/voices                       │ Get list of available voices     │ -     │
+│ GET    │ /v1/voices/{voice_id}            │ Get details of a specific voice  │ -     │
+│ GET    │ /v1/models                       │ Get list of available models     │ -     │
+│ GET    │ /v1/user/subscription            │ Get user subscription info and   │ -     │
+│        │                                  │ usage lim...                     │       │
+│ GET    │ /v1/history                      │ Get history of generated audio   │ -     │
+│ POST   │ /v1/speech-to-speech/{voice_id}  │ Convert audio to speech in a     │ -     │
+│        │                                  │ different v...                   │       │
+└────────┴──────────────────────────────────┴──────────────────────────────────┴───────┘
+
+💡 Tips:
+  • Use voice_id parameter to specify which voice to use - get available voices from    
+/v1/voices endpoint
+  • For real-time applications, use the /stream endpoint for lower latency
+  • Adjust voice_settings.stability (0-1) to control consistency vs expressiveness      
+  • Adjust voice_settings.similarity_boost (0-1) to control how closely the voice       
+matches the original
+  • Use eleven_turbo_v2 model for fastest generation with acceptable quality
+  • Character count is tracked per subscription tier - check /v1/user/subscription for  
+limits
+  • Streaming endpoint returns audio chunks as they're generated for lower perceived    
+latency
+  • Voice cloning and custom voice creation available through web interface or API      
+(requires appropriate tier)
+  • Use style parameter (0-1) to add more expressive variation to the voice
+
+⚠ Gotchas:
+  • API key must be passed in 'xi-api-key' header, not standard Authorization header    
+  • Rate limits vary by subscription tier - free tier is heavily limited
+  • Character limits are per month and depend on subscription tier
+  • voice_id is required in the URL path, not in request body
+  • Response is raw audio binary data, not JSON - set appropriate Accept headers        
+  • Some premium voices may not be available on all subscription tiers
+  • Text input has maximum length limits (typically 5000 characters, varies by tier)    
+  • Streaming endpoint may not work well with all HTTP clients - ensure chunked transfer
+encoding support
+  • Voice settings are optional but can significantly impact output quality
+  • History items may be automatically deleted after certain period depending on tier   
+  • Speech-to-speech endpoint requires audio file in specific formats (check docs for   
+supported formats)
+```
+
+So! We now have some video and audio support! And we have an agent that's good at onboarding new providers, so I should be able to get through several very quickly now!
+
+## Provider CLI Reference
+
+### Provider Onboarding
+
+The provider onboarding agent helps you integrate new AI providers by analyzing their documentation and generating implementations.
+
+```bash
+# Onboard a new provider from documentation
+claude-studio provider onboard -n inworld -t audio -d https://docs.inworld.ai/docs/tts/tts
+
+# Onboard from an existing stub file
+claude-studio provider onboard -n runway -t video -s core/providers/video/runway_stub.py
+
+# Combine docs + stub for best results
+claude-studio provider onboard -n luma -t video \
+    -d https://docs.lumalabs.ai/api \
+    -s core/providers/video/luma_stub.py
+
+# Resume a previous session
+claude-studio provider onboard -n elevenlabs -t audio --resume
+
+# Fully automatic mode (no prompts, runs all tests)
+claude-studio provider onboard -n elevenlabs -t audio --resume --auto
+```
+
+### Managing Sessions
+
+```bash
+# List all saved onboarding sessions
+claude-studio provider sessions
+
+# Delete a session
+claude-studio provider sessions -d elevenlabs
+```
+
+### Testing Providers
+
+```bash
+# Test a provider with default settings
+claude-studio provider test elevenlabs -t audio --live
+
+# Test with a specific voice (by name - much easier!)
+claude-studio provider test elevenlabs -t audio -v Rachel --live
+
+# Test with custom text
+claude-studio provider test elevenlabs -t audio -v "Adam" -p "Hello world" --live
+
+# List all available voices
+claude-studio provider test elevenlabs -t audio --list-voices
+```
+
+Example voice list output:
+```
+                     Available Voices for elevenlabs
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ Name           ┃ Category/Labels                      ┃ Description  ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ Rachel         │ accent: american, age: young         │ Calm, warm   │
+│ Adam           │ accent: american, age: middle aged   │ Deep, narrat │
+│ Bella          │ accent: british, age: young          │ Soft, gentle │
+│ ...            │ ...                                  │ ...          │
+└────────────────┴──────────────────────────────────────┴──────────────┘
+
+Use -v <name> to test with a specific voice (e.g., -v Rachel)
+```
+
+### Provider Analysis
+
+```bash
+# Analyze an existing provider implementation
+claude-studio provider analyze core/providers/video/luma.py
+
+# Output as JSON
+claude-studio provider analyze core/providers/audio/elevenlabs.py --format json
+
+# List all providers and their status
+claude-studio provider list
+
+# Filter by type
+claude-studio provider list -t audio
+```
+
+### Creating Provider Scaffolds
+
+```bash
+# Create a new provider stub
+claude-studio provider scaffold -n runway -t video
+
+# Specify output path
+claude-studio provider scaffold -n mubert -t music -o core/providers/music/mubert.py
+```
+
+### Exporting Tests
+
+After onboarding, export generated tests as proper pytest files:
+
+```bash
+# Export tests from a completed session
+claude-studio provider export-tests elevenlabs
+
+# Specify output directory
+claude-studio provider export-tests inworld -o tests/unit
+
+# Regenerate test cases before exporting
+claude-studio provider export-tests elevenlabs --regenerate
+```
+
+## ElevenLabs TTS Provider
+
+The ElevenLabs provider offers high-quality text-to-speech with multiple voices and advanced controls.
+
+### Quick Usage
+
+```python
+from core.providers.audio.elevenlabs import ElevenLabsProvider
+
+# Initialize (uses ELEVENLABS_API_KEY from environment)
+provider = ElevenLabsProvider()
+
+# Generate speech
+result = await provider.generate_speech(
+    text="Hello, this is a test.",
+    voice_id="Rachel"  # or use voice ID directly
+)
+
+# Save the audio
+with open("output.mp3", "wb") as f:
+    f.write(result.audio_data)
+```
+
+### Voice Control
+
+```python
+# With voice settings for fine control
+result = await provider.generate_speech(
+    text="This is expressive speech.",
+    voice_id="Rachel",
+    stability=0.5,        # 0-1: lower = more expressive
+    similarity_boost=0.8, # 0-1: higher = closer to original voice
+    style=0.3,            # 0-1: style variation
+    use_speaker_boost=True
+)
+```
+
+### List Available Voices
+
+```python
+voices = await provider.list_voices()
+for voice in voices:
+    print(f"{voice['name']}: {voice['voice_id']}")
+```
+
+### Streaming for Low Latency
+
+```python
+async for chunk in provider.generate_speech_stream(
+    text="Stream this for lower latency.",
+    voice_id="Rachel"
+):
+    # Process audio chunks as they arrive
+    audio_buffer.write(chunk)
+```
+
+### Models
+
+| Model | Description | Use Case |
+|-------|-------------|----------|
+| `eleven_monolingual_v1` | English-only, high quality | Default, best for English |
+| `eleven_multilingual_v2` | 29 languages supported | International content |
+| `eleven_turbo_v2` | Fastest, optimized latency | Real-time applications |
+
+### Pricing
+
+ElevenLabs charges ~$0.30 per 1K characters. Use `estimate_cost()` to check before generating:
+
+```python
+cost = provider.estimate_cost("Your text here...")
+print(f"Estimated cost: ${cost:.4f}")
+```
+
 
 ## Quick Start
 
@@ -482,12 +806,23 @@ The system accumulates learnings from each run to improve future prompts:
 
 ## Providers
 
+### Video Providers
+
 | Provider | Status | Notes |
 |----------|--------|-------|
-| **Luma AI** | Implemented | Image-to-video, real API integration |
+| **Luma AI** | Implemented | Image-to-video, text-to-video, scene chaining |
 | Runway ML | Stub | Interface + cost model ready |
 | Pika Labs | Stub | Interface + cost model ready |
 | Kling AI | Stub | Interface + cost model ready |
+
+### Audio Providers (TTS)
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| **ElevenLabs** | Implemented | High-quality TTS, 29 languages, voice cloning |
+| **OpenAI TTS** | Implemented | 6 voices, fast generation |
+| Google TTS | Stub | Interface ready |
+| Inworld | Stub | Interface ready |
 
 ## Project Structure
 
@@ -571,10 +906,13 @@ uvicorn server.main:app --reload
 - [x] Multi-tenant memory system with namespace hierarchy
 - [x] Memory CLI (`claude-studio memory` commands)
 - [x] Learning promotion system (session → user → org → platform)
+- [x] Provider onboarding agent with auto-test and session resume
+- [x] ElevenLabs TTS integration (voice selection, streaming, voice settings)
+- [x] OpenAI TTS integration
 
 ### In Progress
-- [ ] Audio generation pipeline
 - [ ] Additional video providers (Runway, Pika)
+- [ ] Additional audio providers (Google TTS, Inworld)
 
 ### Future
 - [ ] AWS AgentCore memory backend (production)
