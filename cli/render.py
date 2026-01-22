@@ -279,12 +279,20 @@ async def _render_edl(
 @click.option("--voice", "-v", default="Rachel", help="Voice ID for TTS (default: Rachel)")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 @click.option("--volume", default=0.0, help="Audio volume adjustment in dB (default: 0)")
-def mix_cmd(video_file: str, text: str, audio: str, voice: str, output: str, volume: float):
+@click.option("--fit", "-f", type=click.Choice(["shortest", "longest", "speed-match"]), default="shortest",
+              help="How to handle video/audio length mismatch (default: shortest)")
+def mix_cmd(video_file: str, text: str, audio: str, voice: str, output: str, volume: float, fit: str):
     """
     Mix a video file with TTS-generated audio or an existing audio file.
 
     This command combines a video with audio, useful for testing the
     video+audio pipeline without running the full production workflow.
+
+    \b
+    Fit Modes:
+        shortest     Trim output to the shorter of video/audio (default)
+        longest      Freeze last video frame to match longer audio
+        speed-match  Adjust video playback speed to match audio duration
 
     Examples:
 
@@ -296,6 +304,12 @@ def mix_cmd(video_file: str, text: str, audio: str, voice: str, output: str, vol
 
         # Specify voice and output file
         claude-studio render mix video.mp4 -t "Welcome to our demo" -v Adam -o final.mp4
+
+        # Slow down video to match longer audio
+        claude-studio render mix video.mp4 --audio long_narration.mp3 --fit speed-match
+
+        # Freeze last frame to extend video to match audio
+        claude-studio render mix video.mp4 --audio narration.mp3 --fit longest
     """
     if not text and not audio:
         console.print("[red]Error: Must provide either --text for TTS or --audio file[/red]")
@@ -310,7 +324,8 @@ def mix_cmd(video_file: str, text: str, audio: str, voice: str, output: str, vol
         audio_file=audio,
         voice_id=voice,
         output_path=output,
-        volume_db=volume
+        volume_db=volume,
+        fit_mode=fit
     ))
 
 
@@ -320,7 +335,8 @@ async def _mix_video_audio(
     audio_file: str = None,
     voice_id: str = "Rachel",
     output_path: str = None,
-    volume_db: float = 0.0
+    volume_db: float = 0.0,
+    fit_mode: str = "shortest"
 ):
     """Mix video with audio (TTS or file)"""
     from core.models.audio import VoiceStyle
@@ -391,8 +407,10 @@ async def _mix_video_audio(
     console.print("\n[bold]Mixing video and audio...[/bold]")
 
     # Use FFmpeg to mix video with audio
+    console.print(f"[cyan]Fit mode:[/cyan] {fit_mode}")
+
     try:
-        result = await renderer.mix_audio(
+        output_file = await renderer.mix_audio(
             video_path=str(video_path),
             audio_tracks=[
                 AudioTrack(
@@ -402,19 +420,18 @@ async def _mix_video_audio(
                     track_type=TrackType.VOICEOVER
                 )
             ],
-            output_path=str(out_path)
+            output_path=str(out_path),
+            fit_mode=fit_mode
         )
 
-        if result.success:
+        if output_file and os.path.exists(output_file):
+            file_size = os.path.getsize(output_file)
+            size_mb = file_size / (1024 * 1024)
             console.print(f"\n[green]Mix complete![/green]")
-            console.print(f"  Output: {result.output_path}")
-            if result.duration:
-                console.print(f"  Duration: {result.duration:.1f}s")
-            if result.file_size:
-                size_mb = result.file_size / (1024 * 1024)
-                console.print(f"  Size: {size_mb:.1f} MB")
+            console.print(f"  Output: {output_file}")
+            console.print(f"  Size: {size_mb:.1f} MB")
         else:
-            console.print(f"\n[red]Mix failed: {result.error_message}[/red]")
+            console.print(f"\n[red]Mix failed: output file not created[/red]")
 
     except Exception as e:
         console.print(f"[red]Error mixing: {e}[/red]")

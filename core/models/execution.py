@@ -75,14 +75,21 @@ class ExecutionGraph:
     def get_execution_waves(self) -> List[List[str]]:
         """
         Returns execution waves - scenes in each wave can run in parallel.
-        Respects group dependencies and sequential ordering.
+        Respects group dependencies and sequential ordering within groups.
+
+        Key insight: Different sequential groups (visual threads) can run in parallel
+        with each other, only scenes WITHIN a sequential group must be sequential.
+
+        Example with groups A (scene_1, scene_3) and B (scene_2, scene_4):
+        - Wave 1: [scene_1, scene_2] - first scene from each thread, parallel
+        - Wave 2: [scene_3, scene_4] - second scene from each thread, parallel
+        - Within each wave, scene_1 chains to scene_3, scene_2 chains to scene_4
 
         Returns:
             List of waves, where each wave is a list of scene_ids that can run in parallel
         """
-        waves = []
+        waves: List[List[str]] = []
         completed_groups: Set[str] = set()
-        completed_scenes: Set[str] = set()
 
         # Build dependency map
         group_deps: Dict[str, Set[str]] = {}
@@ -98,7 +105,7 @@ class ExecutionGraph:
                         break
             group_deps[group.group_id] = deps
 
-        # Process groups in dependency order
+        # Separate groups by type and readiness
         remaining_groups = list(self.groups)
 
         while remaining_groups:
@@ -113,29 +120,38 @@ class ExecutionGraph:
                 # Circular dependency or error - break out
                 break
 
-            # Process ready groups
-            for group in ready_groups:
-                if group.mode == ExecutionMode.PARALLEL:
-                    # All scenes in parallel group can run in same wave
-                    # (or merge with existing parallel wave)
-                    if waves and all(
-                        self.get_scene_group(s).mode == ExecutionMode.PARALLEL
-                        for s in waves[-1]
-                        if self.get_scene_group(s)
-                    ):
-                        # Extend last parallel wave
-                        waves[-1].extend(group.scene_ids)
-                    else:
-                        waves.append(list(group.scene_ids))
-                    completed_scenes.update(group.scene_ids)
-                else:
-                    # Sequential group - each scene is its own wave
-                    for scene_id in group.scene_ids:
-                        waves.append([scene_id])
-                        completed_scenes.add(scene_id)
+            # Separate parallel and sequential groups
+            parallel_groups = [g for g in ready_groups if g.mode == ExecutionMode.PARALLEL]
+            sequential_groups = [g for g in ready_groups if g.mode == ExecutionMode.SEQUENTIAL]
 
-                completed_groups.add(group.group_id)
-                remaining_groups.remove(group)
+            # Process all parallel groups together in one wave
+            if parallel_groups:
+                parallel_scenes = []
+                for group in parallel_groups:
+                    parallel_scenes.extend(group.scene_ids)
+                    completed_groups.add(group.group_id)
+                    remaining_groups.remove(group)
+                if parallel_scenes:
+                    waves.append(parallel_scenes)
+
+            # Process sequential groups - interleave them so different threads run in parallel
+            if sequential_groups:
+                # Find the max length of any sequential group
+                max_len = max(len(g.scene_ids) for g in sequential_groups)
+
+                # Create waves that take one scene from each sequential group
+                for i in range(max_len):
+                    wave_scenes = []
+                    for group in sequential_groups:
+                        if i < len(group.scene_ids):
+                            wave_scenes.append(group.scene_ids[i])
+                    if wave_scenes:
+                        waves.append(wave_scenes)
+
+                # Mark all sequential groups as completed
+                for group in sequential_groups:
+                    completed_groups.add(group.group_id)
+                    remaining_groups.remove(group)
 
         return waves
 

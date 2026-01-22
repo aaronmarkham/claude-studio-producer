@@ -174,13 +174,20 @@ AUDIO GUIDELINES:
 - Specify music transitions between scenes ("continue", "fade", "change", "stop")
 - List sound effects with their purpose (e.g., "notification_sound", "whoosh_transition")
 
-CONTINUITY GUIDELINES (IMPORTANT for visual consistency):
-- Scenes with the SAME character, person, or actor should share a "continuity_group"
-- Set "is_continuity_anchor": true on the FIRST scene that establishes a character/location
-- List "continuity_elements" that must stay consistent: ["character", "location", "lighting"]
-- Scenes in the same group will be generated SEQUENTIALLY to maintain visual consistency
-- B-roll, establishing shots, product shots, and transitions can be independent (no continuity_group needed)
-- Example: If scenes 2, 4, and 6 all show the same developer at a desk, give them continuity_group: "developer_desk"
+CONTINUITY GUIDELINES (CRITICAL for visual consistency):
+- IMPORTANT: You MUST assign "continuity_group" to scenes that share the same character, person, object, or visual subject
+- This ensures AI video generation maintains the same visual appearance across related scenes
+- Different visual threads get different continuity_group values; same thread = same value
+- Set "is_continuity_anchor": true on the FIRST scene that establishes each character/subject
+- List "continuity_elements" that must stay consistent: ["character", "lighting", "costume", "location"]
+
+CONTINUITY EXAMPLE - If script interleaves two subjects (woman and blueprint):
+  scene_1: woman on phone (close-up) → continuity_group: "woman_phone", is_continuity_anchor: true
+  scene_2: blueprint schematic → continuity_group: "blueprint", is_continuity_anchor: true
+  scene_3: woman on phone (back view) → continuity_group: "woman_phone" (SAME as scene_1!)
+  scene_4: blueprint burning → continuity_group: "blueprint" (SAME as scene_2!)
+
+This ensures scenes 1+3 show the SAME woman, and scenes 2+4 show the SAME blueprint!
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{

@@ -552,7 +552,8 @@ class FFmpegRenderer:
         video_path: str,
         audio_tracks: List[AudioTrack],
         output_path: str,
-        ducking: bool = True
+        ducking: bool = True,
+        fit_mode: str = "shortest"
     ) -> str:
         """
         Mix audio tracks into the video.
@@ -562,12 +563,17 @@ class FFmpegRenderer:
         - Volume adjustment per track
         - Ducking (lower music when VO plays)
         - Fade in/out
+        - Fit modes for handling video/audio length mismatch
 
         Args:
             video_path: Path to the video file
             audio_tracks: List of audio tracks to mix
             output_path: Path for the output file
             ducking: Whether to apply ducking (lower music under VO)
+            fit_mode: How to handle video/audio length mismatch:
+                - "shortest": Trim to shorter duration (default)
+                - "longest": Extend video (freeze last frame) to match audio
+                - "speed-match": Adjust video speed to match audio duration
 
         Returns:
             Path to the output video with mixed audio
@@ -582,8 +588,41 @@ class FFmpegRenderer:
             shutil.copy(video_path, output_path)
             return output_path
 
-        # Build FFmpeg filter complex
-        filter_complex = self._generate_filter_complex(existing_tracks, ducking)
+        # Get durations for fit mode handling
+        video_duration = await self._get_duration(video_path)
+        audio_duration = None
+        if existing_tracks:
+            # Get duration of first/primary audio track
+            audio_duration = await self._get_duration(existing_tracks[0].path)
+
+        # Build FFmpeg filter complex for audio
+        audio_filter_complex = self._generate_filter_complex(existing_tracks, ducking)
+
+        # Handle different fit modes
+        if fit_mode == "speed-match" and video_duration and audio_duration:
+            # Adjust video speed to match audio duration
+            speed_factor = video_duration / audio_duration
+            # setpts=PTS/speed to speed up (speed>1) or slow down (speed<1)
+            video_filter = f"[0:v]setpts=PTS/{speed_factor:.6f}[vout]"
+            filter_complex = f"{video_filter};{audio_filter_complex}"
+            video_map = "[vout]"
+            video_codec = ["-c:v", self.config.video_codec, "-preset", self.config.preset, "-crf", str(self.config.crf)]
+            duration_flag = []
+        elif fit_mode == "longest" and video_duration and audio_duration and audio_duration > video_duration:
+            # Freeze last frame to extend video to match audio
+            # tpad filter adds padding at the end
+            pad_duration = audio_duration - video_duration
+            video_filter = f"[0:v]tpad=stop_mode=clone:stop_duration={pad_duration:.3f}[vout]"
+            filter_complex = f"{video_filter};{audio_filter_complex}"
+            video_map = "[vout]"
+            video_codec = ["-c:v", self.config.video_codec, "-preset", self.config.preset, "-crf", str(self.config.crf)]
+            duration_flag = []
+        else:
+            # Default: "shortest" mode - trim to shorter duration
+            filter_complex = audio_filter_complex
+            video_map = "0:v"
+            video_codec = ["-c:v", "copy"]  # Can copy since no video processing
+            duration_flag = ["-shortest"]
 
         # Build input arguments
         inputs = ["-i", video_path]
@@ -595,11 +634,12 @@ class FFmpegRenderer:
             "-y",
             *inputs,
             "-filter_complex", filter_complex,
-            "-map", "0:v",  # Video from first input
+            "-map", video_map,
             "-map", "[aout]",  # Mixed audio
-            "-c:v", "copy",  # Copy video stream
+            *video_codec,
             "-c:a", self.config.audio_codec,
             "-b:a", self.config.audio_bitrate,
+            *duration_flag,
             output_path
         ]
 

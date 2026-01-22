@@ -84,25 +84,40 @@ class ExecutionGraphBuilder:
 
     @staticmethod
     def _from_scene_groups(scenes: List) -> ExecutionGraph:
-        """Build from explicit continuity_group assignments on scenes"""
-        groups_map: Dict[str, List[str]] = defaultdict(list)
-        group_order: List[str] = []  # Preserve order
+        """
+        Build from explicit continuity_group assignments on scenes.
 
+        Key insight: Scenes with the same continuity_group (visual thread) should be
+        generated sequentially with chaining, even if they're interleaved with other
+        scenes in the final edit order.
+
+        Example: If scene 1 & 3 are "woman_phone" and scene 2 & 4 are "blueprint":
+        - Generate woman_phone thread: scene_1 -> scene_3 (chained)
+        - Generate blueprint thread: scene_2 -> scene_4 (chained)
+        - Both threads can run in PARALLEL to each other
+        - Editor reassembles as 1, 2, 3, 4 for final video
+        """
+        groups_map: Dict[str, List] = defaultdict(list)  # group_id -> list of (scene_id, scene)
+
+        # Collect scenes by continuity group
         for scene in scenes:
-            group_id = scene.continuity_group or "default_parallel"
-            if group_id not in group_order:
-                group_order.append(group_id)
-            groups_map[group_id].append(scene.scene_id)
+            group_id = getattr(scene, 'continuity_group', None) or "default_parallel"
+            groups_map[group_id].append((scene.scene_id, scene))
 
-        # Build groups - scenes with explicit continuity_group are sequential
+        # Sort scenes within each group by scene_id to preserve visual thread order
+        # (scene_1 before scene_3, even if scene_2 is a different group)
+        for group_id in groups_map:
+            groups_map[group_id].sort(key=lambda x: x[0])
+
+        # Build execution groups
         groups = []
-        prev_sequential_group = None
+        sequential_groups = []  # Track sequential groups for parallel execution
 
-        for group_id in group_order:
-            scene_ids = groups_map[group_id]
+        for group_id, scene_tuples in groups_map.items():
+            scene_ids = [s[0] for s in scene_tuples]
 
             if group_id == "default_parallel":
-                # Default ungrouped scenes run in parallel
+                # Default ungrouped scenes run in parallel (no continuity needed)
                 groups.append(SceneGroup(
                     group_id=group_id,
                     scene_ids=scene_ids,
@@ -110,20 +125,20 @@ class ExecutionGraphBuilder:
                     description="Independent scenes (no continuity group specified)"
                 ))
             else:
-                # Explicitly grouped scenes run sequentially within group
+                # Explicitly grouped scenes run sequentially within group (chained)
+                # But different groups can run in parallel with each other
                 group = SceneGroup(
                     group_id=group_id,
                     scene_ids=scene_ids,
                     mode=ExecutionMode.SEQUENTIAL,
-                    description=f"Continuity group: {group_id}"
+                    description=f"Visual thread: {group_id}"
                 )
-
-                # Chain from previous sequential group if applicable
-                if prev_sequential_group:
-                    group.chain_from_group = prev_sequential_group
-
                 groups.append(group)
-                prev_sequential_group = group_id
+                sequential_groups.append(group_id)
+
+        # Note: Different sequential groups do NOT chain from each other
+        # They run independently (in parallel at the group level)
+        # Only scenes WITHIN a group chain from each other
 
         return ExecutionGraph(groups=groups)
 
@@ -132,13 +147,25 @@ class ExecutionGraphBuilder:
         """
         Auto-detect continuity needs based on scene content.
 
-        Heuristics:
+        First checks for explicit continuity_group assignments from ScriptWriter.
+        If any scene has a continuity_group, uses manual grouping strategy.
+
+        Otherwise falls back to heuristics:
         - Same character/person mentioned -> sequential
         - Same location mentioned -> sequential
         - "continues from" or "same" in description -> sequential
         - B-roll, establishing shots, inserts -> parallel
         - Product shots, logos -> parallel
         """
+        # First check if any scenes have explicit continuity_group assignments
+        has_explicit_groups = any(
+            hasattr(scene, 'continuity_group') and scene.continuity_group
+            for scene in scenes
+        )
+        if has_explicit_groups:
+            # Use manual grouping when explicit groups are provided
+            return ExecutionGraphBuilder._from_scene_groups(scenes)
+
         # Analyze each scene
         scene_analysis: Dict[str, Dict] = {}
 

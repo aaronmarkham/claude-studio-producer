@@ -338,6 +338,9 @@ class VideoGeneratorAgent(StudioAgent):
         Handles mixed parallel/sequential execution based on graph structure.
         Sequential groups use generation chaining for visual continuity.
 
+        Key insight: Different visual threads (sequential groups) can run in parallel
+        with each other. Only scenes WITHIN the same visual thread need chaining.
+
         Args:
             scenes: List of all scenes
             graph: ExecutionGraph defining execution order and dependencies
@@ -356,8 +359,9 @@ class VideoGeneratorAgent(StudioAgent):
         # Get execution waves - scenes that can run in parallel within each wave
         waves = graph.get_execution_waves()
 
-        # Track the last generation ID for chaining sequential scenes
-        last_generation_id: Optional[str] = None
+        # Track generation IDs per group for proper chaining within visual threads
+        # Key: group_id, Value: last generation_id for that group
+        group_chain_ids: Dict[str, Optional[str]] = {}
 
         for wave_idx, wave_scene_ids in enumerate(waves):
             print(f"\n[Graph] Executing wave {wave_idx + 1}/{len(waves)}: {wave_scene_ids}")
@@ -368,40 +372,16 @@ class VideoGeneratorAgent(StudioAgent):
                 print(f"[Graph]   No scenes found for wave, skipping")
                 continue
 
-            # Determine if this wave is parallel or sequential based on the scenes' groups
-            # If all scenes are in the same sequential group, process them sequentially
-            # Otherwise process in parallel
+            # Check if all scenes are from parallel groups (no chaining needed)
             scene_groups = [graph.get_scene_group(sid) for sid in wave_scene_ids]
-            first_group = scene_groups[0] if scene_groups else None
+            all_parallel = all(
+                g is None or g.mode == ExecutionMode.PARALLEL
+                for g in scene_groups
+            )
 
-            if len(wave_scenes) == 1 and first_group and first_group.mode == ExecutionMode.SEQUENTIAL:
-                # Single scene from a sequential group - use chained generation
-                scene = wave_scenes[0]
-                print(f"[Graph]   Sequential scene: {scene.scene_id}")
-
-                # Get seed image for first scene in the group
-                start_image_url = None
-                if scene.scene_id == first_group.scene_ids[0]:
-                    start_image_url = self._get_seed_image(scene, seed_asset_lookup)
-
-                videos = await self._generate_scene_chained(
-                    scene=scene,
-                    production_tier=production_tier,
-                    budget_limit=budget_per_scene,
-                    num_variations=num_variations,
-                    start_image_url=start_image_url,
-                    chain_from_generation_id=last_generation_id
-                )
-
-                all_results[scene.scene_id] = videos
-
-                # Update last generation ID for next scene in chain
-                if videos:
-                    last_generation_id = videos[0].metadata.get("generation_id")
-
-            else:
-                # Multiple scenes or parallel group - run in parallel
-                print(f"[Graph]   Parallel scenes: {[s.scene_id for s in wave_scenes]}")
+            if all_parallel:
+                # All parallel - run without any chaining
+                print(f"[Graph]   Parallel scenes (no chaining): {[s.scene_id for s in wave_scenes]}")
 
                 results = await self.generate_scenes_parallel(
                     scenes=wave_scenes,
@@ -413,12 +393,72 @@ class VideoGeneratorAgent(StudioAgent):
 
                 all_results.update(results)
 
-                # Get last generation ID from results (for potential chaining)
-                if results:
-                    last_scene_id = wave_scenes[-1].scene_id
-                    if last_scene_id in results and results[last_scene_id]:
-                        last_video = results[last_scene_id][0]
-                        last_generation_id = last_video.metadata.get("generation_id")
+            else:
+                # Wave contains scenes from sequential groups - process each with its group's chain
+                # Different groups can still run in parallel, but each chains from its own previous scene
+                print(f"[Graph]   Processing scenes with per-group chaining: {[s.scene_id for s in wave_scenes]}")
+
+                # Process scenes concurrently but with correct per-group chaining
+                async def generate_scene_in_group(scene: Scene) -> tuple[str, List[GeneratedVideo]]:
+                    group = graph.get_scene_group(scene.scene_id)
+                    group_id = group.group_id if group else "default"
+
+                    # Get chain ID for this group (None if first scene in group)
+                    chain_from_id = group_chain_ids.get(group_id)
+
+                    # Check if this is the first scene in its group
+                    is_first_in_group = (
+                        group is not None and
+                        group.scene_ids and
+                        scene.scene_id == group.scene_ids[0]
+                    )
+
+                    # Get seed image for first scene in the group
+                    start_image_url = None
+                    if is_first_in_group:
+                        start_image_url = self._get_seed_image(scene, seed_asset_lookup)
+
+                    # Determine if we should chain
+                    should_chain = (
+                        group is not None and
+                        group.mode == ExecutionMode.SEQUENTIAL and
+                        not is_first_in_group
+                    )
+
+                    if should_chain:
+                        print(f"[Graph]     {scene.scene_id} chaining from group '{group_id}'")
+                        videos = await self._generate_scene_chained(
+                            scene=scene,
+                            production_tier=production_tier,
+                            budget_limit=budget_per_scene,
+                            num_variations=num_variations,
+                            start_image_url=start_image_url,
+                            chain_from_generation_id=chain_from_id
+                        )
+                    else:
+                        print(f"[Graph]     {scene.scene_id} starting new chain for group '{group_id}'")
+                        videos = await self._generate_scene_chained(
+                            scene=scene,
+                            production_tier=production_tier,
+                            budget_limit=budget_per_scene,
+                            num_variations=num_variations,
+                            start_image_url=start_image_url,
+                            chain_from_generation_id=None
+                        )
+
+                    return scene.scene_id, videos, group_id
+
+                # Run all scenes in this wave concurrently
+                import asyncio
+                tasks = [generate_scene_in_group(scene) for scene in wave_scenes]
+                results = await asyncio.gather(*tasks)
+
+                # Update results and per-group chain IDs
+                for scene_id, videos, group_id in results:
+                    all_results[scene_id] = videos
+                    if videos:
+                        # Update this group's chain ID for its next scene
+                        group_chain_ids[group_id] = videos[0].metadata.get("generation_id")
 
         return all_results
 
