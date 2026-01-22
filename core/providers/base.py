@@ -137,6 +137,7 @@ class VideoProvider(ABC):
 class AudioProviderConfig:
     """Configuration for audio provider"""
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
     timeout: int = 60  # seconds
     max_retries: int = 3
     extra_params: Dict[str, Any] = None
@@ -152,6 +153,7 @@ class AudioGenerationResult:
     success: bool
     audio_url: Optional[str] = None
     audio_path: Optional[str] = None
+    audio_data: Optional[bytes] = None  # Raw audio bytes when not saving to file
     duration: Optional[float] = None
     format: str = "mp3"
     sample_rate: int = 44100
