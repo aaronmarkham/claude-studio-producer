@@ -4,15 +4,16 @@
 
 ## Developer Notes
 
-### Jan 9, 2026
+### What's Working Now
 
-#### What's Working Now
-
-- **Real video generation** with Luma AI (image-to-video) and Runway (implemented); several other providers are stubbed out
+- **Content generation** with Luma AI (image-to-video) and Runway (implemented); several other image, text to audio, music, and storage providers are stubbed out
 - **Vision-based QA** using Claude to analyze extracted video frames
-- **Provider learning system** that improves prompts over time
+- **Provider onboarding and learning system** that improves prompts and production quality over time
 - **Web dashboard** to view runs, preview videos, and see QA scores
 - **CLI tool** with live progress and detailed feedback
+- **Multi-tenant memory** using Strands and Bedrock AgentCore
+
+### Jan 9, 2026
 
 #### What is this even for?
 
@@ -125,6 +126,113 @@ INTENT PRESERVATION ANALYSIS
 A chief concern is something like overfitting, or what I'm calling a race to the bottom. If I have to keep simplifying the prompt to get better alignment, how far way from the original intent am I?
 
 The good news is that the feedback system works - to a degree. We'll just have to implement a smarter memory system and adjust how feedback is incorporated in subsequent runs.
+
+### Jan 21, 2026
+
+Just a couple of notes for now... with a little bit of metrics in play for the memory system, it was time to add a real memory system and I really wanted to get a production level option available using AgentCore. Everything still works local-mode for me, the single user, but when I'm ready to deploy I can leverage LTM on AgentCore and start trying out some multi-tenant memory options along with curated memory propagation. I wanted that in play before the other next thing which is to add an agentic flow for onboarding and testing new providers. This CLI option is so that you can point at any new provider's docs and have the agent set up your scaffolding and help you onboard. As I dog food this feature I should be able to rapidly onboard the rest of these providers. Here's a current snapshot of the providers (if this new feature works this list should go from mostly stubs to mostly ready in a couple of days):
+
+```
+$ claude-studio provider list
+                        📦 Available Providers                        
+┏━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Type    ┃ Name       ┃ Status ┃ File                               ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ video   │ kling      │ Stub   │ core\providers\video\kling.py      │
+│ video   │ luma       │ Ready  │ core\providers\video\luma.py       │
+│ video   │ pika       │ Stub   │ core\providers\video\pika.py       │
+│ video   │ runway     │ Ready  │ core\providers\video\runway.py     │
+│ video   │ stability  │ Stub   │ core\providers\video\stability.py  │
+│ audio   │ elevenlabs │ Stub   │ core\providers\audio\elevenlabs.py │
+│ audio   │ google_tts │ Stub   │ core\providers\audio\google_tts.py │
+│ audio   │ inworld    │ Stub   │ core\providers\audio\inworld.py    │
+│ audio   │ openai_tts │ Ready  │ core\providers\audio\openai_tts.py │
+│ image   │ dalle      │ Stub   │ core\providers\image\dalle.py      │
+│ music   │ mubert     │ Stub   │ core\providers\music\mubert.py     │
+│ music   │ suno       │ Stub   │ core\providers\music\suno.py       │
+│ storage │ local      │ Stub   │ core\providers\storage\local.py    │
+│ storage │ s3         │ Stub   │ core\providers\storage\s3.py       │
+└─────────┴────────────┴────────┴────────────────────────────────────┘
+```
+
+An example of how the new provider agent can profile a provider - it provides a rich analysis of what's possible with that provider and what might be missing:
+
+```
+$ claude-studio provider analyze core/providers/video/luma.py
+⠸ Analyzing...
+╭───────── 📄 Stub Analysis ─────────╮
+│ Provider Analysis                  │
+│                                    │
+│ File: core/providers/video/luma.py │
+│ Provider: Luma AI (Dream Machine)  │
+│ Type: video                        │
+│ Base Class: VideoProvider          │
+╰────────────────────────────────────╯
+                      Methods
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+┃ Method                      ┃ Status ┃ Signature ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+│ No missing required methods │ N/A    │ N/A       │
+└─────────────────────────────┴────────┴───────────┘
+
+Notes:
+  • This is NOT a stub - _is_stub is set to False and all methods are fully implemented 
+  • Supports advanced features: text-to-video without seed image, keyframe support,     
+generation chaining, character references
+  • Two models available: ray-2 (default) and ray-3 (advanced features with character   
+ref and HDR)
+  • Supports 7 aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4, 21:9, 9:21
+  • Three resolution tiers: 540p, 720p, 1080p with different pricing
+  • Two duration options: 5s and 9s (mapped from requested duration)
+  • Cost map includes all resolution/duration combinations
+  • Includes async/await polling mechanism for generation completion
+  • Supports both immediate generation (generate_video) and submit/wait pattern
+  • Has specialized method for continuous scene generation (generate_continuous)        
+  • Includes utility methods for listing generations and camera motions
+  • Proper error handling with GenerationResult success/failure pattern
+  • Uses synchronous LumaAI client calls within async methods (potential blocking issue)
+  • Default timeout is 300s (5 min) from config, but _wait_for_completion defaults to   
+600s (10 min)
+  • Prompt is truncated to 2000 characters to respect Luma API limits
+  • Supports continuation from previous generations via generation ID for scene chaining
+  • Character reference feature is ray-3 model only
+```
+
+And here's my next provider to work on! I want some text to audio support for my podcost website (https://podcasts.spiritwriter.ai/), so I've done the scaffolding for elevenlabs, but not the full implementation.
+
+```
+$ claude-studio provider analyze core/providers/audio/elevenlabs.py
+⠙ Analyzing...
+╭──────────── 📄 Stub Analysis ────────────╮
+│ Provider Analysis                        │
+│                                          │
+│ File: core/providers/audio/elevenlabs.py │
+│ Provider: elevenlabs                     │
+│ Type: tts                                │
+│ Base Class: AudioProvider                │
+╰──────────────────────────────────────────╯
+                                       Methods                                          
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  
+┃ Method               ┃ Status ┃ Signature                                          ┃  
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩  
+│ generate_speech      │ ○ Stub │ async def generate_speech(self, text: str, voice_i │  
+│ list_voices          │ ○ Stub │ async def list_voices(self) -> List[Dict           │  
+│ validate_credentials │ ○ Stub │ async def validate_credentials(self) -> bool       │  
+└──────────────────────┴────────┴────────────────────────────────────────────────────┘  
+
+Notes:
+  • Provider is explicitly marked as stub with _is_stub = True flag
+  • Cost estimation is already implemented at ~$0.30 per 1K characters
+  • Provider supports advanced features: voice cloning, emotion control, 29 languages   
+  • Voice control parameters include: stability, similarity, style, speaker_boost       
+  • API base URL likely https://api.elevenlabs.io/v1/
+  • Main endpoint will be /text-to-speech/{voice_id}
+  • Voices endpoint will be /voices
+  • Requires proper error handling for API rate limits and quota
+  • Should support streaming audio response (ElevenLabs returns audio/mpeg)
+  • May need to handle voice_id defaults if none provided
+  • The **kwargs in generate_speech likely for: stability, similarity_boost, style,     
+use_speaker_boost parameters
+```
 
 ## Quick Start
 
