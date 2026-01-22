@@ -1,8 +1,9 @@
-"""Render command - Re-render EDLs from existing runs"""
+"""Render command - Re-render EDLs from existing runs and mix video with audio"""
 
 import os
 import json
 import asyncio
+import tempfile
 from pathlib import Path
 
 import click
@@ -12,7 +13,7 @@ from rich import box
 
 from core.renderer import FFmpegRenderer
 from core.models.edit_decision import EditDecisionList, EditCandidate, EditDecision
-from core.models.render import RenderConfig
+from core.models.render import RenderConfig, AudioTrack, TrackType
 
 console = Console()
 
@@ -81,12 +82,33 @@ def load_edl_from_run(run_dir: Path) -> EditDecisionList:
     )
 
 
-@click.command()
+@click.group()
+def render_cmd():
+    """
+    Render commands - render EDLs or mix video with audio.
+
+    \b
+    Commands:
+        render edl <RUN_ID>    Render a production run's EDL
+        render mix <VIDEO>     Mix video with TTS or audio file
+
+    Examples:
+
+        # Render a production run
+        claude-studio render edl 20260107_224324
+
+        # Mix video with TTS audio
+        claude-studio render mix video.mp4 --text "Hello world"
+    """
+    pass
+
+
+@click.command("edl")
 @click.argument("run_id")
 @click.option("--candidate", "-c", help="Candidate ID to render (default: recommended)")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 @click.option("--list-candidates", "-l", is_flag=True, help="List available candidates")
-def render_cmd(run_id: str, candidate: str, output: str, list_candidates: bool):
+def edl_cmd(run_id: str, candidate: str, output: str, list_candidates: bool):
     """
     Render a final video from an existing production run.
 
@@ -95,16 +117,16 @@ def render_cmd(run_id: str, candidate: str, output: str, list_candidates: bool):
     Examples:
 
         # List available edit candidates
-        claude-studio render 20260107_224324 --list-candidates
+        claude-studio render edl 20260107_224324 --list-candidates
 
         # Render the recommended candidate
-        claude-studio render 20260107_224324
+        claude-studio render edl 20260107_224324
 
         # Render a specific candidate
-        claude-studio render 20260107_224324 -c creative_cut
+        claude-studio render edl 20260107_224324 -c creative_cut
 
         # Render to a specific output file
-        claude-studio render 20260107_224324 -o my_video.mp4
+        claude-studio render edl 20260107_224324 -o my_video.mp4
     """
     # Find run directory
     run_dir = Path("artifacts/runs") / run_id
@@ -248,3 +270,161 @@ async def _render_edl(
         result.output_path = output_path
 
     return result
+
+
+@click.command("mix")
+@click.argument("video_file", type=click.Path(exists=True))
+@click.option("--text", "-t", help="Text to convert to speech (TTS)")
+@click.option("--audio", "-a", type=click.Path(exists=True), help="Audio file to mix with video")
+@click.option("--voice", "-v", default="Rachel", help="Voice ID for TTS (default: Rachel)")
+@click.option("--output", "-o", type=click.Path(), help="Output file path")
+@click.option("--volume", default=0.0, help="Audio volume adjustment in dB (default: 0)")
+def mix_cmd(video_file: str, text: str, audio: str, voice: str, output: str, volume: float):
+    """
+    Mix a video file with TTS-generated audio or an existing audio file.
+
+    This command combines a video with audio, useful for testing the
+    video+audio pipeline without running the full production workflow.
+
+    Examples:
+
+        # Generate TTS from text and mix with video
+        claude-studio render mix video.mp4 --text "Hello world, this is a test."
+
+        # Mix video with an existing audio file
+        claude-studio render mix video.mp4 --audio narration.mp3
+
+        # Specify voice and output file
+        claude-studio render mix video.mp4 -t "Welcome to our demo" -v Adam -o final.mp4
+    """
+    if not text and not audio:
+        console.print("[red]Error: Must provide either --text for TTS or --audio file[/red]")
+        return
+
+    if text and audio:
+        console.print("[yellow]Warning: Both --text and --audio provided. Using --audio file.[/yellow]")
+
+    asyncio.run(_mix_video_audio(
+        video_file=video_file,
+        text=text,
+        audio_file=audio,
+        voice_id=voice,
+        output_path=output,
+        volume_db=volume
+    ))
+
+
+async def _mix_video_audio(
+    video_file: str,
+    text: str = None,
+    audio_file: str = None,
+    voice_id: str = "Rachel",
+    output_path: str = None,
+    volume_db: float = 0.0
+):
+    """Mix video with audio (TTS or file)"""
+    from core.models.audio import VoiceStyle
+
+    video_path = Path(video_file).resolve()
+
+    # Determine output path
+    if output_path:
+        out_path = Path(output_path)
+    else:
+        out_path = video_path.parent / f"{video_path.stem}_mixed.mp4"
+
+    console.print(f"[cyan]Video:[/cyan] {video_path}")
+
+    # Get or generate audio
+    audio_path = None
+    temp_audio_file = None
+
+    if audio_file:
+        # Use provided audio file
+        audio_path = Path(audio_file).resolve()
+        console.print(f"[cyan]Audio:[/cyan] {audio_path}")
+    elif text:
+        # Generate TTS
+        console.print(f"[cyan]Generating TTS:[/cyan] \"{text[:50]}{'...' if len(text) > 50 else ''}\"")
+        console.print(f"[cyan]Voice:[/cyan] {voice_id}")
+
+        # Check for TTS provider
+        import os as _os
+        if not _os.getenv("ELEVENLABS_API_KEY") and not _os.getenv("OPENAI_API_KEY"):
+            console.print("[red]Error: No TTS provider configured.[/red]")
+            console.print("Set ELEVENLABS_API_KEY or OPENAI_API_KEY environment variable.")
+            return
+
+        # Use AudioGeneratorAgent for TTS
+        from agents.audio_generator import AudioGeneratorAgent
+
+        audio_agent = AudioGeneratorAgent()
+        result = await audio_agent.generate_voiceover(
+            text=text,
+            voice_style=VoiceStyle.PROFESSIONAL,
+            voice_id=voice_id
+        )
+
+        if result.audio.audio_data:
+            # Save audio data to temp file
+            temp_audio_file = tempfile.NamedTemporaryFile(
+                suffix=f".{result.audio.format or 'mp3'}",
+                delete=False
+            )
+            temp_audio_file.write(result.audio.audio_data)
+            temp_audio_file.close()
+            audio_path = Path(temp_audio_file.name)
+            console.print(f"[green]TTS generated:[/green] {result.audio.duration:.1f}s")
+        else:
+            console.print("[red]Error: TTS generation failed - no audio data returned[/red]")
+            return
+
+    # Check FFmpeg
+    renderer = FFmpegRenderer(output_dir=str(out_path.parent))
+    ffmpeg_check = await renderer.check_ffmpeg_installed()
+    if not ffmpeg_check["installed"]:
+        console.print("[red]Error: FFmpeg not installed[/red]")
+        if temp_audio_file:
+            Path(temp_audio_file.name).unlink(missing_ok=True)
+        return
+
+    console.print("\n[bold]Mixing video and audio...[/bold]")
+
+    # Use FFmpeg to mix video with audio
+    try:
+        result = await renderer.mix_audio(
+            video_path=str(video_path),
+            audio_tracks=[
+                AudioTrack(
+                    path=str(audio_path),
+                    start_time=0.0,
+                    volume_db=volume_db,
+                    track_type=TrackType.VOICEOVER
+                )
+            ],
+            output_path=str(out_path)
+        )
+
+        if result.success:
+            console.print(f"\n[green]Mix complete![/green]")
+            console.print(f"  Output: {result.output_path}")
+            if result.duration:
+                console.print(f"  Duration: {result.duration:.1f}s")
+            if result.file_size:
+                size_mb = result.file_size / (1024 * 1024)
+                console.print(f"  Size: {size_mb:.1f} MB")
+        else:
+            console.print(f"\n[red]Mix failed: {result.error_message}[/red]")
+
+    except Exception as e:
+        console.print(f"[red]Error mixing: {e}[/red]")
+        raise
+    finally:
+        # Clean up temp file
+        if temp_audio_file:
+            Path(temp_audio_file.name).unlink(missing_ok=True)
+
+
+# Register subcommands
+render_cmd.add_command(edl_cmd, name="edl")
+render_cmd.add_command(mix_cmd, name="mix")

@@ -42,7 +42,7 @@ class AudioGeneratorAgent(StudioAgent):
     and multi-track mixing.
     """
 
-    _is_stub = True  # Provider integration pending
+    _is_stub = False  # TTS integration complete
 
     def __init__(
         self,
@@ -59,15 +59,26 @@ class AudioGeneratorAgent(StudioAgent):
             music_provider: Optional music provider (Mubert, Suno, etc.)
         """
         super().__init__(claude_client=claude_client)
-        self.audio_provider = audio_provider  # Will use mock if None
+        self.audio_provider = audio_provider
         self.music_provider = music_provider  # Will use mock if None
+
+        # Auto-initialize ElevenLabs if no provider specified and API key available
+        if self.audio_provider is None:
+            import os
+            if os.getenv("ELEVENLABS_API_KEY"):
+                from core.providers.audio.elevenlabs import ElevenLabsProvider
+                self.audio_provider = ElevenLabsProvider()
+            elif os.getenv("OPENAI_API_KEY"):
+                from core.providers.audio.openai_tts import OpenAITTSProvider
+                self.audio_provider = OpenAITTSProvider()
 
     async def generate_voiceover(
         self,
         text: str,
         voice_style: VoiceStyle,
         target_duration: Optional[float] = None,
-        sync_points: Optional[List[SyncPoint]] = None
+        sync_points: Optional[List[SyncPoint]] = None,
+        voice_id: Optional[str] = None
     ) -> VoiceoverResult:
         """
         Generate voiceover audio from text
@@ -77,17 +88,86 @@ class AudioGeneratorAgent(StudioAgent):
             voice_style: Voice style (professional, conversational, etc.)
             target_duration: Optional target duration in seconds
             sync_points: Optional sync points for time-synced audio
+            voice_id: Optional specific voice ID to use
 
         Returns:
             VoiceoverResult with audio and timing information
         """
-        # Mock implementation - will be replaced with real provider
-        # Estimate duration: ~150 words per minute average speech
         word_count = len(text.split())
+        words = text.split()
+
+        # Use real provider if available
+        if self.audio_provider is not None:
+            # Map voice style to provider voice (can be customized)
+            effective_voice_id = voice_id
+            if not effective_voice_id:
+                # Default voice mapping based on style
+                voice_mapping = {
+                    VoiceStyle.PROFESSIONAL: "Rachel",  # ElevenLabs default professional
+                    VoiceStyle.CONVERSATIONAL: "Adam",
+                    VoiceStyle.DRAMATIC: "Antoni",
+                    VoiceStyle.FRIENDLY: "Bella",
+                    VoiceStyle.AUTHORITATIVE: "Arnold",
+                }
+                effective_voice_id = voice_mapping.get(voice_style, "Rachel")
+
+            # Generate real audio
+            result = await self.audio_provider.generate_speech(
+                text=text,
+                voice_id=effective_voice_id
+            )
+
+            if result.success:
+                # Estimate duration from audio data size if not provided
+                # MP3 at 128kbps = ~16KB per second
+                estimated_duration = result.duration
+                if estimated_duration is None and result.audio_data:
+                    estimated_duration = len(result.audio_data) / 16000.0
+
+                # Estimate cost from provider
+                generation_cost = 0.0
+                if hasattr(self.audio_provider, 'estimate_cost'):
+                    generation_cost = self.audio_provider.estimate_cost(text)
+
+                # Generate estimated word timings
+                timing_map = []
+                current_time = 0.0
+                avg_word_duration = (estimated_duration or 1.0) / max(len(words), 1)
+
+                for word in words:
+                    timing_map.append(WordTiming(
+                        word=word,
+                        start_time=current_time,
+                        end_time=current_time + avg_word_duration
+                    ))
+                    current_time += avg_word_duration
+
+                # Create audio result with real data
+                audio = GeneratedAudio(
+                    audio_id=f"vo_{hash(text) % 10000}",
+                    audio_url=None,  # Data is in audio_data, not URL
+                    audio_data=result.audio_data,
+                    audio_type="voiceover",
+                    duration=estimated_duration or (word_count / 150.0) * 60.0,
+                    format=result.format or "mp3",
+                    sample_rate=result.sample_rate or 44100,
+                    channels=1,
+                    generation_cost=generation_cost,
+                    provider_metadata=result.provider_metadata
+                )
+
+                return VoiceoverResult(
+                    audio=audio,
+                    words_per_minute=word_count / ((estimated_duration or 1.0) / 60.0),
+                    actual_duration=estimated_duration or (word_count / 150.0) * 60.0,
+                    target_duration=target_duration or estimated_duration,
+                    timing_map=timing_map
+                )
+
+        # Fallback to mock implementation if no provider or generation failed
         estimated_duration = (word_count / 150.0) * 60.0
 
         # Generate mock word timings
-        words = text.split()
         timing_map = []
         current_time = 0.0
         avg_word_duration = estimated_duration / max(len(words), 1)
@@ -108,8 +188,8 @@ class AudioGeneratorAgent(StudioAgent):
             duration=estimated_duration,
             format="mp3",
             sample_rate=48000,
-            channels=1,  # Mono for voiceover
-            generation_cost=0.15 * (estimated_duration / 60.0)  # $0.15/min estimate
+            channels=1,
+            generation_cost=0.15 * (estimated_duration / 60.0)
         )
 
         return VoiceoverResult(

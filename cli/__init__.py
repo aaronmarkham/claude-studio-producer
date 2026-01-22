@@ -8,7 +8,7 @@ from .agents import agents_cmd
 from .config import config_cmd
 from .produce import produce_cmd
 from .test_provider import test_provider_cmd
-from .render import render_cmd
+from .render import render_cmd, mix_cmd, edl_cmd
 from .themes import themes_cmd
 from .luma import luma_cmd
 from .memory import memory_cmd
@@ -31,7 +31,7 @@ def main():
     \b
     Commands:
       produce        Run full video production pipeline
-      render         Render final video from existing run
+      render         Render commands (edl, mix video+audio)
       test-provider  Test a single provider (quick validation)
       luma           Luma API management (list, download, recover)
       memory         Memory and learnings management

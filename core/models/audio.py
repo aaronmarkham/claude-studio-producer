@@ -29,6 +29,8 @@ class VoiceStyle(Enum):
     ENERGETIC = "energetic"                # Upbeat, excited
     CALM = "calm"                          # Soothing, measured
     DRAMATIC = "dramatic"                  # Intense, storytelling
+    FRIENDLY = "friendly"                  # Warm, approachable
+    AUTHORITATIVE = "authoritative"        # Strong, commanding
 
 
 class MusicMood(Enum):
@@ -127,7 +129,7 @@ class WordTiming:
 class GeneratedAudio:
     """Result of audio generation"""
     audio_id: str
-    audio_url: str
+    audio_url: Optional[str]               # URL if hosted, None if data is inline
     audio_type: str                        # "voiceover", "music", "sfx"
     duration: float                        # Seconds
     format: str                            # "mp3", "wav", "aac"
@@ -137,6 +139,8 @@ class GeneratedAudio:
     generation_cost: float = 0.0
     provider: str = ""
     metadata: dict = field(default_factory=dict)
+    audio_data: Optional[bytes] = None     # Raw audio bytes (for real providers)
+    provider_metadata: Optional[dict] = None  # Provider-specific metadata
 
 
 @dataclass

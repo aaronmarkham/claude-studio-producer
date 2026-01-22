@@ -802,8 +802,9 @@ The system accumulates learnings from each run to improve future prompts:
 | **VideoGeneratorAgent** | Implemented | Generates video with Luma AI (real) or mock providers |
 | **QAVerifierAgent** | Implemented | Vision-based quality analysis with Claude |
 | **CriticAgent** | Implemented | Evaluates results, extracts provider learnings |
+| **ProviderOnboardingAgent** | Implemented | Analyzes API docs, generates provider implementations, validates with tests |
 | **EditorAgent** | Implemented | Creates EDL candidates for final assembly |
-| **AudioGeneratorAgent** | Stub | Audio generation (interface ready) |
+| **AudioGeneratorAgent** | Implemented | TTS voiceover generation with ElevenLabs/OpenAI |
 | **AssetAnalyzerAgent** | Stub | Seed asset analysis with Claude Vision |
 
 ## Providers
