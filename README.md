@@ -628,43 +628,45 @@ flowchart TB
 
 The memory system uses a hierarchical namespace structure for learnings:
 
-```mermaid
-flowchart TB
-    subgraph Platform["Platform Level (Curated)"]
-        PlatformLearnings["Platform Learnings<br/>Cross-tenant best practices"]
-    end
+```
+PROVIDER LEARNING LIFECYCLE
+============================
 
-    subgraph Org["Organization Level"]
-        OrgLearnings["Org Learnings<br/>Team-specific patterns"]
-        OrgConfig["Org Config"]
-    end
+1. ONBOARDING (one-time per provider)
+   ┌─────────────────┐
+   │  API Docs       │──► Onboarding ──► tips, gotchas, limitations
+   │  Stub File      │    Agent          │
+   └─────────────────┘                   │
+                                         ▼
+2. STORAGE (namespace hierarchy)      ┌─────────┐
+                                      │  USER   │ ◄── initial home
+   ┌──────────────────────────────────┴─────────┴──────────────────┐
+   │                                                               │
+   │   SESSION (0.5)  ──►  USER (0.65)  ──►  ORG (0.8)  ──►  PLATFORM (1.0)
+   │   experimental       validated         team-wide       curated
+   │                          ▲                 ▲
+   │                          │                 │
+   │                     promote if         promote if
+   │                     works well        cross-team value
+   └───────────────────────────────────────────────────────────────┘
 
-    subgraph User["User Level"]
-        UserLearnings["User Learnings<br/>Personal preferences"]
-        UserPrefs["Preferences"]
-    end
-
-    subgraph Session["Session Level"]
-        SessionLearnings["Session Learnings<br/>Experimental/temporary"]
-    end
-
-    subgraph Agents["Agent Integration"]
-        Producer["Producer"]
-        ScriptWriter["ScriptWriter"]
-        Critic["Critic"]
-    end
-
-    PlatformLearnings -->|"priority: 1.0"| Producer
-    OrgLearnings -->|"priority: 0.8"| Producer
-    UserLearnings -->|"priority: 0.65"| Producer
-    SessionLearnings -->|"priority: 0.5"| Producer
-
-    PlatformLearnings -->|"guidelines"| ScriptWriter
-    OrgLearnings -->|"patterns"| ScriptWriter
-    UserLearnings -->|"tips"| ScriptWriter
-
-    Critic -->|"new learnings"| UserLearnings
-    Critic -->|"promote if validated"| OrgLearnings
+3. PRODUCTION (ongoing)
+   ┌─────────────────┐      ┌─────────────┐      ┌─────────────┐
+   │  ScriptWriter   │◄─────│   merged    │◄─────│  all tiers  │
+   │  (uses tips)    │      │  learnings  │      │  by priority│
+   └────────┬────────┘      └─────────────┘      └─────────────┘
+            │
+            ▼
+   ┌─────────────────┐
+   │  Video/Audio    │──► actual generation
+   │  Generation     │
+   └────────┬────────┘
+            │
+            ▼
+   ┌─────────────────┐      ┌─────────────┐
+   │  Critic Agent   │──────│   SESSION   │──► new learnings
+   │  (evaluates)    │      │   memory    │    (what worked/failed)
+   └─────────────────┘      └─────────────┘
 ```
 
 **Key Features:**
