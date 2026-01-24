@@ -51,8 +51,10 @@ class ClaudeClient:
                 text = self._extract_text_from_message(message)
                 if text:
                     response_text += text
-        except ImportError:
-            # Fall back to Anthropic SDK
+        except (ImportError, Exception) as sdk_err:
+            # Fall back to Anthropic SDK (catches both missing SDK and runtime errors)
+            if self.debug and not isinstance(sdk_err, ImportError):
+                print(f"[DEBUG] Claude Agent SDK failed: {sdk_err}, falling back to Anthropic SDK")
             try:
                 import anthropic
                 import os
@@ -67,7 +69,7 @@ class ClaudeClient:
                 client = anthropic.Anthropic(api_key=api_key)
                 response = client.messages.create(
                     model="claude-sonnet-4-20250514",
-                    max_tokens=4096,
+                    max_tokens=16384,
                     messages=[{"role": "user", "content": full_prompt}]
                 )
                 response_text = response.content[0].text

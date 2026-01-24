@@ -167,11 +167,30 @@ def _rebuild_knowledge_graph(project_dir: Path, project) -> None:
                         created_by="auto",
                     ))
 
-    # Identify key themes (topics appearing in most sources)
+    # Identify key themes (topics appearing in most sources, filtering noise)
     source_count = len(project.sources)
     key_themes = []
+    # Stopwords that shouldn't be standalone themes
+    theme_stopwords = {
+        "this", "that", "with", "from", "have", "been", "their", "which",
+        "also", "more", "than", "into", "each", "such", "only", "other",
+        "some", "these", "those", "over", "many", "most", "both", "does",
+        "used", "using", "based", "however", "results", "experimental",
+        "international", "introduction", "related", "conclusion", "nature",
+        "conference", "proceedings", "references", "abstract", "proposed",
+        "machine", "neural", "network", "networks", "learning", "training",
+        "computer", "vision", "language", "intelligence", "artificial",
+        "analysis", "system", "systems", "performance", "algorithm",
+        "knowledge", "information", "processing", "research",
+    }
     if source_count > 0:
         for topic, atom_ids in sorted(topic_index.items(), key=lambda x: -len(x[1])):
+            # Skip stopwords and short single words (keep multi-word topics)
+            if topic.lower() in theme_stopwords:
+                continue
+            # Single words must be at least 6 chars to be meaningful themes
+            if ' ' not in topic and len(topic) < 6:
+                continue
             topic_sources = set(atom_sources.get(aid) for aid in atom_ids)
             topic_sources.discard(None)
             if len(topic_sources) >= min(2, source_count):

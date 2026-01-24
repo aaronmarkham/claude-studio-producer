@@ -216,8 +216,39 @@ class DocumentIngestorAgent(StudioAgent):
         classified_blocks = structure.get("blocks", [])
         current_section_id = None
 
+        # Map LLM type names to our AtomType enum
+        type_mapping = {
+            "reference": "citation",
+            "references": "citation",
+            "bibliography": "citation",
+            "subsection_header": "section_header",
+            "heading": "section_header",
+            "subheading": "section_header",
+            "body_text": "paragraph",
+            "method_description": "paragraph",
+            "experiment_description": "paragraph",
+            "results_description": "paragraph",
+            "evaluation_description": "paragraph",
+            "discussion": "paragraph",
+            "introduction": "paragraph",
+            "conclusion": "paragraph",
+            "table_data": "table",
+            "table_header": "table",
+            "table_caption": "paragraph",
+            "figure_caption": "paragraph",
+            "page_footer": "citation",
+            "page_header": "citation",
+            "metadata": "citation",
+            "authors": "paragraph",
+            "affiliations": "paragraph",
+            "contact": "paragraph",
+            "date": "citation",
+        }
+
         for i, block_info in enumerate(classified_blocks):
             atom_type_str = block_info.get("type", "paragraph")
+            # Apply type mapping
+            atom_type_str = type_mapping.get(atom_type_str, atom_type_str)
             try:
                 atom_type = AtomType(atom_type_str)
             except ValueError:
@@ -543,39 +574,87 @@ Respond with JSON:
 
         return graph
 
+    # Common words to exclude from topics and entities
+    _STOPWORDS = frozenset({
+        "the", "and", "for", "with", "from", "this", "that", "are", "was",
+        "has", "but", "not", "all", "can", "will", "been", "have", "had",
+        "were", "their", "which", "when", "where", "what", "how", "who",
+        "also", "more", "than", "then", "into", "each", "such", "only",
+        "other", "some", "these", "those", "over", "many", "most", "both",
+        "does", "did", "its", "our", "may", "one", "two", "use", "used",
+        "using", "based", "however", "therefore", "thus", "hence",
+        "proposed", "present", "presented", "show", "shown", "shows",
+        "result", "results", "approach", "method", "methods", "figure",
+        "table", "section", "paper", "work", "study", "model", "models",
+        "data", "set", "first", "second", "new", "different", "between",
+        "through", "after", "before", "while", "during", "since", "about",
+        "above", "below", "under", "further", "here", "there", "still",
+        "introduction", "related", "conclusion", "abstract", "experimental",
+        "international", "conference", "proceedings", "journal", "nature",
+        "machine", "neural", "network", "networks", "learning", "training",
+        "computer", "vision", "language", "intelligence", "artificial",
+        "analysis", "system", "systems", "performance", "algorithm",
+        "algorithms", "knowledge", "information", "processing", "research",
+        "techniques", "framework", "feature", "features", "representation",
+    })
+
     def _extract_mock_topics(self, text: str) -> List[str]:
-        """Simple keyword extraction for mock mode"""
-        # Extract capitalized multi-word phrases as topics
+        """Extract meaningful topics from text using heuristics (mock mode).
+
+        Finds multi-word capitalized phrases and significant technical terms,
+        filtering out common academic boilerplate.
+        """
         topics = []
-        words = text.split()
-        for i, word in enumerate(words[:50]):  # Only scan first 50 words
-            if len(word) > 3 and word[0].isupper() and word.isalpha():
-                topics.append(word.lower())
-        return topics[:3]  # Max 3 topics per block
+
+        # Multi-word capitalized phrases (e.g., "Knowledge Graph", "Large Language Model")
+        for match in re.finditer(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text[:500]):
+            phrase = match.group(1).lower()
+            words = phrase.split()
+            # Keep if at least one word is NOT a stopword (meaningful compound term)
+            if any(w not in self._STOPWORDS for w in words):
+                topics.append(phrase)
+
+        # Single significant capitalized words (not at sentence start, min 6 chars)
+        for match in re.finditer(r'(?<=[a-z]\s)([A-Z][a-z]{5,})\b', text[:500]):
+            word = match.group(1).lower()
+            if word not in self._STOPWORDS:
+                topics.append(word)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_topics = []
+        for t in topics:
+            if t not in seen:
+                seen.add(t)
+                unique_topics.append(t)
+
+        return unique_topics[:3]
 
     def _extract_mock_entities(self, text: str) -> List[str]:
         """Extract entities from text using heuristics (mock mode).
 
         Finds: acronyms (LLM, KG, NLP), capitalized phrases (Knowledge Graph),
-        and common academic entities (model names, datasets, methods).
+        and named entities that aren't common academic boilerplate.
         """
         entities = set()
 
-        # Acronyms: 2-5 uppercase letters, optionally with digits
-        for match in re.finditer(r'\b([A-Z][A-Z0-9]{1,4})\b', text):
+        # Acronyms: 3-5 uppercase letters, optionally with digits
+        # These are almost always meaningful (LLM, KG, NLP, GPT, DNN, etc.)
+        for match in re.finditer(r'\b([A-Z][A-Z0-9]{2,4})\b', text):
             acronym = match.group(1)
-            # Skip common non-entities
-            if acronym not in {"THE", "AND", "FOR", "WITH", "FROM", "THIS", "THAT",
-                               "ARE", "WAS", "HAS", "BUT", "NOT", "ALL", "CAN"}:
+            if acronym.lower() not in self._STOPWORDS:
                 entities.add(acronym)
 
-        # Capitalized multi-word phrases (proper nouns / named entities)
-        for match in re.finditer(r'(?<![.]\s)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)', text):
+        # Capitalized multi-word phrases — must not be at sentence start
+        # Look for "... word Word Word ..." patterns (mid-sentence capitalization)
+        for match in re.finditer(r'(?<=[a-z.,;:]\s)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)', text):
             phrase = match.group(1)
-            if len(phrase) > 5:  # Skip very short phrases
+            words = phrase.lower().split()
+            # Skip if all words are stopwords
+            if not all(w in self._STOPWORDS for w in words) and len(phrase) > 5:
                 entities.add(phrase)
 
-        return list(entities)[:5]  # Max 5 entities per atom
+        return list(entities)[:5]
 
     def _extract_mock_relationships(self, text: str, entities: List[str]) -> List[str]:
         """Extract simple relationships between entities found in the same text block."""
