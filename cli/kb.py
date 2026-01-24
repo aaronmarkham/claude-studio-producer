@@ -579,3 +579,277 @@ def list_cmd():
         )
 
     console.print(table)
+
+
+def _build_concept_from_kb(
+    proj: 'KnowledgeProject',
+    kg: 'KnowledgeGraph',
+    prompt: str,
+    source_filter: Optional[List[str]] = None,
+) -> str:
+    """Build a rich concept string from KB content for the production pipeline.
+
+    Assembles structured context from the knowledge graph that the ScriptWriterAgent
+    can use to create an informed, accurate script.
+    """
+    from core.models.document import AtomType
+
+    sections = []
+
+    # Header
+    sections.append(f"KNOWLEDGE BASE: {proj.name}")
+    if proj.description:
+        sections.append(f"DESCRIPTION: {proj.description}")
+
+    # Sources summary
+    source_lines = []
+    for sid, src in proj.sources.items():
+        if source_filter and sid not in source_filter:
+            continue
+        line = f"- {src.title} ({src.source_type.value}, {src.atom_count} atoms)"
+        if src.one_sentence:
+            line += f"\n  Summary: {src.one_sentence}"
+        source_lines.append(line)
+    if source_lines:
+        sections.append("SOURCES:\n" + "\n".join(source_lines))
+
+    # Production direction (user's prompt)
+    sections.append(f"PRODUCTION DIRECTION: {prompt}")
+
+    # Key themes from the knowledge graph
+    if kg.key_themes:
+        sections.append("KEY THEMES: " + ", ".join(kg.key_themes))
+
+    # Collect atoms, filtering by source if needed
+    atoms_to_use = []
+    for atom_id, atom in kg.atoms.items():
+        if source_filter:
+            atom_source = kg.atom_sources.get(atom_id, "")
+            if atom_source not in source_filter:
+                continue
+        atoms_to_use.append(atom)
+
+    # Sort by importance (highest first)
+    atoms_to_use.sort(key=lambda a: a.importance_score, reverse=True)
+
+    # Build content sections by type priority
+    char_budget = 4000
+    chars_used = 0
+
+    # 1. Abstracts (full content)
+    abstracts = [a for a in atoms_to_use if a.atom_type == AtomType.ABSTRACT]
+    if abstracts:
+        abstract_lines = []
+        for a in abstracts[:3]:
+            if chars_used + len(a.content) > char_budget:
+                break
+            abstract_lines.append(a.content)
+            chars_used += len(a.content)
+        if abstract_lines:
+            sections.append("ABSTRACTS:\n" + "\n\n".join(abstract_lines))
+
+    # 2. Key quotes
+    quotes = [a for a in atoms_to_use if a.atom_type == AtomType.QUOTE]
+    if quotes:
+        quote_lines = []
+        for a in quotes[:5]:
+            if chars_used + len(a.content) > char_budget:
+                break
+            quote_lines.append(f'"{a.content}"')
+            chars_used += len(a.content)
+        if quote_lines:
+            sections.append("KEY QUOTES:\n" + "\n".join(quote_lines))
+
+    # 3. Section headers (for structure overview)
+    headers = [a for a in atoms_to_use if a.atom_type == AtomType.SECTION_HEADER]
+    if headers:
+        header_texts = [a.content for a in headers[:15]]
+        header_block = ", ".join(header_texts)
+        if chars_used + len(header_block) <= char_budget:
+            sections.append("DOCUMENT STRUCTURE: " + header_block)
+            chars_used += len(header_block)
+
+    # 4. High-importance paragraphs
+    paragraphs = [a for a in atoms_to_use if a.atom_type == AtomType.PARAGRAPH]
+    if paragraphs:
+        para_lines = []
+        for a in paragraphs[:10]:
+            if chars_used >= char_budget:
+                break
+            text = a.content[:300]
+            if len(a.content) > 300:
+                text += "..."
+            para_lines.append(text)
+            chars_used += len(text)
+        if para_lines:
+            sections.append("CONTENT TO COVER:\n" + "\n\n".join(para_lines))
+
+    # 5. Figure descriptions
+    figures = [a for a in atoms_to_use if a.atom_type in (AtomType.FIGURE, AtomType.CHART, AtomType.DIAGRAM)]
+    if figures:
+        fig_lines = []
+        for a in figures[:8]:
+            if chars_used >= char_budget:
+                break
+            desc = a.caption or a.content or f"Figure {a.figure_number or '?'}"
+            fig_lines.append(f"- {desc[:150]}")
+            chars_used += len(desc[:150])
+        if fig_lines:
+            sections.append("FIGURES AVAILABLE:\n" + "\n".join(fig_lines))
+
+    # 6. Entity list for context
+    all_entities = set()
+    for a in atoms_to_use:
+        all_entities.update(a.entities[:3])
+    if all_entities:
+        entity_str = ", ".join(sorted(all_entities)[:20])
+        sections.append(f"KEY ENTITIES: {entity_str}")
+
+    # 7. Cross-source connections
+    if kg.cross_links:
+        link_descs = []
+        for link in kg.cross_links[:5]:
+            src_atom = kg.atoms.get(link.source_atom_id)
+            tgt_atom = kg.atoms.get(link.target_atom_id)
+            if src_atom and tgt_atom:
+                link_descs.append(
+                    f"- {link.relationship}: "
+                    f"{src_atom.content[:60]} <-> {tgt_atom.content[:60]}"
+                )
+        if link_descs:
+            sections.append("CROSS-SOURCE CONNECTIONS:\n" + "\n".join(link_descs))
+
+    return "\n\n".join(sections)
+
+
+@kb_cmd.command("produce")
+@click.argument("project")
+@click.option("--prompt", "-p", required=True, help="Production direction/focus")
+@click.option("--sources", "-s", multiple=True, help="Limit to specific source IDs")
+@click.option("--tier", type=click.Choice(["static", "text", "animated", "broll", "avatar", "full"]), default="static")
+@click.option("--duration", "-d", type=float, default=60.0, help="Target duration in seconds")
+@click.option("--budget", "-b", type=float, default=10.0, help="Budget in USD")
+@click.option("--provider", type=click.Choice(["luma", "runway", "mock"]), default="luma", help="Video provider")
+@click.option("--audio-tier", "audio_tier", type=click.Choice(["none", "music_only", "simple_overlay", "time_synced"]), default="simple_overlay")
+@click.option("--live", is_flag=True, help="Use live providers (costs money)")
+@click.option("--mock", "use_mock", is_flag=True, help="Force mock mode")
+@click.option("--debug", is_flag=True, help="Enable debug output")
+def produce_cmd_kb(project, prompt, sources, tier, duration, budget, provider, audio_tier, live, use_mock, debug):
+    """Produce a video from knowledge base content.
+
+    \b
+    Examples:
+      claude-studio kb produce "AI Research" -p "Explain the key findings" --mock
+      claude-studio kb produce myproject -p "Compare the two papers" --tier animated --live
+    """
+    import time
+    from core.models.audio import AudioTier
+    from core.models.knowledge import KnowledgeGraph
+    from cli.produce import _run_production
+
+    # Resolve project
+    project_dir = _resolve_project(project)
+    if not project_dir:
+        console.print(f"[red]Project not found:[/red] {project}")
+        return
+
+    proj = _load_project(project_dir)
+    if not proj.sources:
+        console.print(f"[red]No sources in project.[/red] Add sources first with: claude-studio kb add {project} --paper <file.pdf>")
+        return
+
+    # Load knowledge graph
+    kg_path = project_dir / "knowledge_graph.json"
+    if not kg_path.exists():
+        console.print("[red]No knowledge graph found.[/red] Add sources to build the graph.")
+        return
+
+    with open(kg_path, encoding="utf-8") as f:
+        kg_data = json.load(f)
+    kg = KnowledgeGraph.from_dict(kg_data)
+
+    # Filter sources if specified
+    source_filter = list(sources) if sources else None
+    if source_filter:
+        invalid = [s for s in source_filter if s not in proj.sources]
+        if invalid:
+            console.print(f"[red]Unknown source IDs:[/red] {', '.join(invalid)}")
+            console.print("[dim]Available sources:[/dim]")
+            for sid, src in proj.sources.items():
+                console.print(f"  {sid}: {src.title}")
+            return
+
+    # Build concept from KB
+    concept = _build_concept_from_kb(proj, kg, prompt, source_filter)
+
+    if debug:
+        console.print(Panel(concept, title="Generated Concept", border_style="dim"))
+
+    # Setup run
+    use_live_mode = live and not use_mock
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = Path("artifacts/runs") / run_id
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "scenes").mkdir(exist_ok=True)
+    (run_dir / "videos").mkdir(exist_ok=True)
+    (run_dir / "audio").mkdir(exist_ok=True)
+    (run_dir / "edl").mkdir(exist_ok=True)
+    (run_dir / "renders").mkdir(exist_ok=True)
+
+    # Parse audio tier
+    audio_tier_map = {
+        "none": AudioTier.NONE,
+        "music_only": AudioTier.MUSIC_ONLY,
+        "simple_overlay": AudioTier.SIMPLE_OVERLAY,
+        "time_synced": AudioTier.TIME_SYNCED,
+    }
+    audio_tier_enum = audio_tier_map[audio_tier]
+
+    # Show production header
+    source_count = len(source_filter) if source_filter else proj.source_count
+    console.print(Panel(
+        f"[bold]KB Production[/bold]\n"
+        f"Project: {proj.name} ({source_count} sources, {kg.atom_count} atoms)\n"
+        f"Prompt: {prompt}\n"
+        f"Tier: {tier} | Duration: {duration}s | Provider: {provider}\n"
+        f"Mode: {'LIVE' if use_live_mode else 'MOCK'}",
+        border_style="green" if use_live_mode else "blue",
+    ))
+
+    # Run production pipeline
+    start_time = time.time()
+
+    try:
+        result = asyncio.run(_run_production(
+            concept=concept,
+            budget=budget,
+            duration=duration,
+            audio_tier=audio_tier_enum,
+            provider_name=provider,
+            use_live=use_live_mode,
+            variations=1,
+            run_dir=run_dir,
+            run_id=run_id,
+            debug=debug,
+            as_json=False,
+        ))
+
+        total_time = time.time() - start_time
+
+        if result.get("success"):
+            console.print(f"\n[green]Production complete![/green] Run: {run_id}")
+            console.print(f"  Output: {run_dir}")
+            console.print(f"  Time: {total_time:.1f}s")
+        else:
+            console.print(f"\n[red]Production failed.[/red]")
+            if debug and result.get("metadata"):
+                console.print(f"[dim]{json.dumps(result['metadata'], indent=2)}[/dim]")
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Production cancelled.[/yellow]")
+    except Exception as e:
+        console.print(f"\n[red]Production error:[/red] {e}")
+        if debug:
+            import traceback
+            traceback.print_exc()
