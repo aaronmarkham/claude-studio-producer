@@ -154,6 +154,7 @@ class EditorAgent(StudioAgent):
 
                 # Get video URL
                 videos = video_candidates.get(scene_id, [])
+                video = None
                 if variation_idx < len(videos):
                     video = videos[variation_idx]
                     video_url = video.video_url
@@ -163,9 +164,19 @@ class EditorAgent(StudioAgent):
                     video_url = ""
                     duration = edit_data_item.get("duration", 5.0)
 
-                # Calculate trim points
+                # Calculate trim points, adjusting for chained video offsets
                 in_point = edit_data_item.get("in_point", 0.0)
                 out_point = edit_data_item.get("out_point", duration)
+
+                # For chained videos, offset trim points to the new content region
+                if video and video.contains_previous and video.new_content_start > 0:
+                    chain_offset = video.new_content_start
+                    in_point = chain_offset + in_point
+                    out_point = chain_offset + out_point
+                    # Clamp to video bounds
+                    if video.total_video_duration:
+                        out_point = min(out_point, video.total_video_duration)
+
                 actual_duration = out_point - in_point
 
                 # Get text overlay from scene (if defined)

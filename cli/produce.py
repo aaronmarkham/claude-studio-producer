@@ -1445,8 +1445,25 @@ async def _run_production(
                         "qa_passed": qa.passed,
                         "qa_threshold": qa.threshold,
                         "qa_issues": qa.issues,
-                        "qa_suggestions": qa.suggestions
+                        "qa_suggestions": qa.suggestions,
+                        "qa_frame_timestamps": qa.frame_timestamps,
                     }
+                    # Add enriched visual analysis if available
+                    if qa.visual_analysis:
+                        from dataclasses import asdict
+                        qa_metadata["qa_visual_analysis"] = {
+                            "overall_description": qa.visual_analysis.overall_description,
+                            "primary_subject": qa.visual_analysis.primary_subject,
+                            "setting": qa.visual_analysis.setting,
+                            "action": qa.visual_analysis.action,
+                            "consistent_elements": qa.visual_analysis.consistent_elements,
+                            "inconsistent_elements": qa.visual_analysis.inconsistent_elements,
+                            "matched_elements": qa.visual_analysis.matched_elements,
+                            "missing_elements": qa.visual_analysis.missing_elements,
+                            "unexpected_elements": qa.visual_analysis.unexpected_elements,
+                            "provider_observations": qa.visual_analysis.provider_observations,
+                            "frame_analyses": [asdict(f) for f in qa.visual_analysis.frame_analyses],
+                        }
 
                 # Convert absolute path to relative path for web serving
                 # The /files route serves from artifacts/, so strip that prefix

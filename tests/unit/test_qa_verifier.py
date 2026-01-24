@@ -59,7 +59,7 @@ class TestQAVerifierAgent:
         """Test default initialization parameters"""
         agent = QAVerifierAgent()
         assert agent.mock_mode == True  # Default to mock mode
-        assert agent.num_frames == 3
+        assert agent.num_frames == 5
         assert agent.use_vision == True
 
     def test_is_stub_attribute(self):
@@ -91,6 +91,21 @@ class TestQAVerifierAgent:
         assert isinstance(result.suggestions, list)
         assert isinstance(result.passed, bool)
         assert result.threshold == QA_THRESHOLDS[ProductionTier.ANIMATED]
+
+        # Enriched visual analysis should be populated in mock mode
+        assert result.visual_analysis is not None
+        assert result.visual_analysis.frames_analyzed == agent.num_frames
+        assert len(result.visual_analysis.frame_analyses) == agent.num_frames
+        assert result.visual_analysis.primary_subject != ""
+        assert isinstance(result.visual_analysis.matched_elements, list)
+        assert isinstance(result.visual_analysis.missing_elements, list)
+        assert result.visual_analysis.provider_observations is not None
+        assert "strengths" in result.visual_analysis.provider_observations
+        assert "weaknesses" in result.visual_analysis.provider_observations
+
+        # Frame timestamps should be populated
+        assert len(result.frame_timestamps) == agent.num_frames
+        assert all(t > 0 for t in result.frame_timestamps)
 
     @pytest.mark.asyncio
     async def test_verify_video_quality_varies_by_tier(self, sample_scene, sample_video):

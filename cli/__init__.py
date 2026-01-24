@@ -12,6 +12,7 @@ from .render import render_cmd, mix_cmd, edl_cmd
 from .themes import themes_cmd
 from .luma import luma_cmd
 from .memory import memory_cmd
+from .qa import qa_cmd
 from .provider_cli import provider
 
 # Load .env file at CLI startup
@@ -35,6 +36,7 @@ def main():
       test-provider  Test a single provider (quick validation)
       luma           Luma API management (list, download, recover)
       memory         Memory and learnings management
+      qa             QA inspection (view quality scores)
       provider       Provider onboarding and management
       status         Show system status
       providers      List and manage providers
@@ -51,6 +53,7 @@ main.add_command(render_cmd, name="render")
 main.add_command(test_provider_cmd, name="test-provider")
 main.add_command(luma_cmd, name="luma")
 main.add_command(memory_cmd, name="memory")
+main.add_command(qa_cmd, name="qa")
 
 # Provider management commands
 main.add_command(provider, name="provider")

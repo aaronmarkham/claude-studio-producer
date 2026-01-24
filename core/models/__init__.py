@@ -44,6 +44,10 @@ from .render import (
     RenderResult,
     RenderJob,
 )
+from .qa import (
+    FrameAnalysis,
+    QAVisualAnalysis,
+)
 
 __all__ = [
     # Seed assets
@@ -87,4 +91,7 @@ __all__ = [
     "RenderConfig",
     "RenderResult",
     "RenderJob",
+    # QA visual analysis models
+    "FrameAnalysis",
+    "QAVisualAnalysis",
 ]

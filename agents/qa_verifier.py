@@ -6,9 +6,9 @@ import os
 import random
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -16,6 +16,7 @@ from strands import tool
 
 from core.budget import ProductionTier, COST_MODELS
 from core.claude_client import ClaudeClient, JSONExtractor
+from core.models.qa import FrameAnalysis, QAVisualAnalysis
 from agents.script_writer import Scene
 from agents.video_generator import GeneratedVideo
 from .base import StudioAgent
@@ -42,6 +43,10 @@ class QAResult:
     passed: bool  # Score >= threshold
     threshold: float  # The threshold used
 
+    # Enriched visual analysis
+    visual_analysis: Optional[QAVisualAnalysis] = None
+    frame_timestamps: List[float] = field(default_factory=list)
+
 
 # QA score thresholds by production tier
 QA_THRESHOLDS = {
@@ -64,7 +69,7 @@ class QAVerifierAgent(StudioAgent):
         self,
         claude_client: Optional[ClaudeClient] = None,
         mock_mode: bool = True,  # Use simulated scoring by default
-        num_frames: int = 3,  # Number of frames to extract
+        num_frames: int = 5,  # Number of frames to extract
         use_vision: bool = True  # Use Claude vision API when available
     ):
         """
@@ -105,8 +110,12 @@ class QAVerifierAgent(StudioAgent):
                 scene, generated_video, original_request, production_tier
             )
 
-        # Extract frames from video
-        frames = await self._extract_frames(generated_video.video_url)
+        # Extract frames from video (chain-aware: sample from new content region)
+        frames, frame_timestamps = await self._extract_frames(
+            generated_video.video_url,
+            new_content_start=generated_video.new_content_start,
+            total_duration=generated_video.total_video_duration
+        )
 
         # Analyze with Claude Vision
         qa_data = await self._analyze_with_vision(
@@ -115,6 +124,9 @@ class QAVerifierAgent(StudioAgent):
             original_request=original_request,
             production_tier=production_tier
         )
+
+        # Build visual analysis from enriched response
+        visual_analysis = self._build_visual_analysis(qa_data, frame_timestamps, scene)
 
         # Calculate threshold
         threshold = QA_THRESHOLDS[production_tier]
@@ -130,7 +142,9 @@ class QAVerifierAgent(StudioAgent):
             issues=qa_data["issues"],
             suggestions=qa_data["suggestions"],
             passed=qa_data["overall_score"] >= threshold,
-            threshold=threshold
+            threshold=threshold,
+            visual_analysis=visual_analysis,
+            frame_timestamps=frame_timestamps
         )
 
     async def verify_batch(
@@ -160,15 +174,27 @@ class QAVerifierAgent(StudioAgent):
 
         return await asyncio.gather(*tasks)
 
-    async def _extract_frames(self, video_path: str) -> List[Dict[str, str]]:
+    async def _extract_frames(
+        self,
+        video_path: str,
+        new_content_start: float = 0.0,
+        total_duration: Optional[float] = None
+    ) -> Tuple[List[Dict[str, str]], List[float]]:
         """
-        Extract key frames from video as base64 images
+        Extract key frames from video as base64 images.
+
+        For chained videos, samples from the new content region rather than
+        the entire video (which includes previous scenes' content).
 
         Args:
             video_path: URL or local path of the video to extract frames from
+            new_content_start: Timestamp where this scene's new content begins
+            total_duration: Total video file duration (if known from chain metadata)
 
         Returns:
-            List of dicts with 'data' (base64) and 'media_type' keys
+            Tuple of (frames, timestamps):
+              - frames: List of dicts with 'data' (base64) and 'media_type' keys
+              - timestamps: List of float timestamps where frames were sampled
         """
         # Download video if it's a URL
         if video_path.startswith("http"):
@@ -180,13 +206,28 @@ class QAVerifierAgent(StudioAgent):
 
         try:
             # Get video duration using ffprobe
-            duration = await self._get_video_duration(local_path)
+            duration = total_duration or await self._get_video_duration(local_path)
 
             frames = []
-            # Extract frames at evenly spaced intervals
+            timestamps = []
+
+            # Determine sampling region
+            if new_content_start > 0:
+                # Chained video: sample from new content portion
+                new_content_duration = duration - new_content_start
+                sample_start = new_content_start
+                print(f"[QA] Chain-aware sampling: content at {sample_start:.1f}s-{duration:.1f}s ({new_content_duration:.1f}s)")
+            else:
+                # Non-chained: sample from entire video
+                sample_start = 0.0
+                new_content_duration = duration
+
+            # Calculate timestamps within the sampling region
             for i in range(self.num_frames):
-                # Calculate timestamp (avoid very start/end)
-                timestamp = (duration / (self.num_frames + 1)) * (i + 1)
+                # Evenly spaced within the content region, avoiding edges
+                timestamp = sample_start + (new_content_duration / (self.num_frames + 1)) * (i + 1)
+                # Clamp to valid range
+                timestamp = max(0.1, min(timestamp, duration - 0.1))
 
                 # Create temp file for frame
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
@@ -218,6 +259,7 @@ class QAVerifierAgent(StudioAgent):
                         "data": frame_data,
                         "media_type": "image/jpeg"
                     })
+                    timestamps.append(timestamp)
                 finally:
                     # Clean up temp frame file
                     if os.path.exists(tmp_path):
@@ -226,7 +268,7 @@ class QAVerifierAgent(StudioAgent):
             if not frames:
                 raise RuntimeError("Failed to extract any frames from video")
 
-            return frames
+            return frames, timestamps
 
         finally:
             # Clean up downloaded video
@@ -290,43 +332,56 @@ class QAVerifierAgent(StudioAgent):
             Dictionary with scores and feedback
         """
 
+        visual_elements_str = ', '.join(scene.visual_elements) if scene.visual_elements else 'none specified'
+
         prompt = f"""You are a video QA specialist evaluating AI-generated video content.
 
 SCENE SPECIFICATION:
 - Title: {scene.title}
 - Description: {scene.description}
-- Visual Elements: {', '.join(scene.visual_elements)}
+- Visual Elements: {visual_elements_str}
 - Duration: {scene.duration}s
 - Style: {production_tier.value}
 
 ORIGINAL REQUEST CONTEXT:
 {original_request}
 
-I'm showing you {len(frames)} frames from the generated video (extracted at evenly-spaced intervals from start to end).
+I'm showing you {len(frames)} frames from the generated video (extracted at evenly-spaced intervals).
 
-Evaluate the video on these criteria:
+## TASK 1: Score the video (0-100 each)
 
-1. **Visual Accuracy** (0-100): Do the visuals match the scene description?
-   - Are the specified visual elements present?
-   - Is the composition appropriate for the description?
-   - Does it capture the intended mood/atmosphere?
+1. **Visual Accuracy**: Do the visuals match the scene description?
+2. **Style Consistency**: Does it match the {production_tier.value} production tier?
+3. **Technical Quality**: Any artifacts, blur, morphing, or rendering issues?
+4. **Narrative Fit**: Does this scene work in the overall story?
 
-2. **Style Consistency** (0-100): Does it match the expected production tier?
-   - For {production_tier.value}: Does it meet that quality level?
-   - Is the aesthetic consistent across frames?
-   - Does it look like professional {production_tier.value} content?
+## TASK 2: Describe what you ACTUALLY SEE
 
-3. **Technical Quality** (0-100): Any artifacts, blur, or rendering issues?
-   - Resolution and clarity of the frames
-   - Any visual glitches, artifacts, or distortions
-   - Color consistency and lighting quality
+For EACH frame, describe:
+- What is visible (people, objects, environment)
+- Camera angle/framing (close-up, wide, overhead, etc.)
+- Lighting and dominant colors
+- Any artifacts or quality issues
 
-4. **Narrative Fit** (0-100): Does this scene work in the overall story?
-   - Does it fit the tone of the original request?
-   - Would it work well in context?
+Then provide:
+- What elements are consistent across ALL frames
+- What changes or is inconsistent between frames
+- The primary subject, setting, and action
+
+## TASK 3: Compare to specification
+
+From the scene description, identify what was EXPECTED. Then compare:
+- Which expected elements are present? (matched)
+- Which expected elements are MISSING?
+- What unexpected elements appear that weren't in the spec?
+
+## TASK 4: Provider observations
+
+How did the AI video provider interpret the prompt?
+- What did it get right?
+- What did it miss or misinterpret?
 
 Be honest and critical. AI video generation often has issues - call them out.
-Common issues to look for: morphing/warping, unnatural motion blur, inconsistent objects between frames, text/writing problems.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{
@@ -336,7 +391,33 @@ Return ONLY valid JSON (no markdown, no explanation):
   "technical_quality": 85,
   "narrative_fit": 85,
   "issues": ["Specific issue 1", "Specific issue 2"],
-  "suggestions": ["Actionable improvement 1", "Actionable improvement 2"]
+  "suggestions": ["Actionable improvement 1", "Actionable improvement 2"],
+  "frame_analyses": [
+    {{
+      "frame_index": 0,
+      "description": "What you see in this frame",
+      "detected_elements": ["element1", "element2"],
+      "detected_camera": "close-up",
+      "lighting": "dramatic side lighting",
+      "color_palette": ["warm gold", "deep shadow"],
+      "artifacts_detected": []
+    }}
+  ],
+  "overall_description": "One sentence describing what the video shows",
+  "primary_subject": "main subject",
+  "setting": "environment/location",
+  "action": "what is happening",
+  "consistent_elements": ["elements present in all frames"],
+  "inconsistent_elements": ["elements that change between frames"],
+  "expected_elements": ["elements from the scene spec"],
+  "matched_elements": ["expected AND observed"],
+  "missing_elements": ["expected but NOT observed"],
+  "unexpected_elements": ["observed but NOT in spec"],
+  "provider_observations": {{
+    "prompt_interpretation": "How the provider interpreted the prompt",
+    "strengths": ["What it did well"],
+    "weaknesses": ["What it missed or got wrong"]
+  }}
 }}"""
 
         # Use Claude's vision API with the extracted frames
@@ -347,6 +428,47 @@ Return ONLY valid JSON (no markdown, no explanation):
             response = await self.claude.query(prompt)
 
         return JSONExtractor.extract(response)
+
+    def _build_visual_analysis(
+        self,
+        qa_data: Dict[str, Any],
+        frame_timestamps: List[float],
+        scene: Scene
+    ) -> Optional[QAVisualAnalysis]:
+        """Build QAVisualAnalysis from enriched vision response data."""
+        # Only build if enriched fields are present
+        if "frame_analyses" not in qa_data:
+            return None
+
+        frame_analyses = []
+        for i, fa in enumerate(qa_data.get("frame_analyses", [])):
+            timestamp = frame_timestamps[i] if i < len(frame_timestamps) else 0.0
+            frame_analyses.append(FrameAnalysis(
+                frame_index=fa.get("frame_index", i),
+                timestamp=timestamp,
+                description=fa.get("description", ""),
+                detected_elements=fa.get("detected_elements", []),
+                detected_camera=fa.get("detected_camera", "unknown"),
+                lighting=fa.get("lighting", "unknown"),
+                color_palette=fa.get("color_palette", []),
+                artifacts_detected=fa.get("artifacts_detected", [])
+            ))
+
+        return QAVisualAnalysis(
+            frames_analyzed=len(frame_analyses),
+            frame_analyses=frame_analyses,
+            consistent_elements=qa_data.get("consistent_elements", []),
+            inconsistent_elements=qa_data.get("inconsistent_elements", []),
+            overall_description=qa_data.get("overall_description", ""),
+            primary_subject=qa_data.get("primary_subject", ""),
+            setting=qa_data.get("setting", ""),
+            action=qa_data.get("action", ""),
+            expected_elements=qa_data.get("expected_elements", []),
+            matched_elements=qa_data.get("matched_elements", []),
+            missing_elements=qa_data.get("missing_elements", []),
+            unexpected_elements=qa_data.get("unexpected_elements", []),
+            provider_observations=qa_data.get("provider_observations")
+        )
 
     async def _mock_verify(
         self,
@@ -410,6 +532,53 @@ Return ONLY valid JSON (no markdown, no explanation):
         threshold = QA_THRESHOLDS[production_tier]
         passed = overall_score >= threshold
 
+        # Generate mock visual analysis from scene data
+        visual_elements = scene.visual_elements or []
+        mock_timestamps = [
+            (scene.duration / (self.num_frames + 1)) * (i + 1)
+            for i in range(self.num_frames)
+        ]
+
+        # Simulate some elements being matched and some missing
+        num_matched = max(1, len(visual_elements) - random.randint(0, 2))
+        matched = visual_elements[:num_matched]
+        missing = visual_elements[num_matched:]
+        unexpected = ["minor background detail"] if random.random() < 0.3 else []
+
+        frame_analyses = [
+            FrameAnalysis(
+                frame_index=i,
+                timestamp=mock_timestamps[i],
+                description=f"Frame {i+1}: {scene.description[:60]}...",
+                detected_elements=matched[:],
+                detected_camera="medium shot",
+                lighting="standard",
+                color_palette=["neutral"],
+                artifacts_detected=["minor blur"] if random.random() < 0.2 else []
+            )
+            for i in range(self.num_frames)
+        ]
+
+        visual_analysis = QAVisualAnalysis(
+            frames_analyzed=self.num_frames,
+            frame_analyses=frame_analyses,
+            consistent_elements=matched,
+            inconsistent_elements=[],
+            overall_description=scene.description[:100],
+            primary_subject=scene.title.split(" - ")[0] if " - " in scene.title else scene.title,
+            setting="as described",
+            action="as specified",
+            expected_elements=visual_elements,
+            matched_elements=matched,
+            missing_elements=missing,
+            unexpected_elements=unexpected,
+            provider_observations={
+                "prompt_interpretation": f"Provider rendered scene matching '{scene.title}' specification",
+                "strengths": ["Followed general composition"],
+                "weaknesses": [f"Missed: {e}" for e in missing] if missing else []
+            }
+        )
+
         return QAResult(
             scene_id=scene.scene_id,
             video_url=generated_video.video_url,
@@ -421,7 +590,9 @@ Return ONLY valid JSON (no markdown, no explanation):
             issues=issues if issues else ["No significant issues detected"],
             suggestions=suggestions if suggestions else ["Video meets quality standards"],
             passed=passed,
-            threshold=threshold
+            threshold=threshold,
+            visual_analysis=visual_analysis,
+            frame_timestamps=mock_timestamps
         )
 
     def get_quality_gate(self, score: float) -> str:

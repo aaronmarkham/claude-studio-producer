@@ -1,8 +1,8 @@
 """Video Generator Agent - Generates videos via external APIs"""
 
 import asyncio
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Any
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Any, Tuple
 from strands import tool
 
 from core.budget import ProductionTier, COST_MODELS
@@ -24,6 +24,33 @@ class GeneratedVideo:
     provider: str
     metadata: Dict[str, Any]
     quality_score: Optional[float] = None  # Set by QA agent later
+
+    # Chain metadata (for Luma extended/chained videos)
+    is_chained: bool = False
+    chain_group: Optional[str] = None
+    total_video_duration: Optional[float] = None  # Actual file duration (longer if chained)
+    new_content_start: float = 0.0  # Timestamp where this scene's content begins
+    contains_previous: bool = False  # True if video includes earlier scenes' content
+
+    def get_trim_params(self) -> Optional[tuple]:
+        """Get (in_point, out_point) for extracting just this scene's content.
+        Returns None if no trimming needed (non-chained or first in chain)."""
+        if self.contains_previous and self.new_content_start > 0:
+            end = self.new_content_start + self.duration
+            if self.total_video_duration:
+                end = min(end, self.total_video_duration)
+            return (self.new_content_start, end)
+        return None
+
+
+@dataclass
+class ChainState:
+    """Track cumulative state for a continuity group's chain"""
+    group_id: str
+    cumulative_duration: float = 0.0
+    last_generation_id: Optional[str] = None
+    scene_boundaries: List[Tuple[str, float, float]] = field(default_factory=list)
+    # [(scene_id, start_time, end_time), ...]
 
 
 # Style guidance for each tier
@@ -359,9 +386,8 @@ class VideoGeneratorAgent(StudioAgent):
         # Get execution waves - scenes that can run in parallel within each wave
         waves = graph.get_execution_waves()
 
-        # Track generation IDs per group for proper chaining within visual threads
-        # Key: group_id, Value: last generation_id for that group
-        group_chain_ids: Dict[str, Optional[str]] = {}
+        # Track chain state per group (cumulative duration + last generation ID)
+        chain_states: Dict[str, ChainState] = {}
 
         for wave_idx, wave_scene_ids in enumerate(waves):
             print(f"\n[Graph] Executing wave {wave_idx + 1}/{len(waves)}: {wave_scene_ids}")
@@ -399,12 +425,13 @@ class VideoGeneratorAgent(StudioAgent):
                 print(f"[Graph]   Processing scenes with per-group chaining: {[s.scene_id for s in wave_scenes]}")
 
                 # Process scenes concurrently but with correct per-group chaining
-                async def generate_scene_in_group(scene: Scene) -> tuple[str, List[GeneratedVideo]]:
+                async def generate_scene_in_group(scene: Scene) -> tuple[str, List[GeneratedVideo], str]:
                     group = graph.get_scene_group(scene.scene_id)
                     group_id = group.group_id if group else "default"
 
-                    # Get chain ID for this group (None if first scene in group)
-                    chain_from_id = group_chain_ids.get(group_id)
+                    # Get chain state for this group
+                    chain_state = chain_states.get(group_id)
+                    chain_from_id = chain_state.last_generation_id if chain_state else None
 
                     # Check if this is the first scene in its group
                     is_first_in_group = (
@@ -453,12 +480,37 @@ class VideoGeneratorAgent(StudioAgent):
                 tasks = [generate_scene_in_group(scene) for scene in wave_scenes]
                 results = await asyncio.gather(*tasks)
 
-                # Update results and per-group chain IDs
+                # Update results and chain states
                 for scene_id, videos, group_id in results:
                     all_results[scene_id] = videos
                     if videos:
-                        # Update this group's chain ID for its next scene
-                        group_chain_ids[group_id] = videos[0].metadata.get("generation_id")
+                        video = videos[0]
+                        generation_id = video.metadata.get("generation_id")
+
+                        # Initialize chain state if needed
+                        if group_id not in chain_states:
+                            chain_states[group_id] = ChainState(group_id=group_id)
+
+                        state = chain_states[group_id]
+                        scene_obj = scene_lookup[scene_id]
+
+                        # Record where this scene's content lives
+                        content_start = state.cumulative_duration
+                        content_end = content_start + scene_obj.duration
+                        state.scene_boundaries.append((scene_id, content_start, content_end))
+
+                        # Populate chain metadata on the video
+                        video.chain_group = group_id
+                        video.new_content_start = content_start
+                        video.is_chained = content_start > 0
+                        video.contains_previous = content_start > 0
+                        video.total_video_duration = content_end  # Extended video length
+
+                        # Update state for next scene in this group
+                        state.cumulative_duration = content_end
+                        state.last_generation_id = generation_id
+
+                        print(f"[Chain] {scene_id}: content at {content_start:.1f}s-{content_end:.1f}s in group '{group_id}'")
 
         return all_results
 
