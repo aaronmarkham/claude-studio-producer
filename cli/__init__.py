@@ -13,6 +13,8 @@ from .themes import themes_cmd
 from .luma import luma_cmd
 from .memory import memory_cmd
 from .qa import qa_cmd
+from .document import document_cmd
+from .kb import kb_cmd
 from .provider_cli import provider
 
 # Load .env file at CLI startup
@@ -37,6 +39,8 @@ def main():
       luma           Luma API management (list, download, recover)
       memory         Memory and learnings management
       qa             QA inspection (view quality scores)
+      document       Document ingestion (PDF to knowledge graph)
+      kb             Knowledge base management (multi-source projects)
       provider       Provider onboarding and management
       status         Show system status
       providers      List and manage providers
@@ -54,6 +58,8 @@ main.add_command(test_provider_cmd, name="test-provider")
 main.add_command(luma_cmd, name="luma")
 main.add_command(memory_cmd, name="memory")
 main.add_command(qa_cmd, name="qa")
+main.add_command(document_cmd, name="document")
+main.add_command(kb_cmd, name="kb")
 
 # Provider management commands
 main.add_command(provider, name="provider")

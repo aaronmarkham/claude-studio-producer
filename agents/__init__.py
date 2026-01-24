@@ -27,6 +27,7 @@ __all__ = [
     "AssetAnalyzerAgent",
     "AudioGeneratorAgent",
     "EditorAgent",
+    "DocumentIngestorAgent",
     "AGENT_REGISTRY",
     "get_all_agents",
     "get_agent_schema",
@@ -71,6 +72,9 @@ def __getattr__(name):
     elif name == "EditorAgent":
         from .editor import EditorAgent
         return EditorAgent
+    elif name == "DocumentIngestorAgent":
+        from .document_ingestor import DocumentIngestorAgent
+        return DocumentIngestorAgent
     elif name == "AGENT_REGISTRY":
         # Return the registry defined below
         return globals()["AGENT_REGISTRY"]
@@ -183,6 +187,17 @@ AGENT_REGISTRY = {
             "audio_tier": "AudioTier - Audio production tier"
         },
         "outputs": "List[SceneAudio] - Audio tracks for each scene",
+    },
+    "document_ingestor": {
+        "name": "document_ingestor",
+        "class": "DocumentIngestorAgent",
+        "module": "agents.document_ingestor",
+        "status": "implemented",
+        "description": "Ingests documents (PDF) into knowledge graphs",
+        "inputs": {
+            "source_path": "str - Path to PDF file",
+        },
+        "outputs": "DocumentGraph - Knowledge graph with atoms, hierarchy, and summaries",
     },
 }
 

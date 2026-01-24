@@ -48,6 +48,21 @@ from .qa import (
     FrameAnalysis,
     QAVisualAnalysis,
 )
+from .document import (
+    AtomType,
+    DocumentAtom,
+    DocumentGraph,
+)
+from .knowledge import (
+    SourceType,
+    KnowledgeSource,
+    CrossSourceLink,
+    Note,
+    Connection,
+    KnowledgeGraph,
+    KnowledgeProject,
+    generate_id,
+)
 
 __all__ = [
     # Seed assets
@@ -94,4 +109,17 @@ __all__ = [
     # QA visual analysis models
     "FrameAnalysis",
     "QAVisualAnalysis",
+    # Document ingestion models
+    "AtomType",
+    "DocumentAtom",
+    "DocumentGraph",
+    # Knowledge project models
+    "SourceType",
+    "KnowledgeSource",
+    "CrossSourceLink",
+    "Note",
+    "Connection",
+    "KnowledgeGraph",
+    "KnowledgeProject",
+    "generate_id",
 ]
