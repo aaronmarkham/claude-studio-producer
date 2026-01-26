@@ -1,6 +1,7 @@
 """Script Writer Agent - Breaks video concepts into detailed scenes"""
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import List, Optional
 from strands import tool
 from core.budget import ProductionTier
@@ -9,6 +10,14 @@ from core.models.audio import SyncPoint
 from core.models.memory import ProviderKnowledge
 from core.models.seed_assets import SeedAssetRef
 from .base import StudioAgent
+
+
+class NarrativeStyle(str, Enum):
+    """Style of narrative for script generation"""
+    VISUAL_STORYBOARD = "visual_storyboard"  # Brief visual descriptions with short voiceover
+    PODCAST_NARRATIVE = "podcast_narrative"   # Rich conversational narrative (NotebookLM style)
+    EDUCATIONAL_LECTURE = "educational_lecture"  # In-depth educational explanations
+    DOCUMENTARY = "documentary"               # Documentary narrator style
 
 
 @dataclass
@@ -72,7 +81,8 @@ class ScriptWriterAgent(StudioAgent):
         production_tier: ProductionTier = ProductionTier.ANIMATED,
         num_scenes: Optional[int] = None,
         available_assets: Optional[List[str]] = None,
-        provider_knowledge: Optional[ProviderKnowledge] = None
+        provider_knowledge: Optional[ProviderKnowledge] = None,
+        narrative_style: NarrativeStyle = NarrativeStyle.VISUAL_STORYBOARD
     ) -> List[Scene]:
         """
         Break down video concept into detailed scenes
@@ -84,17 +94,27 @@ class ScriptWriterAgent(StudioAgent):
             num_scenes: Optional override for number of scenes (auto-calculated if None)
             available_assets: Optional list of available seed asset filenames
             provider_knowledge: Optional learned knowledge about the video provider
+            narrative_style: Style of narrative (visual_storyboard, podcast_narrative, etc.)
 
         Returns:
             List of Scene objects with detailed breakdowns
         """
 
-        # Auto-calculate num_scenes if not provided (roughly one scene per 5 seconds)
+        # Auto-calculate num_scenes based on style
         if num_scenes is None:
-            num_scenes = max(8, min(20, int(target_duration / 5)))
+            if narrative_style == NarrativeStyle.PODCAST_NARRATIVE:
+                # Podcast style: longer segments, fewer scene breaks (~15-20s per segment)
+                num_scenes = max(4, min(12, int(target_duration / 15)))
+            elif narrative_style == NarrativeStyle.EDUCATIONAL_LECTURE:
+                # Educational: moderate segments (~10-12s per topic)
+                num_scenes = max(5, min(15, int(target_duration / 10)))
+            else:
+                # Visual storyboard/documentary: more frequent scenes (~5s each)
+                num_scenes = max(8, min(20, int(target_duration / 5)))
 
-        # Adjust complexity based on production tier
+        # Adjust complexity based on production tier and narrative style
         tier_guidance = self._get_tier_guidance(production_tier)
+        narrative_guidance = self._get_narrative_guidance(narrative_style)
 
         # Build seed assets guidance if provided
         seed_assets_guidance = ""
@@ -145,6 +165,7 @@ PRODUCTION TIER: {production_tier.value}
 ESTIMATED SCENES: {num_scenes}
 
 {tier_guidance}
+{narrative_guidance}
 {seed_assets_guidance}
 {provider_guidance}
 Break this concept into individual scenes. Each scene should:
@@ -287,6 +308,56 @@ Remember: NO readable text in visual descriptions - use text_overlay for any on-
             ))
 
         return scenes
+
+    def _get_narrative_guidance(self, style: NarrativeStyle) -> str:
+        """Get narrative style-specific guidance for script creation"""
+
+        guidance_map = {
+            NarrativeStyle.VISUAL_STORYBOARD: """
+NARRATIVE STYLE: Visual Storyboard
+- Voiceover should be concise (roughly 150 words per minute = 2.5 words/second)
+- Focus on brief, punchy narration that complements visuals
+- Let the visuals tell the story; narration provides context
+- Keep individual scene voiceovers to 1-3 sentences max
+""",
+            NarrativeStyle.PODCAST_NARRATIVE: """
+NARRATIVE STYLE: Podcast Narrative (NotebookLM / Conversational Style)
+- This is a RICH, CONVERSATIONAL narrative - think two experts having an engaging discussion
+- Voiceover should be comprehensive and explanatory (roughly 150-180 words per minute)
+- Each scene should have SUBSTANTIAL narration (4-8 sentences) that explains concepts in depth
+- Use conversational language: "So here's what's really fascinating...", "Think of it this way...", "What makes this remarkable is..."
+- Include rhetorical questions to engage the listener: "But wait, how does this actually work?"
+- Add transitions between ideas: "Now, this connects to something even more interesting..."
+- Explain technical concepts with analogies and examples
+- Build narrative momentum - each scene should flow naturally into the next
+- Don't just describe what's on screen - provide insight, context, and "aha moments"
+- Target 100-150 words of narration per scene for a truly informative experience
+- The narration IS the primary content; visuals are supportive illustrations
+""",
+            NarrativeStyle.EDUCATIONAL_LECTURE: """
+NARRATIVE STYLE: Educational Lecture
+- Clear, structured explanations suitable for learning
+- Define key terms when introducing them
+- Use the "tell them what you'll teach, teach it, tell them what you taught" pattern
+- Include examples and analogies to make concepts concrete
+- Voiceover should be thorough (roughly 140-160 words per minute)
+- Each scene focuses on one key concept or idea
+- Build knowledge incrementally - earlier scenes set up later ones
+- Target 80-120 words of narration per scene
+""",
+            NarrativeStyle.DOCUMENTARY: """
+NARRATIVE STYLE: Documentary
+- Authoritative, measured narration with gravitas
+- Balance information with emotional resonance
+- Use evocative language that paints pictures
+- Allow moments of visual breathing room (not every second needs narration)
+- Voiceover at standard documentary pace (roughly 130-150 words per minute)
+- Build dramatic tension and payoff
+- Target 60-100 words of narration per scene
+"""
+        }
+
+        return guidance_map.get(style, guidance_map[NarrativeStyle.VISUAL_STORYBOARD])
 
     def _get_tier_guidance(self, tier: ProductionTier) -> str:
         """Get tier-specific guidance for scene creation"""

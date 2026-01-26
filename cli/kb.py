@@ -753,7 +753,9 @@ def _build_concept_from_kb(
 @click.option("--live", is_flag=True, help="Use live providers (costs money)")
 @click.option("--mock", "use_mock", is_flag=True, help="Force mock mode")
 @click.option("--debug", is_flag=True, help="Enable debug output")
-def produce_cmd_kb(project, prompt, sources, tier, duration, budget, provider, audio_tier, live, use_mock, debug):
+@click.option("--style", type=click.Choice(["visual_storyboard", "podcast", "educational", "documentary"]),
+              default="visual_storyboard", help="Narrative style (podcast=rich NotebookLM-style)")
+def produce_cmd_kb(project, prompt, sources, tier, duration, budget, provider, audio_tier, live, use_mock, debug, style):
     """Produce a video from knowledge base content.
 
     \b
@@ -852,6 +854,7 @@ def produce_cmd_kb(project, prompt, sources, tier, duration, budget, provider, a
             run_id=run_id,
             debug=debug,
             as_json=False,
+            narrative_style=style,
         ))
 
         total_time = time.time() - start_time

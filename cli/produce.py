@@ -605,6 +605,8 @@ def load_seed_assets(directory: str) -> List[SeedAsset]:
 @click.option("--seed-assets", "-s", type=click.Path(exists=True), help="Directory containing seed images/assets (PNG/JPG)")
 @click.option("--execution-strategy", "-e", type=click.Choice(["auto", "all_parallel", "all_sequential", "manual"]),
               default="auto", help="Scene execution strategy for continuity (auto detects from script)")
+@click.option("--style", type=click.Choice(["visual_storyboard", "podcast", "educational", "documentary"]),
+              default="visual_storyboard", help="Narrative style (podcast=rich NotebookLM-style narration)")
 def produce_cmd(
     concept: str,
     budget: float,
@@ -622,7 +624,8 @@ def produce_cmd(
     theme: Optional[str],
     timeout: int,
     seed_assets: Optional[str],
-    execution_strategy: str
+    execution_strategy: str,
+    style: str
 ):
     """
     Run the full video production pipeline with multi-agent orchestration.
@@ -730,7 +733,8 @@ def produce_cmd(
             verbose=verbose,
             timeout=timeout,
             seed_assets=loaded_assets,
-            execution_strategy=execution_strategy
+            execution_strategy=execution_strategy,
+            narrative_style=style
         ))
 
         total_time = time.time() - start_time
@@ -771,12 +775,13 @@ async def _run_production(
     verbose: bool = False,
     timeout: int = 600,
     seed_assets: Optional[List[SeedAsset]] = None,
-    execution_strategy: str = "auto"
+    execution_strategy: str = "auto",
+    narrative_style: str = "visual_storyboard"
 ) -> dict:
     """Run the production pipeline with impressive agent orchestration display"""
 
     from agents.producer import ProducerAgent
-    from agents.script_writer import ScriptWriterAgent
+    from agents.script_writer import ScriptWriterAgent, NarrativeStyle
     from agents.video_generator import VideoGeneratorAgent
     from agents.audio_generator import AudioGeneratorAgent
     from agents.qa_verifier import QAVerifierAgent
@@ -897,13 +902,25 @@ async def _run_production(
     # Build list of available asset filenames for ScriptWriter
     available_asset_names = [asset.filename for asset in (seed_assets or [])]
 
+    # Parse narrative style
+    style_map = {
+        "visual_storyboard": NarrativeStyle.VISUAL_STORYBOARD,
+        "podcast_narrative": NarrativeStyle.PODCAST_NARRATIVE,
+        "podcast": NarrativeStyle.PODCAST_NARRATIVE,  # alias
+        "educational_lecture": NarrativeStyle.EDUCATIONAL_LECTURE,
+        "educational": NarrativeStyle.EDUCATIONAL_LECTURE,  # alias
+        "documentary": NarrativeStyle.DOCUMENTARY,
+    }
+    style_enum = style_map.get(narrative_style, NarrativeStyle.VISUAL_STORYBOARD)
+
     scenes = await script_writer.create_script(
         video_concept=concept,
         production_tier=pilot.tier,
         target_duration=duration,
         num_scenes=num_scenes,
         available_assets=available_asset_names if available_asset_names else None,
-        provider_knowledge=provider_knowledge
+        provider_knowledge=provider_knowledge,
+        narrative_style=style_enum
     )
 
     if not scenes:

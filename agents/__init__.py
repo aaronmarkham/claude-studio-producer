@@ -19,6 +19,7 @@ __all__ = [
     "PilotResults",
     "ScriptWriterAgent",
     "Scene",
+    "NarrativeStyle",
     "VideoGeneratorAgent",
     "GeneratedVideo",
     "VideoProvider",
@@ -49,9 +50,14 @@ def __getattr__(name):
             return SceneResult
         else:
             return PilotResults
-    elif name in ("ScriptWriterAgent", "Scene"):
-        from .script_writer import ScriptWriterAgent, Scene
-        return ScriptWriterAgent if name == "ScriptWriterAgent" else Scene
+    elif name in ("ScriptWriterAgent", "Scene", "NarrativeStyle"):
+        from .script_writer import ScriptWriterAgent, Scene, NarrativeStyle
+        if name == "ScriptWriterAgent":
+            return ScriptWriterAgent
+        elif name == "Scene":
+            return Scene
+        else:
+            return NarrativeStyle
     elif name in ("VideoGeneratorAgent", "GeneratedVideo", "VideoProvider"):
         from .video_generator import VideoGeneratorAgent, GeneratedVideo, VideoProvider
         if name == "VideoGeneratorAgent":
