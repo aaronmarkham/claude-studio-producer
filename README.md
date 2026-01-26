@@ -716,6 +716,62 @@ This is useful when:
 - Creating alternate cuts or highlight reels
 - Manual override of the automated EDL
 
+### Knowledge Base (Multi-Source Document Production)
+
+Create videos from research papers, documents, and notes with automatic knowledge extraction:
+
+```bash
+# Create a knowledge project
+claude-studio kb create "AI Research" -d "Papers on neural networks"
+
+# Add a PDF paper (uses Claude for intelligent atom extraction)
+claude-studio kb add "AI Research" --paper paper.pdf
+
+# Add with mock mode (faster, no LLM costs)
+claude-studio kb add "AI Research" --paper paper.pdf --mock
+
+# View project summary
+claude-studio kb show "AI Research" --graph
+
+# Produce video from knowledge base
+claude-studio kb produce "AI Research" \
+  -p "Explain the key findings and methodology" \
+  --style podcast \
+  --duration 120 \
+  --mock
+```
+
+**Features:**
+- **Document ingestion**: Extracts atoms (paragraphs, figures, tables, equations) with PyMuPDF
+- **LLM classification**: Claude categorizes atoms by type and extracts topics/entities
+- **Knowledge graph**: Builds cross-document connections via shared entities
+- **Rich concept generation**: Assembles KB content into detailed prompts for ScriptWriter
+
+### Narrative Styles
+
+Control how verbose and conversational your scripts are:
+
+```bash
+# Brief visual storyboard (default) - ~20-30 words per scene
+claude-studio produce -c "Product demo" --style visual_storyboard
+
+# Rich podcast narrative (NotebookLM-style) - ~100 words per scene
+claude-studio produce -c "Explain quantum computing" --style podcast
+
+# Educational lecture format - ~80-120 words per scene
+claude-studio produce -c "Tutorial on React hooks" --style educational
+
+# Documentary with gravitas - ~60-100 words per scene
+claude-studio produce -c "History of the internet" --style documentary
+```
+
+| Style | Words/Scene | Best For |
+|-------|-------------|----------|
+| `visual_storyboard` | ~20-30 | Product demos, ads, visual-first content |
+| `podcast` | ~85-100 | Explainers, research summaries, educational deep-dives |
+| `educational` | ~80-120 | Tutorials, lectures, learning content |
+| `documentary` | ~60-100 | Narratives, historical content, storytelling |
+
 ### Web Dashboard
 
 ```bash
@@ -805,6 +861,7 @@ The system accumulates learnings from each run to improve future prompts:
 | **ProviderOnboardingAgent** | Implemented | Analyzes API docs, generates provider implementations, validates with tests |
 | **EditorAgent** | Implemented | Creates EDL candidates for final assembly |
 | **AudioGeneratorAgent** | Implemented | TTS voiceover generation with ElevenLabs/OpenAI |
+| **DocumentIngestorAgent** | Implemented | PDF ingestion, atom extraction, LLM classification |
 | **AssetAnalyzerAgent** | Stub | Seed asset analysis with Claude Vision |
 
 ## Providers
@@ -840,7 +897,8 @@ claude-studio-producer/
 │   └── editor.py           # EDL generation
 │
 ├── cli/
-│   ├── produce.py          # Main CLI with --live mode
+│   ├── produce.py          # Main CLI with --live mode and --style
+│   ├── kb.py               # Knowledge base management CLI
 │   └── luma.py             # Luma testing CLI
 │
 ├── core/
@@ -851,7 +909,9 @@ claude-studio-producer/
 │   │   ├── manager.py      # MemoryManager (STM + LTM)
 │   │   └── bootstrap.py    # Provider knowledge seeding
 │   ├── models/
-│   │   └── memory.py       # ProviderKnowledge, ProviderLearning, etc.
+│   │   ├── memory.py       # ProviderKnowledge, ProviderLearning, etc.
+│   │   ├── knowledge.py    # KnowledgeProject, KnowledgeGraph, KnowledgeSource
+│   │   └── document.py     # DocumentGraph, DocumentAtom, AtomType
 │   └── providers/
 │       └── video/
 │           ├── luma.py     # Real Luma AI integration
@@ -912,6 +972,9 @@ uvicorn server.main:app --reload
 - [x] Provider onboarding agent with auto-test and session resume
 - [x] ElevenLabs TTS integration (voice selection, streaming, voice settings)
 - [x] OpenAI TTS integration
+- [x] Knowledge base system (`kb` CLI for multi-source document management)
+- [x] Document ingestion with figure extraction (PyMuPDF + Claude)
+- [x] Configurable narrative styles (podcast, educational, documentary)
 
 ### In Progress
 - [ ] Additional video providers (Runway, Pika)
