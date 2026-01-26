@@ -255,7 +255,7 @@ in under two hours.
 
 So the onboarding flow had a few things to work out. Namely: checkpointing. See, the first part of the agentic flow to fetch docs and create a spec worked great, but it was time consuming and each time we worked through some kink later in the pipeline, we were re-doing that step. Then we realized that there was some emojis breaking things in the implementation - Claude does love those emojis. And then instead of generating code, it was generating plans or summaries. Ah yes, always with the plans. So we improve the prompt, and the validation, and we make sure that the resume steps works well so what's done is done and we don't have to repeat it. 
 
-What's really nice though is that my planning ahead about the memory was a good call. Check this out, so not only does the resume feature work, we've got the "auto" feature in there so Claude can interate through the tests and fix them... and we also record the provider learnings to the long term memory. Even during onboarding we have learning opportunities and can record them for future sessions!
+What's really nice though is that my planning ahead about the memory was a good call. Check this out, so not only does the resume feature work, we've got the "auto" feature in there so Claude can iterate through the tests and fix them... and we also record the provider learnings to the long term memory. Even during onboarding we have learning opportunities and can record them for future sessions!
 
 ```
 $ claude-studio provider onboard -n elevenlabs -t audio --resume --auto
@@ -376,6 +376,14 @@ supported formats)
 ```
 
 So! We now have some video and audio support! And we have an agent that's good at onboarding new providers, so I should be able to get through several very quickly now!
+
+### Jan 26, 2026
+
+I realize the readme is getting too long and I should move the developer notes. I will do that next time. Maybe. For now I just wanted to add a couple of notes about the addition of the knowledge base. It's worth checking out the [knowledge to video spec](docs/specs/KNOWLEDGE_TO_VIDEO.md) and its predecessor [docuemnt to video spec](docs/specs/DOCUMENT_TO_VIDEO.md). I was quickly refining how I wanted my next generation podcast creator to work. I'm partly reverse engineering NotebookLM's explainer video capability and adding my own spin to it since I love that feature but I want 100x more control and to be able to work with the intermediates. Rolling the dice and waiting 10 minutes for a new video isn't exactly my cup of tea. The main point here is to have the ability to reason over previous works and create new connections in derivative content. Plus the adversarial content is like doing your own Lincoln Douglas debate, reviewing the arguments, picking winners, and improving. My gut feeling on this is the intermediates will be entertaining and eye-opening, and I might never be satisfied, but that's ok. The journey is the point. 
+
+What's neat is that we're getting some knowledge graphing on the source material, and for our knowledge base, and for our content! It should unlock some powerful features later.
+
+I should also post some samples of the elevenlabs integration, because it worked and just with TTS and being able to script things has made this studio actually useful and kind of fun even if the videos and audio tracks I've made so far are just for comedy. At some point soon, I'll point this at some serious material and generate a serious video. Maybe. Comedy is good too.
 
 ## Provider CLI Reference
 
