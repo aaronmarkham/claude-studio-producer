@@ -747,6 +747,42 @@ claude-studio kb produce "AI Research" \
 - **Knowledge graph**: Builds cross-document connections via shared entities
 - **Rich concept generation**: Assembles KB content into detailed prompts for ScriptWriter
 
+```mermaid
+flowchart LR
+    subgraph Sources["Source Documents"]
+        PDF1["PDF Paper 1"]
+        PDF2["PDF Paper 2"]
+        Note["Text Notes"]
+    end
+
+    subgraph Ingestion["Document Ingestion"]
+        PyMuPDF["PyMuPDF<br/>Text + Figure Extraction"]
+        Claude["Claude LLM<br/>Atom Classification<br/>Topic/Entity Extraction"]
+    end
+
+    subgraph KB["Knowledge Project"]
+        DG1["DocumentGraph 1<br/>atoms, hierarchy"]
+        DG2["DocumentGraph 2<br/>atoms, hierarchy"]
+        KG["KnowledgeGraph<br/>cross-links, themes,<br/>entity index"]
+    end
+
+    subgraph Production["Video Production"]
+        Concept["Rich Concept<br/>abstracts + quotes +<br/>figures + entities"]
+        Pipeline["Production Pipeline<br/>ScriptWriter → Video →<br/>Audio → QA → Edit"]
+    end
+
+    PDF1 --> PyMuPDF
+    PDF2 --> PyMuPDF
+    Note --> KG
+    PyMuPDF --> Claude
+    Claude --> DG1
+    Claude --> DG2
+    DG1 --> KG
+    DG2 --> KG
+    KG --> Concept
+    Concept --> Pipeline
+```
+
 ### Narrative Styles
 
 Control how verbose and conversational your scripts are:
