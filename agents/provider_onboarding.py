@@ -569,6 +569,25 @@ class ProviderCodeGenerator:
     def __init__(self, claude_client):
         self.claude = claude_client
     
+    async def _load_reference_implementation(self, provider_type: str) -> Optional[str]:
+        """Load a working implementation of the same type as reference"""
+        # Map provider types to known working implementations
+        reference_map = {
+            "image": "core/providers/image/dalle.py",
+            "audio": "core/providers/audio/elevenlabs.py",
+            "tts": "core/providers/audio/elevenlabs.py",
+            "video": "core/providers/video/luma.py",
+        }
+
+        ref_path = reference_map.get(provider_type)
+        if ref_path and Path(ref_path).exists():
+            content = Path(ref_path).read_text()
+            # Truncate if too long to avoid context issues
+            if len(content) > 8000:
+                content = content[:8000] + "\n# ... (truncated)"
+            return content
+        return None
+
     async def generate_implementation(
         self,
         spec: ProviderSpec,
@@ -578,18 +597,23 @@ class ProviderCodeGenerator:
         """
         Generate a complete provider implementation.
         """
-        
+
         # Build context
         context_parts = []
-        
+
         if stub_analysis:
             context_parts.append(f"EXISTING STUB ANALYSIS:\n{json.dumps(stub_analysis, indent=2)}")
-        
+
         if base_class_code:
-            context_parts.append(f"BASE CLASS:\n```python\n{base_class_code}\n```")
-        
+            context_parts.append(f"BASE CLASS (from core/providers/base.py):\n```python\n{base_class_code}\n```")
+
+        # Try to load a reference implementation of the same type
+        reference_impl = await self._load_reference_implementation(spec.provider_type.value)
+        if reference_impl:
+            context_parts.append(f"REFERENCE IMPLEMENTATION (follow this pattern):\n```python\n{reference_impl}\n```")
+
         context = "\n\n".join(context_parts)
-        
+
         prompt = f"""Generate a complete Python provider implementation based on this specification.
 
 PROVIDER SPECIFICATION:
@@ -597,20 +621,41 @@ PROVIDER SPECIFICATION:
 
 {context}
 
-REQUIREMENTS:
-1. Inherit from the appropriate base class (VideoProvider, AudioProvider, etc.)
-2. Implement all required abstract methods
-3. Handle authentication using environment variables
-4. Implement proper error handling and retries
-5. Support async/await patterns
-6. Include comprehensive docstrings
-7. Follow the existing codebase patterns
+CRITICAL REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
+
+1. IMPORTS: Import from the base module, e.g.:
+   from ..base import ImageProvider, ImageProviderConfig, ImageGenerationResult
+   from ..base import AudioProvider, AudioProviderConfig, AudioGenerationResult
+   from ..base import VideoProvider, VideoProviderConfig, GenerationResult
+
+2. INHERITANCE: Your class MUST inherit from the base class shown above.
+   DO NOT create your own base class.
+   DO NOT define ImageProvider, AudioProvider, etc. yourself.
+
+3. METHOD SIGNATURES: Use EXACTLY the method names from the base class:
+   - ImageProvider: async def generate_image(self, prompt, size, **kwargs) -> ImageGenerationResult
+   - AudioProvider: async def generate_speech(self, text, voice_id, **kwargs) -> AudioGenerationResult
+   - VideoProvider: async def generate_video(self, prompt, duration, **kwargs) -> GenerationResult
+
+4. CONSTRUCTOR: Accept an optional config parameter:
+   def __init__(self, config: Optional[XxxProviderConfig] = None):
+       if config is None:
+           import os
+           api_key = os.environ.get("XXX_API_KEY")
+           config = XxxProviderConfig(api_key=api_key)
+       super().__init__(config)
+
+5. ASYNC: Use aiohttp for HTTP requests, not requests. All generation methods must be async.
+
+6. RETURN TYPES: Return the correct result dataclass (ImageGenerationResult, AudioGenerationResult, etc.)
+   with success=True/False and appropriate fields filled in.
+
+7. Add a `generate()` alias method for CLI compatibility that calls the main generation method.
 
 For async providers (async_poll), implement:
 - Job submission
 - Polling with exponential backoff
 - Timeout handling
-- Progress callbacks if possible
 
 CRITICAL: Output ONLY the Python code inside a single ```python code block.
 Do NOT include any explanation, summary, or markdown outside the code block.
@@ -1225,23 +1270,26 @@ Focus on information needed to generate a working implementation."""
         output_path: Optional[str] = None,
     ) -> str:
         """Generate the provider implementation"""
-        
+
         if not self.session or not self.session.spec:
             raise ValueError("No active session or spec. Run start_onboarding first.")
-        
+
         print("⚙️ Generating implementation...")
-        
-        # Load base class if we have a stub
-        base_class_code = None
+
+        # Always load base class based on provider type
+        provider_type = self.session.provider_type or self.session.spec.provider_type.value
+        base_class_name = self._get_base_class_for_type(provider_type)
+        base_class_code = await self._load_base_class(base_class_name)
+
+        if base_class_code:
+            print(f"  ✓ Loaded base class: {base_class_name}")
+        else:
+            print(f"  ⚠ Could not load base class: {base_class_name}")
+
+        # Analyze stub if provided
         stub_analysis = None
-        
         if self.session.stub_path:
             stub_analysis = await self.stub_analyzer.analyze_stub(self.session.stub_path)
-            
-            # Try to load base class
-            base_class = stub_analysis.get("base_class", "")
-            if base_class:
-                base_class_code = await self._load_base_class(base_class)
         
         # Generate code
         implementation = await self.code_generator.generate_implementation(
@@ -1293,20 +1341,30 @@ Focus on information needed to generate a working implementation."""
         return implementation
     
     async def _load_base_class(self, class_name: str) -> Optional[str]:
-        """Load base class source code"""
-        
-        # Map common base classes to their files
-        base_class_map = {
-            "VideoProvider": "core/providers/video/base.py",
-            "AudioProvider": "core/providers/audio/base.py",
-            "TTSProvider": "core/providers/tts/base.py",
+        """Load base class source code from core/providers/base.py"""
+
+        # All base classes are in the same file
+        base_file = Path("core/providers/base.py")
+        if not base_file.exists():
+            return None
+
+        full_content = base_file.read_text()
+
+        # Extract just the relevant class and its dependencies
+        # For now, return the full base file since classes depend on each other
+        return full_content
+
+    def _get_base_class_for_type(self, provider_type: str) -> str:
+        """Get the base class name for a provider type"""
+        type_to_class = {
+            "video": "VideoProvider",
+            "audio": "AudioProvider",
+            "tts": "AudioProvider",  # TTS uses AudioProvider
+            "image": "ImageProvider",
+            "music": "MusicProvider",
+            "storage": "StorageProvider",
         }
-        
-        file_path = base_class_map.get(class_name)
-        if file_path and Path(file_path).exists():
-            return Path(file_path).read_text()
-        
-        return None
+        return type_to_class.get(provider_type, "VideoProvider")
     
     async def run_tests(
         self,

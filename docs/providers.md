@@ -177,3 +177,100 @@ ElevenLabs charges ~$0.30 per 1K characters. Use `estimate_cost()` to check befo
 cost = provider.estimate_cost("Your text here...")
 print(f"Estimated cost: ${cost:.4f}")
 ```
+
+## DALL-E Image Provider
+
+The DALL-E provider generates images using OpenAI's DALL-E 2 and DALL-E 3 models. Useful for seed images, thumbnails, and storyboards.
+
+### Quick Usage
+
+```python
+from core.providers.image.dalle import DalleProvider
+
+# Initialize (uses OPENAI_API_KEY from environment)
+provider = DalleProvider()
+
+# Generate image
+result = await provider.generate_image(
+    prompt="A serene mountain landscape at sunset",
+    size="1024x1024"
+)
+
+# Get the image URL (expires in 60 minutes)
+print(result.image_url)
+
+# Or download directly
+result = await provider.generate_image(
+    prompt="A red apple on white background",
+    size="1024x1024",
+    download=True  # Saves to artifacts/images/
+)
+print(result.image_path)
+```
+
+### DALL-E 3 Options
+
+```python
+# DALL-E 3 with quality and style controls
+result = await provider.generate_image(
+    prompt="A futuristic cityscape",
+    size="1792x1024",      # landscape
+    model="dall-e-3",
+    quality="hd",          # standard or hd (2x cost)
+    style="vivid"          # vivid (dramatic) or natural (realistic)
+)
+
+# Check the revised prompt (DALL-E 3 auto-expands prompts)
+print(result.provider_metadata["revised_prompt"])
+```
+
+### Size Presets
+
+| Preset | DALL-E 3 | DALL-E 2 |
+|--------|----------|----------|
+| `square` | 1024x1024 | 1024x1024 |
+| `portrait` | 1024x1792 | - |
+| `landscape` | 1792x1024 | - |
+
+```python
+# Use preset names
+result = await provider.generate_image(prompt="...", size="landscape")
+```
+
+### Models
+
+| Model | Capabilities | Limitations |
+|-------|--------------|-------------|
+| `dall-e-3` | Best quality, style/quality controls, prompt revision | n=1 only, no edits |
+| `dall-e-2` | Edits, variations, batch (n>1) | Lower quality, 1024x1024 max |
+
+### Pricing
+
+| Model | Size | Quality | Cost |
+|-------|------|---------|------|
+| DALL-E 3 | 1024x1024 | standard | $0.04 |
+| DALL-E 3 | 1024x1024 | hd | $0.08 |
+| DALL-E 3 | 1792x1024 | standard | $0.08 |
+| DALL-E 3 | 1792x1024 | hd | $0.12 |
+| DALL-E 2 | 1024x1024 | - | $0.02 |
+| DALL-E 2 | 512x512 | - | $0.018 |
+| DALL-E 2 | 256x256 | - | $0.016 |
+
+```python
+cost = provider.estimate_cost("1024x1024", model="dall-e-3", quality="hd")
+print(f"Estimated cost: ${cost:.4f}")
+```
+
+### Tips and Gotchas
+
+**Tips:**
+- DALL-E 3 revises prompts for safety/quality - check `revised_prompt` in response
+- Use `natural` style for realistic images, `vivid` for dramatic/artistic
+- Use `hd` quality only when fine details matter (costs 2x)
+- Be specific and descriptive in prompts for best results
+
+**Gotchas:**
+- DALL-E 3 only supports n=1 (single image per request)
+- Image URLs expire after 60 minutes - download if needed
+- Image edits and variations are DALL-E 2 only
+- Content policy violations return 400 errors

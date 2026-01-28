@@ -1,6 +1,6 @@
 # Claude Studio Producer
 
-> Budget-aware multi-agent video production with AI orchestration. Manages competitive pilots, real video generation with Luma AI, text to audio generation with ElevenLabs, vision-based QA analysis, and self-improving provider learnings.
+> Budget-aware multi-agent video production with AI orchestration. Manages competitive pilots, real video generation with Luma AI, image generation with DALL-E, text to audio generation with ElevenLabs, vision-based QA analysis, and self-improving provider learnings.
 
 ## Tech stack
 1. Claude (obviously)
@@ -8,14 +8,14 @@
 3. Click and Rich (for the CLI)
 
 **Optional**
-a. lumaai (you can use other [providers](docs/providers.md))
-b. pymupdf (if you want pdf source material)
-c. jinja2 (if you want to use the dashboard)
+* lumaai (you can use other [providers](docs/providers.md))
+* pymupdf (if you want pdf source material)
+* jinja2 (if you want to use the dashboard)
 
 ## Vision
 I wanted to make a demo project that 1) shows off what you can do pretty quickly with Claude; 2) how to design and implement a working multi-agent workflow; 3) use learning/memory; 4) use rewards; and 5) have fun.
 
-If you're curious about the design aspect, there are a bunch of [spec docs](docs/specs) and you can look at their timestamps to get a rough idea of the layering of the features. Well, I/we (me & the Claudes) did a lot in two days, let's just say that.
+If you're curious about the design aspect, there are a bunch of [spec docs](docs/specs) and you can look at their timestamps to get a rough idea of the layering of the features. Well, I/we (me & the Claudes) did a lot in two days, let's just say that. I started this January 9th, and
 
 [Read more about the project in my developer notes](docs/dev_notes.md)
 
@@ -380,6 +380,14 @@ The system accumulates learnings from each run to improve future prompts:
 | **OpenAI TTS** | Implemented | 6 voices, fast generation |
 | Google TTS | Stub | Interface ready |
 | Inworld | Stub | Interface ready |
+
+### Image Providers
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| **DALL-E** | Implemented | DALL-E 2 & 3, seed images, thumbnails |
+| Midjourney | - | Not planned (no API) |
+| Stability | Stub | Interface ready |
 
 [Read more about providers](docs/providers.md)
 
