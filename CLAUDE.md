@@ -89,7 +89,7 @@ pytest
 
 Providers implement a common interface. Status:
 - **Video**: Luma (ready), Runway (ready), Pika/Kling/Stability (stubs)
-- **Audio**: ElevenLabs (ready), OpenAI TTS (ready), Google/Inworld (stubs)
+- **Audio**: ElevenLabs (ready), OpenAI TTS (ready), Google TTS (ready), Inworld (stub)
 - **Image**: DALL-E (ready), Stability (stub)
 - **Music/Storage**: All stubs
 

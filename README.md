@@ -378,7 +378,7 @@ The system accumulates learnings from each run to improve future prompts:
 |----------|--------|-------|
 | **ElevenLabs** | Implemented | High-quality TTS, 29 languages, voice cloning |
 | **OpenAI TTS** | Implemented | 6 voices, fast generation |
-| Google TTS | Stub | Interface ready |
+| **Google TTS** | Implemented | Neural2/WaveNet/Studio voices, 75+ languages |
 | Inworld | Stub | Interface ready |
 
 ### Image Providers
