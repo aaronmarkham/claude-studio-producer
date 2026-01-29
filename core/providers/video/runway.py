@@ -82,16 +82,20 @@ class RunwayProvider(VideoProvider):
         duration = 10 if duration > 7 else 5
 
         # Convert aspect ratio to Runway format
-        # Valid options: "16:9", "9:16", "768:1280", "1280:768"
+        # Valid options: "768:1280" (portrait), "1280:768" (landscape)
         ratio_map = {
-            "16:9": "16:9",
-            "9:16": "9:16",
-            "1:1": "16:9",  # No 1:1 support, default to 16:9
-            "4:3": "16:9",  # No 4:3 support, default to 16:9
-            "3:4": "9:16",  # No 3:4 support, default to 9:16
-            "21:9": "16:9",  # No 21:9 support, default to 16:9
+            "16:9": "1280:768",
+            "9:16": "768:1280",
+            "1:1": "1280:768",  # No 1:1 support, default to landscape
+            "4:3": "1280:768",
+            "3:4": "768:1280",
+            "21:9": "1280:768",
+            "768:1280": "768:1280",  # Pass through valid ratios
+            "1280:768": "1280:768",
+            "landscape": "1280:768",
+            "portrait": "768:1280",
         }
-        runway_ratio = ratio_map.get(aspect_ratio, "16:9")
+        runway_ratio = ratio_map.get(aspect_ratio, "1280:768")
 
         # Get model (default to gen3a_turbo)
         model = kwargs.get("model", "gen3a_turbo")
