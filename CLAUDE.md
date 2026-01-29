@@ -123,9 +123,13 @@ Working:
 - Knowledge base with PDF ingestion
 - Narrative styles (podcast, educational, documentary)
 - Provider onboarding agent
+- DALL-E image generation
+- Google Cloud TTS (Neural2, WaveNet, Studio voices)
+- Runway ML video (image-to-video)
+- Multi-provider pipeline (DALL-E → Runway chaining)
 
 In progress:
-- Additional video providers (Runway works, others stubbed)
+- Additional video providers (Pika, Kling stubbed)
 - Audio-video synchronization
 - Multi-pilot competitive generation
 

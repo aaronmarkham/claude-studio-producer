@@ -2,15 +2,23 @@
 
 > Budget-aware multi-agent video production with AI orchestration. Manages competitive pilots, real video generation with Luma AI, image generation with DALL-E, text to audio generation with ElevenLabs, vision-based QA analysis, and self-improving provider learnings.
 
+## Features
+1. Learning system - as you use it, it gets smarter
+2. Provider onboarding - it is an agent that reads documentation and creates implementations and tests that can use whatever that new thing can do (like a new image/audio generator or data source like pdfs or stats), and yes, this uses the learning system
+3. Knowledge base - content sourced from things like scientific journals are atomized, graphed, and then usable assets for your videos
+4. Multi-tenant memory - secure, share, and manage your memories by adjusting their scope
+5. Scale your agents - deploy graph, swarm, or mixes of the two to go parallel or use the outputs of one part of the workflow for other parts of the workflow
+
 ## Tech stack
 1. Claude (obviously)
-2. Strands SDK (for agent workflows)
+2. Strands SDK (for agent workflows and scaling)
 3. Click and Rich (for the CLI)
 
 **Optional**
 * lumaai (you can use other [providers](docs/providers.md))
 * pymupdf (if you want pdf source material)
 * jinja2 (if you want to use the dashboard)
+* Amazon Bedrock AgentCore (if you want to host the long term memory and run agents on their platform; agents are locally run by default)
 
 ## Vision
 I wanted to make a demo project that 1) shows off what you can do pretty quickly with Claude; 2) how to design and implement a working multi-agent workflow; 3) use learning/memory; 4) use rewards; and 5) have fun.
@@ -482,10 +490,14 @@ uvicorn server.main:app --reload
 - [x] Knowledge base system (`kb` CLI for multi-source document management)
 - [x] Document ingestion with figure extraction (PyMuPDF + Claude)
 - [x] Configurable narrative styles (podcast, educational, documentary)
+- [x] DALL-E image generation provider
+- [x] Google Cloud TTS provider (Neural2, WaveNet, Studio voices)
+- [x] Runway ML video provider (image-to-video)
+- [x] Multi-provider pipeline (e.g., DALL-E image → Runway video)
 
 ### In Progress
-- [ ] Additional video providers (Runway, Pika)
-- [ ] Additional audio providers (Google TTS, Inworld)
+- [ ] Additional video providers (Pika, Kling)
+- [ ] Additional audio providers (Inworld)
 
 ### Future
 - [ ] AWS AgentCore memory backend (production)
