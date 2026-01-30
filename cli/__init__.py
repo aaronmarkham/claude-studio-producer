@@ -16,6 +16,7 @@ from .qa import qa_cmd
 from .document import document_cmd
 from .kb import kb_cmd
 from .provider_cli import provider
+from .secrets import secrets_cli
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -42,6 +43,7 @@ def main():
       document       Document ingestion (PDF to knowledge graph)
       kb             Knowledge base management (multi-source projects)
       provider       Provider onboarding and management
+      secrets        Secure API key management (OS keychain)
       status         Show system status
       providers      List and manage providers
       agents         List and manage agents
@@ -63,6 +65,9 @@ main.add_command(kb_cmd, name="kb")
 
 # Provider management commands
 main.add_command(provider, name="provider")
+
+# Security commands
+main.add_command(secrets_cli, name="secrets")
 
 # Status and info commands
 main.add_command(status_cmd, name="status")

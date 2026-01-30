@@ -5,11 +5,11 @@ This module provides integration with ElevenLabs API for text-to-speech generati
 Supports voice selection, voice settings customization, streaming, and model selection.
 """
 
-import os
 import asyncio
 from typing import Optional, Dict, Any, List, AsyncIterator
 import aiohttp
 from ..base import AudioProvider, AudioProviderConfig, AudioGenerationResult
+from core.secrets import get_api_key
 
 
 class ElevenLabsProvider(AudioProvider):
@@ -50,7 +50,7 @@ class ElevenLabsProvider(AudioProvider):
             **kwargs: Additional configuration options
         """
         config = AudioProviderConfig(
-            api_key=api_key or os.getenv("ELEVENLABS_API_KEY"),
+            api_key=api_key or get_api_key("ELEVENLABS_API_KEY"),
             base_url="https://api.elevenlabs.io",
             **kwargs
         )

@@ -57,15 +57,18 @@ class DalleProvider(ImageProvider):
 
         Args:
             config: Provider configuration. If None, creates default config
-                   using OPENAI_API_KEY from environment.
+                   using OPENAI_API_KEY from keychain or environment.
         """
         if config is None:
-            import os
-            api_key = os.environ.get("OPENAI_API_KEY")
+            from core.secrets import get_api_key
+            api_key = get_api_key("OPENAI_API_KEY")
             config = ImageProviderConfig(api_key=api_key)
 
         if not config.api_key:
-            raise ValueError("OpenAI API key required. Set OPENAI_API_KEY environment variable.")
+            raise ValueError(
+                "OpenAI API key required. Set via 'claude-studio secrets set OPENAI_API_KEY' "
+                "or OPENAI_API_KEY environment variable."
+            )
 
         super().__init__(config)
         self.default_model = "dall-e-3"
