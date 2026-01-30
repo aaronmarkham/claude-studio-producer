@@ -1,4 +1,4 @@
-## Developer Notes
+# Developer Notes
 
 ### What's Working Now
 
@@ -9,119 +9,212 @@
 - **CLI tool** with live progress and detailed feedback
 - **Multi-tenant memory** using Strands and Bedrock AgentCore
 
-### Jan 9, 2026
+### Jan 30, 2026
 
-#### What is this even for?
+Read some alarming posts about Clawdbot, so I did a quick security check to make sure I didn't overlook anything. So today's update is just adding `__repr__` to the Config classes, so they can't leak the API keys in debug outputs.
 
-I wanted to make a demo project that 1) shows off what you can do pretty quickly with Claude; 2) how to design and implement a working multi-agent workflow; 3) use learning/memory; 4) use rewards; and 5) have fun.
-
-If you're curious about the design aspect, there are a bunch of [spec docs](docs/specs) and you can look at their timestamps to get a rough idea of the layering of the features. Well, I/we (me & the Claudes) did a lot in two days, let's just say that.
-
-I used Claude.ai with Opus 4.5 from my mobile phone to start... using the microphone to dictate my pitch about the project from some [hastily scribbled notes on my notepad](examples/inputs/notebook-on-a-notebook.jpg). This got us our first specs. 
-
-I'm actually on a new computer at home - Windows - because 1) I bought it to play some newer games with friends and 2) in theory it is fast enough to dev on, but I'm used to a Mac at work. Anyways, Claude on the web helped me get this laptop going with VS Code, Gitbash, Docker, Claude extension for VS Code, etc so I could actually dev on this machine. So now I have two Claudes. Claude Code (CC) in my IDE, and Claude "prime or planner?" (CP) that knows my project plan. I keep CP in the loop of the progress and he's the one that generates new specs or detailed prompts for CC. It's really about context management: IYKYK. CC chews through context and is constantly compressing, so it's not the best place to monitor your overall project progress. Also CC can chase its tail, so it is good to have CP around to help correct things.
-
-**How is this fun?**
-I've been interested in making "derivative content" for quite a while. Content that I would like to see that doesn't exist yet. I experimented and launched a little [news site](https://spiritwriter.ai) that uses an LLM to assess bias in news and rate it, then generate two variants: a hard left (0.2) and a hard right (0.8) where bias is 0 to 1, left to right. Then because I really love NotebookLM but didn't like waiting for their renders, I made a [podcasts site](https://podcasts.spiritwriter.ai) where I could define my interests and it would automatically download the latest scientific articles that matched and create a podcast talking about it, so every morning I'd have 3 new specially curated science-based podcasts on the hottest publications. Pretty cool, but also a bit expensive. I paused that one and now I have a journalclub subscription that sort of scratches that particular itch.
-
-Now full circle. Why not create a virtual studio where you've got a producer who can take your budget and your pitch and craft pilots based on what he knows works and what you can afford? Then the producer hires a script writer agent and provides the guidelines for the kind of pilot to make. The script writer makes the various scenes know what it knows about the provider, like how long the clips can be and what they excel or fail at. The scenes get shot by a Video Generator agent (and the GenAI provider and be parallelized), then these come back to QA agents (this can be parallelized) for a technical review. The reports for each clip are provided to the Critic agent who looks at the original script and assesses the overall quality of the collection of clips and makes recommendations to the Editor agent who then creates an Edit Decision List (EDL) for the final candidate videos.
-
-**Are we having fun yet?**
-I thought putting a feedback loop in where the agents store learning in memory for the producer and script writer to leverage would be a great idea. And the budget aspect helps keep a lid on costs so you can do re-runs, but only on promising arcs, and only within your budget. Studio reinforcement learning. StudioRL. There, I made something up. Enjoy!
-
-![make-it-rain-coffee](docs/screenshots/make-it-rain-coffee.gif)
-
-**Prompt:**
-*A 15-second story of a developer having a breakthrough: Scene 1 - Wide shot of developer at desk in cozy home office at night, hunched over laptop, frustrated expression, warm desk lamp lighting. Scene 2 - They lean back with a satisfied smile, stretch arms up in victory celebration, coffee cup visible nearby, cinematic triumph moment.* 
-
-**Result:** make it rain coffee...!
-
-### Jan 10, 2026
-
-**Reflections about API drift**
-Reflecting on some of the challenges that I had with the project: API drift is the most obvious one out of the gate. Claude was trained on these APIs a while back and with only one exception it had the signatures wrong. It created the script writer and scene analysis hooks with the Anthropic API without batting an eye. After some initial thrashing with the Runway API, I modified the dev pattern to first validate the API calls, create a test framework and start building the CLI, so I could more easily participate in testing in parallel while Claude Code was grinding away on some task. Onboarding the next API, Luma, had almost no thrashing. 
-
-**Provider profiling and timeouts**
-There was one point at 12AM sharp when my Luma calls started timing out. I had a default 300s timeout and most of my multi-scene runs were still getting done in 60-120 seconds, so this was both a frustration and worry. Thankfully, I'd created a `claude-studio test-provider luma` CLI call that bypasses the complex agent pipeline and does native API calls. It also timed out, so I was relieved I hadn't introduced a regression and given the timing I figured Luma probably has some batch job running in the middle of the night causing some queuing for customers like me burning the midnight oil. So advice to my future self or anyone else adding in new providers (like an image or audio service), always get the test rig dialed in before you start making calls that cost money. Why? Because I realized the next morning that while my side timed out, Luma queued me. Those runs finished eventually and so for every frustrated key press where I submitted another job that would time out, I was also ringing the register. So the next morning I implemented a `--timeout` parameter, so I not only doubled Luma's default timeout, but I could adjust it dynamically because some of my prompts were resulting in 8 scene runs which obviously will take longer.
-
-**Parallelism**
-This brings forward the question of parallelism in the runs. It seemed obvious in the design phase that I'd want to establish the scene plans from the script writer and execute those in parallel to whatever limit the provider would accept. So the provider model is evolving as you onboard each one - you learn a little about their queuing patterns, scheduled server loads (12 am not a great time), and how many parallel jobs you can run before you get rate limited. Note to self: add this... `test-provider scale` so I can verify when I get rate limited. This informs the job plan and expected timeout. At the end of the day though, at least for Luma, I figured out that parallelism wasn't as important as passing keyframes from one video to the next to maintain narrative consistency. Simply put in an example, you ask for 3 scenes about "a person working at a computer then celebrating", and you get 1st scene with a white male actor, a middle scene with an asian woman, and the last one with someone who might be similar to the first, but you can't tell. The narrative is ruined because even if you're super specific about the description of the actor, the LLM is going to be creative. So unless the provider is really good about using a seed input and keeping that "actor" in mind, you're going to need to produce linearly so you can sample then seed as you go.  
-
-**Orphan harvesting**
-Then there's orphan harvesting. This sounds terrible, I know. Help me find a better term, Claude!? I had several videos on Lumas' CDN that were from my midnight runs that timed out. While I had resuming sessions in the back of my mind I hadn't considered having to resume and fetch orphaned artifacts. I chalked this up to how many clips end up "on the cutting room floor". This is studio speak for the editing process in making a movie that leaves a lot of content, or in this archaic reference, cut pieces of film, left as trash on the floor. This old film would be recycled since it had silver in it. In our digital world though, each clip has metadata like provenance and critic comments. It has value and can likewise be recycled in testing and perhaps even get its day in another sequence that finds that clip more at home. Orphan harvesting with a silver lining?
-
-**Learning loop analysis**
-While I hope that my failures can somehow be useful later, I wasn't *entirely* sure that the feedback look that I incorporated was actually working. I was getting some better results run after run, but part of that was Claude having some context and curating some of my test incantations. The script writer agent is quite good at creating depth and detail in each envisioned scene and we could see Luma outright ignoring many of the details. Somewhere between my initial input, the screen writer's learnings from previous runs, and Luma's interpretations is some signal of improvement. Maybe. 
-
-So I asked for an experiments module that I could use to analyze the data, help define experiments, and analyze the results. Then potentially tune how the memories are collected, learning extracted, and prompting/planning is influenced.
-
-I wanted a high-level report.
+I also added a new feature to import keys from `.env` to your system keychain.
 
 ```
-============================================================
-CLAUDE STUDIO PRODUCER - LEARNING LOOP ANALYSIS
-============================================================
+claude-studio secrets import .env
+$ claude-studio secrets import .env
+Importing keys from .env...
+  + ANTHROPIC_API_KEY
+  + OPENAI_API_KEY
+  + RUNWAY_API_KEY
+  + LUMA_API_KEY
+  + ELEVENLABS_API_KEY
 
-📊 OVERVIEW
-   Total runs analyzed: 5
-   Total scenes: 12
-   Provider learnings recorded: 3
+Imported: 5 keys
 
-📈 QUALITY TREND
-   Trend: IMPROVING
-   First 3 runs avg: 65.2
-   Last 3 runs avg: 78.4
-   Overall avg: 71.8
+Tip: You can now delete .env - keys are stored securely in your OS keychain.
+```
+And you can check status:
+```
+claude-studio secrets list
+$ claude-studio secrets list
+                             API Key Status                             
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Key                  ┃ Description                        ┃ Status   ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
+│ ANTHROPIC_API_KEY    │ Anthropic API key (required)       │ Keychain │
+│ OPENAI_API_KEY       │ OpenAI API key (DALL-E, TTS)       │ Keychain │
+│ LUMA_API_KEY         │ Luma AI API key (video)            │ Keychain │
+│ RUNWAY_API_KEY       │ Runway ML API key (video)          │ Keychain │
+│ ELEVENLABS_API_KEY   │ ElevenLabs API key (TTS)           │ Keychain │
+│ GOOGLE_CLOUD_API_KEY │ Google Cloud API key (TTS)         │ Not set  │
+│ PIKA_API_KEY         │ Pika Labs API key (video)          │ Not set  │
+│ STABILITY_API_KEY    │ Stability AI API key (image/video) │ Not set  │
+│ KLING_API_KEY        │ Kling AI API key (video)           │ Not set  │
+│ MUBERT_API_KEY       │ Mubert API key (music)             │ Not set  │
+│ SUNO_API_KEY         │ Suno API key (music)               │ Not set  │
+└──────────────────────┴────────────────────────────────────┴──────────┘
 
-⚠️  COMPLEXITY ANALYSIS (Racing to Bottom Check)
-   Racing to bottom: NO ✓
-   Achievability trend: +1.2/run
-   Word count trend: -2.3/run
-
-🧠 LEARNING STATISTICS
-   luma:
-      Learnings recorded: 3
-      Avg adherence: 72.0
-      Success rate: 67%
+Keychain = Stored securely in OS credential manager
+Env var = Available via environment variable (less secure)
+Not set = Not configured
 ```
 
-Also some intent analysis.
+### Jan 28, 2026
+
+Today was an easy decision to get another provider dialed in. Over the weekend I got really excited about `remotion` and how I might be able to add data-driven graphics to a video and went down that rabbit hole. But as I started working on the specs I got a nagging feeling that I was getting seriously distracted and losing focus on the core part of this project which is a broad "studio" utility and while those graphics would be totally sick, and I'm going to do it... just not right now. 
+
+Introducing DALL-E support!
+
 ```
-============================================================
-INTENT PRESERVATION ANALYSIS
-============================================================
+cd "c:\Users\aaron\Documents\GitHub\claude-studio-producer" && claude-studio provider onboard -n dalle -t image --docs-url https://platform.openai.com/docs/guides/images
+alle -t image --docs-url https://platform.openai.com/docs/guides/images                             ╭─ 🚀 Starting Onboarding ─╮
+│ Provider Onboarding      │
+│                          │
+│ Name: dalle              │
+│ Type: image              │
+│ Docs: 1 URL(s)           │
+│ Stub: None               │
+╰──────────────────────────╯
+🚀 Starting onboarding for dalle (image)
+📖 Fetching documentation from https://platform.openai.com/docs/guides/images...
+🔍 Analyzing documentation...
+  💾 Checkpoint saved: docs
+⠦ Analysis complete
+╭────────────────────────────────────── 📊 Analysis Results ───────────────────────────────────────╮
+│                                                                                                  │
+│ ╭────────────────────────────────────────────────────────────────╮                               │
+│ │  Provider Onboarding Summary:                          dalle │                                 │
+│ ╰────────────────────────────────────────────────────────────────╯                               │
+│                                                                                                  │
+│ Status: in_progress                                                                              │
+│ Started: 2026-01-28T17:03:20.933331                                                              │
+│                                                                                                  │
+│ SPECIFICATION:                                                                                   │
+│   Name: OpenAI Images (DALL-E)                                                                   │
+│   Type: image                                                                                    │
+│   Base URL: https://api.openai.com                                                               │
+│   Auth: bearer_token                                                                             │
+│   Confidence: 90%                                                                                │
+│                                                                                                  │
+│ MODELS:                                                                                          │
+│   • dall-e-3: Latest and most capable image generation model wit...                              │
+│   • dall-e-2: Previous generation model, faster and cheaper, sup...                              │
+│                                                                                                  │
+│ ENDPOINTS: 3                                                                                     │
+│   • POST /v1/images/generations - Generate images from text prompts...                           │
+│   • POST /v1/images/edits - Edit an image using a mask and prompt (D...                          │
+│   • POST /v1/images/variations - Create variations of an existing image (...                     │
+│                                                                                                  │
+│ LEARNINGS:                                                                                       │
+│   Tips: 10                                                                                       │
+│   Gotchas: 12                                                                                    │
+│                                                                                                  │
+│ QUESTIONS: 0 (0 answered)                                                                        │
+│ TESTS: 0 run                                                                                     │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+Completed steps: init, docs
 
-📝 Original: A 15-second story of a developer having a breakthrough...
-📝 Generated: Close-up of person at desk, neutral expression...
+                                📦 Available Models
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Model ID ┃ Description                                 ┃ Inputs      ┃ Outputs   ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━┩
+│ dall-e-3 │ Latest and most capable image generation... │ text        │ image/png │
+│ dall-e-2 │ Previous generation model, faster and ch... │ text, image │ image/png │
+└──────────┴─────────────────────────────────────────────┴─────────────┴───────────┘
+                                    🔌 API Endpoints
+┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Method ┃ Path                   ┃ Description                                 ┃ Async ┃
+┡━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ POST   │ /v1/images/generations │ Generate images from text prompts           │ -     │
+│ POST   │ /v1/images/edits       │ Edit an image using a mask and prompt (D... │ -     │
+│ POST   │ /v1/images/variations  │ Create variations of an existing image (... │ -     │
+└────────┴────────────────────────┴─────────────────────────────────────────────┴───────┘
 
-📊 SCORES
-   Overall Preservation: 35%
-   Overall Achievability: 85%
-   Balance Score: 55
+💡 Tips:
+  • DALL-E 3 automatically revises prompts for safety and quality - check revised_prompt in response
+  • For DALL-E 3, use 'natural' style for more realistic images, 'vivid' for more dramatic/artistic 
+  • Use 'hd' quality for DALL-E 3 when fine details are important (costs 2x)
+  • For edits, mask should use transparency (alpha channel) to indicate areas to edit
+  • Images for edits/variations must be square and PNG format
+  • Use b64_json response format if you need to process images programmatically without downloading 
+  • The 'user' parameter helps OpenAI detect and prevent abuse
+  • DALL-E 3 prompts can be detailed and descriptive - the model handles complexity well
+  • For multiple variations, DALL-E 2 is more cost-effective (supports n>1)
+  • URLs returned expire after 1 hour - download or store images if needed long-term
 
-🔍 DIMENSIONS
-   ⚠️ Semantic: 25%
-      Lost: developer, breakthrough, story
-   ⚠️ Emotional: 0%
-      Lost: frustrated, triumphant
-   ✓ Visual: 80%
-   ⚠️ Narrative: 20%
-      Lost: 15-second, journey
+⚠ Gotchas:
+  • Content policy: No photorealistic faces of real people, violence, adult content, etc.
+  • DALL-E 3 only supports n=1 (single image), unlike DALL-E 2
+  • Image edits and variations are NOT supported with DALL-E 3, only DALL-E 2
+  • Image URLs expire after 60 minutes
+  • Input images for edits/variations must be exactly square (same width and height)
+  • Maximum file size for uploads is 4MB
+  • Requests may be rejected or prompts revised due to content policy
+  • API returns 400 if prompt violates content policy
+  • Different pricing: DALL-E 3 standard costs ~$0.040/image, HD costs ~$0.080/image; DALL-E 2      
+1024x1024 costs ~$0.020/image
+  • Generation time varies: DALL-E 3 typically 30-60 seconds, DALL-E 2 typically 10-20 seconds      
+  • No batch processing - each request is synchronous
+  • Cannot specify negative prompts or use advanced parameters like CFG scale, steps, etc.
 
-🚦 STATUS
-   ⚠️  RACING TO BOTTOM - Prompt over-simplified!
+Generate implementation? [y/n]: y
+⚙️ Generating implementation...
+💾 Saved implementation to core/providers/image/dalle.py
+  💾 Checkpoint saved: implementation
+⠸ Generating implementation...
 
-💡 SUGGESTIONS
-   ⚠️ RACING TO BOTTOM DETECTED
-   The prompt has been over-simplified. Consider:
-     - Restore semantic elements: developer, breakthrough, story
-     - Restore emotional tone: frustrated, triumphant
-     - Use more descriptive language while keeping visuals concrete
+✓ Implementation saved to core/providers/image/dalle.py
+
+Generate and run tests? [y/n]: y
+🧪 Generating test cases...
+Generated 15 test cases
+  💾 Checkpoint saved: testing
+Record learnings to memory? [y/n]: y
+  📝 Recorded 10 tips, 12 gotchas to memory
+✓ Learnings recorded to memory
+
+Export tests to pytest file? [y/n]: y
+  Exported tests to tests\integration\test_dalle.py
+✓ Tests exported to tests\integration\test_dalle.py
+╭───────────────────────────────────── ✅ Onboarding Complete ─────────────────────────────────────╮
+│                                                                                                  │
+│ ╭────────────────────────────────────────────────────────────────╮                               │
+│ │  Provider Onboarding Summary:                          dalle │                                 │
+│ ╰────────────────────────────────────────────────────────────────╯                               │
+│                                                                                                  │
+│ Status: completed                                                                                │
+│ Started: 2026-01-28T17:03:20.933331                                                              │
+│                                                                                                  │
+│ SPECIFICATION:                                                                                   │
+│   Name: OpenAI Images (DALL-E)                                                                   │
+│   Type: image                                                                                    │
+│   Base URL: https://api.openai.com                                                               │
+│   Auth: bearer_token                                                                             │
+│   Confidence: 90%                                                                                │
+│                                                                                                  │
+│ MODELS:                                                                                          │
+│   • dall-e-3: Latest and most capable image generation model wit...                              │
+│   • dall-e-2: Previous generation model, faster and cheaper, sup...                              │
+│                                                                                                  │
+│ ENDPOINTS: 3                                                                                     │
+│   • POST /v1/images/generations - Generate images from text prompts...                           │
+│   • POST /v1/images/edits - Edit an image using a mask and prompt (D...                          │
+│   • POST /v1/images/variations - Create variations of an existing image (...                     │
+│                                                                                                  │
+│ LEARNINGS:                                                                                       │
+│   Tips: 10                                                                                       │
+│   Gotchas: 12                                                                                    │
+│                                                                                                  │
+│ QUESTIONS: 0 (0 answered)                                                                        │
+│ TESTS: 15 run                                                                                    │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-A chief concern is something like overfitting, or what I'm calling a race to the bottom. If I have to keep simplifying the prompt to get better alignment, how far way from the original intent am I?
+### Jan 26, 2026
 
-The good news is that the feedback system works - to a degree. We'll just have to implement a smarter memory system and adjust how feedback is incorporated in subsequent runs.
+I realize the readme is getting too long and I should move the developer notes (ok two days later I did move it!). I will do that next time. Maybe. For now I just wanted to add a couple of notes about the addition of the knowledge base. It's worth checking out the [knowledge to video spec](docs/specs/KNOWLEDGE_TO_VIDEO.md) and its predecessor [docuemnt to video spec](docs/specs/DOCUMENT_TO_VIDEO.md). I was quickly refining how I wanted my next generation podcast creator to work. I'm partly reverse engineering NotebookLM's explainer video capability and adding my own spin to it since I love that feature but I want 100x more control and to be able to work with the intermediates. Rolling the dice and waiting 10 minutes for a new video isn't exactly my cup of tea. The main point here is to have the ability to reason over previous works and create new connections in derivative content. Plus the adversarial content is like doing your own Lincoln Douglas debate, reviewing the arguments, picking winners, and improving. My gut feeling on this is the intermediates will be entertaining and eye-opening, and I might never be satisfied, but that's ok. The journey is the point. 
+
+What's neat is that we're getting some knowledge graphing on the source material, and for our knowledge base, and for our content! It should unlock some powerful features later.
+
+I should also post some samples of the elevenlabs integration, because it worked and just with TTS and being able to script things has made this studio actually useful and kind of fun even if the videos and audio tracks I've made so far are just for comedy. At some point soon, I'll point this at some serious material and generate a serious video. Maybe. Comedy is good too.
 
 ### Jan 21, 2026
 
@@ -373,10 +466,117 @@ supported formats)
 
 So! We now have some video and audio support! And we have an agent that's good at onboarding new providers, so I should be able to get through several very quickly now!
 
-### Jan 26, 2026
+### Jan 10, 2026
 
-I realize the readme is getting too long and I should move the developer notes (ok two days later I did move it!). I will do that next time. Maybe. For now I just wanted to add a couple of notes about the addition of the knowledge base. It's worth checking out the [knowledge to video spec](docs/specs/KNOWLEDGE_TO_VIDEO.md) and its predecessor [docuemnt to video spec](docs/specs/DOCUMENT_TO_VIDEO.md). I was quickly refining how I wanted my next generation podcast creator to work. I'm partly reverse engineering NotebookLM's explainer video capability and adding my own spin to it since I love that feature but I want 100x more control and to be able to work with the intermediates. Rolling the dice and waiting 10 minutes for a new video isn't exactly my cup of tea. The main point here is to have the ability to reason over previous works and create new connections in derivative content. Plus the adversarial content is like doing your own Lincoln Douglas debate, reviewing the arguments, picking winners, and improving. My gut feeling on this is the intermediates will be entertaining and eye-opening, and I might never be satisfied, but that's ok. The journey is the point. 
+**Reflections about API drift**
+Reflecting on some of the challenges that I had with the project: API drift is the most obvious one out of the gate. Claude was trained on these APIs a while back and with only one exception it had the signatures wrong. It created the script writer and scene analysis hooks with the Anthropic API without batting an eye. After some initial thrashing with the Runway API, I modified the dev pattern to first validate the API calls, create a test framework and start building the CLI, so I could more easily participate in testing in parallel while Claude Code was grinding away on some task. Onboarding the next API, Luma, had almost no thrashing. 
 
-What's neat is that we're getting some knowledge graphing on the source material, and for our knowledge base, and for our content! It should unlock some powerful features later.
+**Provider profiling and timeouts**
+There was one point at 12AM sharp when my Luma calls started timing out. I had a default 300s timeout and most of my multi-scene runs were still getting done in 60-120 seconds, so this was both a frustration and worry. Thankfully, I'd created a `claude-studio test-provider luma` CLI call that bypasses the complex agent pipeline and does native API calls. It also timed out, so I was relieved I hadn't introduced a regression and given the timing I figured Luma probably has some batch job running in the middle of the night causing some queuing for customers like me burning the midnight oil. So advice to my future self or anyone else adding in new providers (like an image or audio service), always get the test rig dialed in before you start making calls that cost money. Why? Because I realized the next morning that while my side timed out, Luma queued me. Those runs finished eventually and so for every frustrated key press where I submitted another job that would time out, I was also ringing the register. So the next morning I implemented a `--timeout` parameter, so I not only doubled Luma's default timeout, but I could adjust it dynamically because some of my prompts were resulting in 8 scene runs which obviously will take longer.
 
-I should also post some samples of the elevenlabs integration, because it worked and just with TTS and being able to script things has made this studio actually useful and kind of fun even if the videos and audio tracks I've made so far are just for comedy. At some point soon, I'll point this at some serious material and generate a serious video. Maybe. Comedy is good too.
+**Parallelism**
+This brings forward the question of parallelism in the runs. It seemed obvious in the design phase that I'd want to establish the scene plans from the script writer and execute those in parallel to whatever limit the provider would accept. So the provider model is evolving as you onboard each one - you learn a little about their queuing patterns, scheduled server loads (12 am not a great time), and how many parallel jobs you can run before you get rate limited. Note to self: add this... `test-provider scale` so I can verify when I get rate limited. This informs the job plan and expected timeout. At the end of the day though, at least for Luma, I figured out that parallelism wasn't as important as passing keyframes from one video to the next to maintain narrative consistency. Simply put in an example, you ask for 3 scenes about "a person working at a computer then celebrating", and you get 1st scene with a white male actor, a middle scene with an asian woman, and the last one with someone who might be similar to the first, but you can't tell. The narrative is ruined because even if you're super specific about the description of the actor, the LLM is going to be creative. So unless the provider is really good about using a seed input and keeping that "actor" in mind, you're going to need to produce linearly so you can sample then seed as you go.  
+
+**Orphan harvesting**
+Then there's orphan harvesting. This sounds terrible, I know. Help me find a better term, Claude!? I had several videos on Lumas' CDN that were from my midnight runs that timed out. While I had resuming sessions in the back of my mind I hadn't considered having to resume and fetch orphaned artifacts. I chalked this up to how many clips end up "on the cutting room floor". This is studio speak for the editing process in making a movie that leaves a lot of content, or in this archaic reference, cut pieces of film, left as trash on the floor. This old film would be recycled since it had silver in it. In our digital world though, each clip has metadata like provenance and critic comments. It has value and can likewise be recycled in testing and perhaps even get its day in another sequence that finds that clip more at home. Orphan harvesting with a silver lining?
+
+**Learning loop analysis**
+While I hope that my failures can somehow be useful later, I wasn't *entirely* sure that the feedback look that I incorporated was actually working. I was getting some better results run after run, but part of that was Claude having some context and curating some of my test incantations. The script writer agent is quite good at creating depth and detail in each envisioned scene and we could see Luma outright ignoring many of the details. Somewhere between my initial input, the screen writer's learnings from previous runs, and Luma's interpretations is some signal of improvement. Maybe. 
+
+So I asked for an experiments module that I could use to analyze the data, help define experiments, and analyze the results. Then potentially tune how the memories are collected, learning extracted, and prompting/planning is influenced.
+
+I wanted a high-level report.
+
+```
+============================================================
+CLAUDE STUDIO PRODUCER - LEARNING LOOP ANALYSIS
+============================================================
+
+📊 OVERVIEW
+   Total runs analyzed: 5
+   Total scenes: 12
+   Provider learnings recorded: 3
+
+📈 QUALITY TREND
+   Trend: IMPROVING
+   First 3 runs avg: 65.2
+   Last 3 runs avg: 78.4
+   Overall avg: 71.8
+
+⚠️  COMPLEXITY ANALYSIS (Racing to Bottom Check)
+   Racing to bottom: NO ✓
+   Achievability trend: +1.2/run
+   Word count trend: -2.3/run
+
+🧠 LEARNING STATISTICS
+   luma:
+      Learnings recorded: 3
+      Avg adherence: 72.0
+      Success rate: 67%
+```
+
+Also some intent analysis.
+```
+============================================================
+INTENT PRESERVATION ANALYSIS
+============================================================
+
+📝 Original: A 15-second story of a developer having a breakthrough...
+📝 Generated: Close-up of person at desk, neutral expression...
+
+📊 SCORES
+   Overall Preservation: 35%
+   Overall Achievability: 85%
+   Balance Score: 55
+
+🔍 DIMENSIONS
+   ⚠️ Semantic: 25%
+      Lost: developer, breakthrough, story
+   ⚠️ Emotional: 0%
+      Lost: frustrated, triumphant
+   ✓ Visual: 80%
+   ⚠️ Narrative: 20%
+      Lost: 15-second, journey
+
+🚦 STATUS
+   ⚠️  RACING TO BOTTOM - Prompt over-simplified!
+
+💡 SUGGESTIONS
+   ⚠️ RACING TO BOTTOM DETECTED
+   The prompt has been over-simplified. Consider:
+     - Restore semantic elements: developer, breakthrough, story
+     - Restore emotional tone: frustrated, triumphant
+     - Use more descriptive language while keeping visuals concrete
+```
+
+A chief concern is something like overfitting, or what I'm calling a race to the bottom. If I have to keep simplifying the prompt to get better alignment, how far way from the original intent am I?
+
+The good news is that the feedback system works - to a degree. We'll just have to implement a smarter memory system and adjust how feedback is incorporated in subsequent runs.
+
+
+### Jan 9, 2026
+
+#### What is this even for?
+
+I wanted to make a demo project that 1) shows off what you can do pretty quickly with Claude; 2) how to design and implement a working multi-agent workflow; 3) use learning/memory; 4) use rewards; and 5) have fun.
+
+If you're curious about the design aspect, there are a bunch of [spec docs](docs/specs) and you can look at their timestamps to get a rough idea of the layering of the features. Well, I/we (me & the Claudes) did a lot in two days, let's just say that.
+
+I used Claude.ai with Opus 4.5 from my mobile phone to start... using the microphone to dictate my pitch about the project from some [hastily scribbled notes on my notepad](examples/inputs/notebook-on-a-notebook.jpg). This got us our first specs. 
+
+I'm actually on a new computer at home - Windows - because 1) I bought it to play some newer games with friends and 2) in theory it is fast enough to dev on, but I'm used to a Mac at work. Anyways, Claude on the web helped me get this laptop going with VS Code, Gitbash, Docker, Claude extension for VS Code, etc so I could actually dev on this machine. So now I have two Claudes. Claude Code (CC) in my IDE, and Claude "prime or planner?" (CP) that knows my project plan. I keep CP in the loop of the progress and he's the one that generates new specs or detailed prompts for CC. It's really about context management: IYKYK. CC chews through context and is constantly compressing, so it's not the best place to monitor your overall project progress. Also CC can chase its tail, so it is good to have CP around to help correct things.
+
+**How is this fun?**
+I've been interested in making "derivative content" for quite a while. Content that I would like to see that doesn't exist yet. I experimented and launched a little [news site](https://spiritwriter.ai) that uses an LLM to assess bias in news and rate it, then generate two variants: a hard left (0.2) and a hard right (0.8) where bias is 0 to 1, left to right. Then because I really love NotebookLM but didn't like waiting for their renders, I made a [podcasts site](https://podcasts.spiritwriter.ai) where I could define my interests and it would automatically download the latest scientific articles that matched and create a podcast talking about it, so every morning I'd have 3 new specially curated science-based podcasts on the hottest publications. Pretty cool, but also a bit expensive. I paused that one and now I have a journalclub subscription that sort of scratches that particular itch.
+
+Now full circle. Why not create a virtual studio where you've got a producer who can take your budget and your pitch and craft pilots based on what he knows works and what you can afford? Then the producer hires a script writer agent and provides the guidelines for the kind of pilot to make. The script writer makes the various scenes know what it knows about the provider, like how long the clips can be and what they excel or fail at. The scenes get shot by a Video Generator agent (and the GenAI provider and be parallelized), then these come back to QA agents (this can be parallelized) for a technical review. The reports for each clip are provided to the Critic agent who looks at the original script and assesses the overall quality of the collection of clips and makes recommendations to the Editor agent who then creates an Edit Decision List (EDL) for the final candidate videos.
+
+**Are we having fun yet?**
+I thought putting a feedback loop in where the agents store learning in memory for the producer and script writer to leverage would be a great idea. And the budget aspect helps keep a lid on costs so you can do re-runs, but only on promising arcs, and only within your budget. Studio reinforcement learning. StudioRL. There, I made something up. Enjoy!
+
+![make-it-rain-coffee](docs/screenshots/make-it-rain-coffee.gif)
+
+**Prompt:**
+*A 15-second story of a developer having a breakthrough: Scene 1 - Wide shot of developer at desk in cozy home office at night, hunched over laptop, frustrated expression, warm desk lamp lighting. Scene 2 - They lean back with a satisfied smile, stretch arms up in victory celebration, coffee cup visible nearby, cinematic triumph moment.* 
+
+**Result:** make it rain coffee...!
