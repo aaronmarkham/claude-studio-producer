@@ -16,6 +16,15 @@ class ProviderType(Enum):
     KLING = "kling"
 
 
+def _mask_secret(value: Optional[str]) -> str:
+    """Mask a secret value for safe display in logs/repr."""
+    if value is None:
+        return "None"
+    if len(value) <= 8:
+        return "'***'"
+    return f"'{value[:4]}...{value[-4:]}'"
+
+
 @dataclass
 class VideoProviderConfig:
     """Configuration for video provider"""
@@ -30,6 +39,15 @@ class VideoProviderConfig:
     def __post_init__(self):
         if self.extra_params is None:
             self.extra_params = {}
+
+    def __repr__(self) -> str:
+        """Safe repr that masks API key to prevent accidental exposure in logs."""
+        return (
+            f"VideoProviderConfig(provider_type={self.provider_type}, "
+            f"api_key={_mask_secret(self.api_key)}, "
+            f"base_url={self.base_url!r}, timeout={self.timeout}, "
+            f"max_retries={self.max_retries}, retry_delay={self.retry_delay})"
+        )
 
 
 @dataclass
@@ -146,6 +164,14 @@ class AudioProviderConfig:
         if self.extra_params is None:
             self.extra_params = {}
 
+    def __repr__(self) -> str:
+        """Safe repr that masks API key to prevent accidental exposure in logs."""
+        return (
+            f"AudioProviderConfig(api_key={_mask_secret(self.api_key)}, "
+            f"base_url={self.base_url!r}, timeout={self.timeout}, "
+            f"max_retries={self.max_retries})"
+        )
+
 
 @dataclass
 class AudioGenerationResult:
@@ -252,6 +278,13 @@ class MusicProviderConfig:
         if self.extra_params is None:
             self.extra_params = {}
 
+    def __repr__(self) -> str:
+        """Safe repr that masks API key to prevent accidental exposure in logs."""
+        return (
+            f"MusicProviderConfig(api_key={_mask_secret(self.api_key)}, "
+            f"timeout={self.timeout}, max_retries={self.max_retries})"
+        )
+
 
 @dataclass
 class MusicGenerationResult:
@@ -356,6 +389,13 @@ class ImageProviderConfig:
     def __post_init__(self):
         if self.extra_params is None:
             self.extra_params = {}
+
+    def __repr__(self) -> str:
+        """Safe repr that masks API key to prevent accidental exposure in logs."""
+        return (
+            f"ImageProviderConfig(api_key={_mask_secret(self.api_key)}, "
+            f"timeout={self.timeout}, max_retries={self.max_retries})"
+        )
 
 
 @dataclass
