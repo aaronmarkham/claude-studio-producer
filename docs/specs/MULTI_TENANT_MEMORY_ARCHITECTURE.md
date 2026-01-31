@@ -1,3 +1,7 @@
+---
+layout: default
+title: Multi-Tenant Memory Architecture & Security Model
+---
 # Multi-Tenant Memory Architecture & Security Model
 
 ## Overview

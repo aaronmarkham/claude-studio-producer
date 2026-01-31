@@ -1,3 +1,7 @@
+---
+layout: default
+title: Editor Agent Specification
+---
 # Editor Agent Specification
 
 ## Purpose

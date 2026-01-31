@@ -1,3 +1,7 @@
+---
+layout: default
+title: QA Verifier Agent Specification
+---
 # QA Verifier Agent Specification
 
 ## Purpose

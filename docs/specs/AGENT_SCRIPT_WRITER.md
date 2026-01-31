@@ -1,3 +1,7 @@
+---
+layout: default
+title: Script Writer Agent Specification
+---
 # Script Writer Agent Specification
 
 ## Purpose

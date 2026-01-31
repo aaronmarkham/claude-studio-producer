@@ -1,3 +1,7 @@
+---
+layout: default
+title: Video Generator Agent Specification
+---
 # Video Generator Agent Specification
 
 ## Purpose

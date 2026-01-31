@@ -1,15 +1,24 @@
 title: Claude Studio Producer
-description: Multi-agent video production system using Claude + Strands SDK
+description: Budget-aware multi-agent video production system using competitive pilots
 theme: minima
 baseurl: "/claude-studio-producer"
 url: "https://aaronmarkham.github.io"
 
+# Navigation header links
+header_pages:
+  - index.md
+  - specs-evolution.md
+  - specs-timeline.md
+  - specs-themes.md
+  - dev-journal.md
+  - examples.md
+
 # Exclude files from the site
 exclude:
-  - specs/
   - dev_notes.md
   - providers.md
 
-# Include these file types
+# Include these file types and directories
 include:
   - "*.mp4"
+  - "specs/"

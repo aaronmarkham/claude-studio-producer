@@ -1,3 +1,7 @@
+---
+layout: default
+title: Providers Implementation Specification
+---
 # Providers Implementation Specification
 
 ## Overview

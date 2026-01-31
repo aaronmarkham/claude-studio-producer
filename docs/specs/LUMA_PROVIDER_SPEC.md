@@ -1,3 +1,7 @@
+---
+layout: default
+title: Luma AI Provider - Comprehensive Specification
+---
 # Luma AI Provider - Comprehensive Specification
 
 ## Overview

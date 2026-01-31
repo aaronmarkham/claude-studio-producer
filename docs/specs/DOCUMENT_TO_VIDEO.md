@@ -1,3 +1,7 @@
+---
+layout: default
+title: Document-to-Video Pipeline Specification
+---
 # Document-to-Video Pipeline Specification
 
 ## Overview

@@ -1,3 +1,7 @@
+---
+layout: default
+title: Seed Assets and Multi-Modal Inputs Specification
+---
 # Seed Assets and Multi-Modal Inputs Specification
 
 ## Overview

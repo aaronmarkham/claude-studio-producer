@@ -1,3 +1,7 @@
+---
+layout: default
+title: Memory System and Dashboard Specification
+---
 # Memory System and Dashboard Specification
 
 ## Overview

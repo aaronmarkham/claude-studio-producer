@@ -1,3 +1,7 @@
+---
+layout: default
+title: Claude Studio Producer - Project Vision
+---
 # Claude Studio Producer - Project Vision
 
 ## Overview

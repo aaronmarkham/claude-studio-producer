@@ -1,3 +1,7 @@
+---
+layout: default
+title: Docker Development Environment Specification
+---
 # Docker Development Environment Specification
 
 ## Overview

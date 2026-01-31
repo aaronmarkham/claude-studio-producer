@@ -1,3 +1,7 @@
+---
+layout: default
+title: Audio Generator Agent Specification
+---
 # Audio Generator Agent Specification
 
 ## Purpose

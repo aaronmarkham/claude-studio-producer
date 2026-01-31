@@ -1,3 +1,7 @@
+---
+layout: default
+title: CLI and Package Introspection Specification
+---
 # CLI and Package Introspection Specification
 
 ## Overview

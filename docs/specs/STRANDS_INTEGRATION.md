@@ -1,3 +1,7 @@
+---
+layout: default
+title: Strands SDK Integration Specification
+---
 # Strands SDK Integration Specification
 
 ## Overview

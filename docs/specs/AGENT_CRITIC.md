@@ -1,3 +1,7 @@
+---
+layout: default
+title: Critic Agent Specification
+---
 # Critic Agent Specification
 
 ## Purpose

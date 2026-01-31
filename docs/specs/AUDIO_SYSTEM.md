@@ -1,3 +1,7 @@
+---
+layout: default
+title: Audio System Specification
+---
 # Audio System Specification
 
 ## Overview

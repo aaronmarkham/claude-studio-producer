@@ -1,3 +1,7 @@
+---
+layout: default
+title: Testing and Providers Architecture Specification
+---
 # Testing and Providers Architecture Specification
 
 ## Overview

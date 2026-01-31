@@ -1,3 +1,7 @@
+---
+layout: default
+title: Knowledge-to-Video Pipeline Specification
+---
 # Knowledge-to-Video Pipeline Specification
 
 ## Overview

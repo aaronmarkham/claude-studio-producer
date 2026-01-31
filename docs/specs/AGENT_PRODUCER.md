@@ -1,3 +1,7 @@
+---
+layout: default
+title: Producer Agent Specification
+---
 # Producer Agent Specification
 
 ## Purpose
