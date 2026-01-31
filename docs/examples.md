@@ -66,7 +66,7 @@ This adds a beautiful narration using ElevenLabs' Lily voice, completing the mul
 ## Layer 5: Combine video and audio
 
 ```bash
-claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffee_narration_lily.mp3 -o docs/videos/coffee_final.mp4 --fit longest
+claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffee_narration_lily.mp3 -o docs/videos/coffee_final.mp4 --fit speed-match
 ```
 
 **Result:**
@@ -76,4 +76,9 @@ claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffe
   Your browser does not support the video tag.
 </video>
 
-The final production combines all the pieces: DALL-E generated imagery, Luma video animation, and ElevenLabs narration. The `--fit longest` option extends the video to match the full narration duration by freezing the last frame.
+The final production combines all the pieces: DALL-E generated imagery, Luma video animation, and ElevenLabs narration. The `--fit speed-match` option slows down the video playback to match the narration duration, keeping the steam animation flowing smoothly throughout.
+
+**Fit mode options:**
+- `shortest` - Trim to shorter duration (cuts audio or video)
+- `longest` - Freeze last frame to extend video (steam stops halfway)
+- `speed-match` - Adjust playback speed (keeps animation smooth) ✓
