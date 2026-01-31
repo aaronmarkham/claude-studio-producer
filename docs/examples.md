@@ -47,3 +47,18 @@ claude-studio test-provider luma -p "Steam rises gently from the coffee cup, mor
 </video>
 
 This example takes the DALL-E generated coffee image and brings it to life with Luma's image-to-video generation, adding realistic steam effects and dynamic lighting.
+
+## Layer 4: Add narration using ElevenLabs TTS
+
+```bash
+claude-studio test-provider elevenlabs -t "A perfect morning begins with the gentle aroma of freshly brewed coffee. Watch as delicate wisps of steam rise and dance in the golden morning light, creating a peaceful moment of tranquility before the day begins." --voice lily --live
+```
+
+**Result:**
+
+<audio controls>
+  <source src="videos/coffee_narration_lily.mp3" type="audio/mpeg">
+  Your browser does not support the audio element.
+</audio>
+
+This adds a beautiful narration using ElevenLabs' Lily voice, completing the multi-sensory coffee experience. The TTS system converts text to natural-sounding speech with emotional expression and proper pacing.
