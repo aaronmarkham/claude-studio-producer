@@ -65,20 +65,55 @@ This adds a beautiful narration using ElevenLabs' Lily voice, completing the mul
 
 ## Layer 5: Combine video and audio
 
+The `render mix` command provides three different fit modes for handling video/audio length mismatches. Here's a comparison:
+
+### Recommended: Speed-Match Mode
+
 ```bash
 claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffee_narration_lily.mp3 -o docs/videos/coffee_final.mp4 --fit speed-match
 ```
 
-**Result:**
-
 <video width="100%" controls>
-  <source src="videos/coffee_final.mp4" type="video/mp4">
+  <source src="videos/coffee_final_speed_match.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
-The final production combines all the pieces: DALL-E generated imagery, Luma video animation, and ElevenLabs narration. The `--fit speed-match` option slows down the video playback to match the narration duration, keeping the steam animation flowing smoothly throughout.
+**Best for:** This mode slows down video playback to match audio duration, keeping steam animation flowing smoothly throughout. Creates a meditative, cinematic feel.
 
-**Fit mode options:**
-- `shortest` - Trim to shorter duration (cuts audio or video)
-- `longest` - Freeze last frame to extend video (steam stops halfway)
-- `speed-match` - Adjust playback speed (keeps animation smooth) ✓
+### Alternative: Freeze-Frame Mode
+
+```bash
+claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffee_narration_lily.mp3 -o docs/videos/coffee_final_longest.mp4 --fit longest
+```
+
+<video width="100%" controls>
+  <source src="videos/coffee_final_longest.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+**Best for:** When you want the last frame as a static backdrop. Steam stops halfway, then holds on final frame while narration completes.
+
+### Alternative: Shortest Mode
+
+```bash
+claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffee_narration_lily.mp3 -o docs/videos/coffee_final_shortest.mp4 --fit shortest
+```
+
+<video width="100%" controls>
+  <source src="videos/coffee_final_shortest.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+**Best for:** When you want video and audio to end together. Cuts off narration mid-sentence at 5 seconds when video ends.
+
+---
+
+**Comparison Summary:**
+
+| Mode | Video Length | Audio Length | Result | File Size |
+|------|-------------|--------------|---------|-----------|
+| `speed-match` ✓ | Slowed to match audio | Full narration | Smooth, continuous animation | 1.4 MB |
+| `longest` | Extended with freeze | Full narration | Animation stops, frame freezes | 1.2 MB |
+| `shortest` | Original 5s | Truncated at 5s | Both end together, cuts narration | 2.1 MB |
+
+**Recommendation:** Use `--fit speed-match` for this type of content where continuous motion enhances the viewing experience.
