@@ -14,6 +14,7 @@ from dataclasses import replace
 from strands import tool
 from core.claude_client import ClaudeClient
 from core.budget import estimate_audio_cost
+from core.secrets import get_api_key
 from .base import StudioAgent
 from core.models.audio import (
     AudioTier,
@@ -64,11 +65,10 @@ class AudioGeneratorAgent(StudioAgent):
 
         # Auto-initialize ElevenLabs if no provider specified and API key available
         if self.audio_provider is None:
-            import os
-            if os.getenv("ELEVENLABS_API_KEY"):
+            if get_api_key("ELEVENLABS_API_KEY"):
                 from core.providers.audio.elevenlabs import ElevenLabsProvider
                 self.audio_provider = ElevenLabsProvider()
-            elif os.getenv("OPENAI_API_KEY"):
+            elif get_api_key("OPENAI_API_KEY"):
                 from core.providers.audio.openai_tts import OpenAITTSProvider
                 self.audio_provider = OpenAITTSProvider()
 

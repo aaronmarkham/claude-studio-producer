@@ -6,6 +6,8 @@ from rich.table import Table
 from rich import box
 from pathlib import Path
 
+from core.secrets import get_api_key
+
 console = Console()
 
 
@@ -163,8 +165,7 @@ PROVIDER_MODE=mock
 async def validate_anthropic():
     """Validate Anthropic API key"""
     from anthropic import Anthropic
-    import os
-    client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = Anthropic(api_key=get_api_key("ANTHROPIC_API_KEY"))
     # Make a minimal API call
     await client.messages.create(
         model="claude-3-haiku-20240307",
@@ -176,11 +177,10 @@ async def validate_anthropic():
 async def validate_runway():
     """Validate Runway API key"""
     import httpx
-    import os
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://api.runwayml.com/v1/account",
-            headers={"Authorization": f"Bearer {os.getenv('RUNWAY_API_KEY')}"}
+            headers={"Authorization": f"Bearer {get_api_key('RUNWAY_API_KEY')}"}
         )
         response.raise_for_status()
 
@@ -188,10 +188,9 @@ async def validate_runway():
 async def validate_elevenlabs():
     """Validate ElevenLabs API key"""
     import httpx
-    import os
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://api.elevenlabs.io/v1/user",
-            headers={"xi-api-key": os.getenv("ELEVENLABS_API_KEY")}
+            headers={"xi-api-key": get_api_key("ELEVENLABS_API_KEY")}
         )
         response.raise_for_status()

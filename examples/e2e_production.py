@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from agents.producer import ProducerAgent, PilotStrategy
 from agents.script_writer import ScriptWriterAgent, Scene
 from agents.video_generator import VideoGeneratorAgent, GeneratedVideo
+from core.secrets import get_api_key
 from agents.audio_generator import AudioGeneratorAgent
 from agents.critic import CriticAgent, PilotResults, SceneResult
 from agents.qa_verifier import QAVerifierAgent, QAResult
@@ -318,8 +319,8 @@ class ProductionPipeline:
 
             if self.use_live_providers:
                 # Prefer Luma - supports text-to-video without seed images
-                luma_key = os.getenv("LUMA_API_KEY")
-                runway_key = os.getenv("RUNWAY_API_KEY")
+                luma_key = get_api_key("LUMA_API_KEY")
+                runway_key = get_api_key("RUNWAY_API_KEY")
 
                 if luma_key:
                     # Luma supports text-to-video - no seed image required!
@@ -431,9 +432,9 @@ class ProductionPipeline:
             actual_audio_provider = None
 
             if self.use_live_providers:
-                api_key = os.getenv("OPENAI_API_KEY")
+                api_key = get_api_key("OPENAI_API_KEY")
                 if not api_key:
-                    self.log("FALLBACK TO MOCK: OPENAI_API_KEY not set", "WARNING")
+                    self.log("FALLBACK TO MOCK: OPENAI_API_KEY not set (check keychain or env)", "WARNING")
                     self.log("Audio will be SIMULATED, not real TTS", "WARNING")
                     audio_provider = None  # Use mock
                     actual_audio_provider = "mock"

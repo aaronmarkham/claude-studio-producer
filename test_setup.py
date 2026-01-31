@@ -1,22 +1,22 @@
 """Quick test to verify everything is working"""
 import asyncio
-import os
 from dotenv import load_dotenv
+from core.secrets import get_api_key
 
 async def main():
     load_dotenv()
-    
+
     print("Testing Claude Agent SDK Setup...")
     print()
-    
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+
+    api_key = get_api_key("ANTHROPIC_API_KEY")
     if not api_key or api_key == "your_key_here":
-        print("[ERROR] API key not set in .env file")
+        print("[ERROR] API key not set (check keychain or env)")
         print()
         print("Steps to fix:")
         print("1. Get API key: https://console.anthropic.com/")
-        print("2. Edit .env file")
-        print("3. Replace 'your_key_here' with your key")
+        print("2. Run: claude-studio secrets set ANTHROPIC")
+        print("   (or set ANTHROPIC_API_KEY env var)")
         return
     
     print("[OK] API key found")

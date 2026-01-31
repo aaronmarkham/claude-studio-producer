@@ -1,6 +1,5 @@
 """Test provider command - Quick provider testing without full pipeline"""
 
-import os
 import asyncio
 from pathlib import Path
 from datetime import datetime
@@ -10,6 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from core.providers.base import VideoProviderConfig, ProviderType
+from core.secrets import get_api_key
 
 console = Console()
 
@@ -21,7 +21,7 @@ console = Console()
 @click.option("--duration", "-d", type=float, default=5.0, help="Video duration in seconds")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 @click.option("--aspect-ratio", "-a", default="16:9", help="Aspect ratio (16:9, 9:16, 1:1)")
-@click.option("--image", "-i", type=click.Path(exists=True), help="Input image (for image-to-video)")
+@click.option("--image", "-i", help="Input image path or URL (for image-to-video)")
 def test_provider_cmd(
     provider: str,
     prompt: str,
@@ -95,17 +95,17 @@ async def _test_provider(
 
     # Get provider instance
     if provider == "luma":
-        api_key = os.getenv("LUMA_API_KEY")
+        api_key = get_api_key("LUMA_API_KEY")
         if not api_key:
-            return {"success": False, "error": "LUMA_API_KEY not set"}
+            return {"success": False, "error": "LUMA_API_KEY not set (check keychain or env)"}
 
         from core.providers.video.luma import LumaProvider
         video_provider = LumaProvider()
 
     elif provider == "runway":
-        api_key = os.getenv("RUNWAY_API_KEY")
+        api_key = get_api_key("RUNWAY_API_KEY")
         if not api_key:
-            return {"success": False, "error": "RUNWAY_API_KEY not set"}
+            return {"success": False, "error": "RUNWAY_API_KEY not set (check keychain or env)"}
 
         if not image_path:
             return {"success": False, "error": "Runway requires --image input"}
@@ -128,7 +128,11 @@ async def _test_provider(
     # Build kwargs
     kwargs = {}
     if image_path:
-        kwargs["image_url"] = image_path
+        # Luma uses start_image_url, Runway uses image_url
+        if provider == "luma":
+            kwargs["start_image_url"] = image_path
+        else:
+            kwargs["image_url"] = image_path
 
     # Generate
     console.print("[dim]Generating video...[/dim]")

@@ -1,6 +1,5 @@
 """Render command - Re-render EDLs from existing runs and mix video with audio"""
 
-import os
 import json
 import asyncio
 import tempfile
@@ -14,6 +13,7 @@ from rich import box
 from core.renderer import FFmpegRenderer
 from core.models.edit_decision import EditDecisionList, EditCandidate, EditDecision
 from core.models.render import RenderConfig, AudioTrack, TrackType
+from core.secrets import get_api_key
 
 console = Console()
 
@@ -365,10 +365,9 @@ async def _mix_video_audio(
         console.print(f"[cyan]Voice:[/cyan] {voice_id}")
 
         # Check for TTS provider
-        import os as _os
-        if not _os.getenv("ELEVENLABS_API_KEY") and not _os.getenv("OPENAI_API_KEY"):
+        if not get_api_key("ELEVENLABS_API_KEY") and not get_api_key("OPENAI_API_KEY"):
             console.print("[red]Error: No TTS provider configured.[/red]")
-            console.print("Set ELEVENLABS_API_KEY or OPENAI_API_KEY environment variable.")
+            console.print("Set ELEVENLABS_API_KEY or OPENAI_API_KEY (keychain or env).")
             return
 
         # Use AudioGeneratorAgent for TTS

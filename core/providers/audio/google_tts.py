@@ -5,12 +5,12 @@ This module provides integration with Google Cloud Text-to-Speech API for speech
 Supports synchronous and asynchronous synthesis, multiple voices, languages, and audio formats.
 """
 
-import os
 import asyncio
 import base64
 from typing import Optional, Dict, Any, List
 import aiohttp
 from ..base import AudioProvider, AudioProviderConfig, AudioGenerationResult
+from core.secrets import get_api_key
 
 
 class GoogleTTSProvider(AudioProvider):
@@ -37,12 +37,12 @@ class GoogleTTSProvider(AudioProvider):
                    using GOOGLE_CLOUD_API_KEY from environment.
         """
         if config is None:
-            api_key = os.getenv("GOOGLE_CLOUD_API_KEY")
+            api_key = get_api_key("GOOGLE_CLOUD_API_KEY")
             config = AudioProviderConfig(api_key=api_key)
 
         if not config.api_key:
             raise ValueError(
-                "Google Cloud API key required. Set GOOGLE_CLOUD_API_KEY environment variable."
+                "Google Cloud API key required (check keychain or env)."
             )
 
         super().__init__(config)

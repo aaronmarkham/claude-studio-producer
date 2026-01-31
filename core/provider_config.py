@@ -9,6 +9,7 @@ from .providers import (
     MockVideoProvider,
     RunwayProvider
 )
+from core.secrets import get_api_key
 
 
 class ProviderFactory:
@@ -45,9 +46,9 @@ class ProviderFactory:
             return MockVideoProvider()
 
         elif provider_enum == ProviderType.RUNWAY:
-            api_key = os.getenv("RUNWAY_API_KEY")
+            api_key = get_api_key("RUNWAY_API_KEY")
             if not api_key:
-                print("⚠️  RUNWAY_API_KEY not set, falling back to mock provider")
+                print("⚠️  RUNWAY_API_KEY not set (check keychain or env), falling back to mock provider")
                 return MockVideoProvider()
 
             config = VideoProviderConfig(

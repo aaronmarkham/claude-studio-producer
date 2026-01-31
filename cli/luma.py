@@ -1,6 +1,5 @@
 """Luma API management commands"""
 
-import os
 import asyncio
 from pathlib import Path
 from datetime import datetime
@@ -11,14 +10,16 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from core.secrets import get_api_key
+
 console = Console()
 
 
 def get_luma_provider():
     """Get configured Luma provider"""
-    api_key = os.getenv("LUMA_API_KEY")
+    api_key = get_api_key("LUMA_API_KEY")
     if not api_key:
-        console.print("[red]Error: LUMA_API_KEY environment variable not set[/red]")
+        console.print("[red]Error: LUMA_API_KEY not set (check keychain or env)[/red]")
         raise SystemExit(1)
 
     from core.providers.video.luma import LumaProvider

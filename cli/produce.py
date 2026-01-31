@@ -1,6 +1,5 @@
 """Produce command - Main entry point for video production"""
 
-import os
 import re
 import sys
 import json
@@ -12,6 +11,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
 import click
+from core.secrets import get_api_key
 from rich.console import Console, Group
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
 from rich.panel import Panel
@@ -494,9 +494,9 @@ def get_video_provider(provider_name: str, live: bool, timeout: int = 300):
 
     t = get_theme()
     if provider_name == "luma":
-        api_key = os.getenv("LUMA_API_KEY")
+        api_key = get_api_key("LUMA_API_KEY")
         if not api_key:
-            console.print(f"     [{t.warning}]⚠ LUMA_API_KEY not set - using mock[/{t.warning}]")
+            console.print(f"     [{t.warning}]⚠ LUMA_API_KEY not set (check keychain or env) - using mock[/{t.warning}]")
             return MockVideoProvider(), "mock"
         from core.providers.video.luma import LumaProvider
         from core.providers.base import VideoProviderConfig, ProviderType
@@ -508,9 +508,9 @@ def get_video_provider(provider_name: str, live: bool, timeout: int = 300):
         return LumaProvider(config=config), "luma"
 
     elif provider_name == "runway":
-        api_key = os.getenv("RUNWAY_API_KEY")
+        api_key = get_api_key("RUNWAY_API_KEY")
         if not api_key:
-            console.print(f"     [{t.warning}]⚠ RUNWAY_API_KEY not set - using mock[/{t.warning}]")
+            console.print(f"     [{t.warning}]⚠ RUNWAY_API_KEY not set (check keychain or env) - using mock[/{t.warning}]")
             return MockVideoProvider(), "mock"
         from core.providers.video.runway import RunwayProvider
         config = VideoProviderConfig(
@@ -533,7 +533,7 @@ def get_audio_provider(live: bool):
     if not live:
         return None, "mock"
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_api_key("OPENAI_API_KEY")
     if not api_key:
         return None, "mock"
 

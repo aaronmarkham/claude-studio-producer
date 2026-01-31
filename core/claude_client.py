@@ -8,6 +8,7 @@ import json
 import base64
 from pathlib import Path
 from typing import Optional, Dict, Any, Union
+from core.secrets import get_api_key
 
 
 class ClaudeClient:
@@ -57,12 +58,11 @@ class ClaudeClient:
                 print(f"[DEBUG] Claude Agent SDK failed: {sdk_err}, falling back to Anthropic SDK")
             try:
                 import anthropic
-                import os
 
-                api_key = os.getenv("ANTHROPIC_API_KEY")
+                api_key = get_api_key("ANTHROPIC_API_KEY")
                 if not api_key:
                     raise ValueError(
-                        "ANTHROPIC_API_KEY environment variable not set. "
+                        "ANTHROPIC_API_KEY not set (check keychain or env). "
                         "For testing without API keys, use MockClaudeClient from tests.mocks"
                     )
 
@@ -140,12 +140,11 @@ class ClaudeClient:
         # Vision queries require direct Anthropic SDK
         try:
             import anthropic
-            import os
 
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            api_key = get_api_key("ANTHROPIC_API_KEY")
             if not api_key:
                 raise ValueError(
-                    "ANTHROPIC_API_KEY environment variable not set. "
+                    "ANTHROPIC_API_KEY not set (check keychain or env). "
                     "Vision queries require the Anthropic SDK."
                 )
 
@@ -220,12 +219,11 @@ class ClaudeClient:
         # Vision queries require direct Anthropic SDK
         try:
             import anthropic
-            import os
 
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            api_key = get_api_key("ANTHROPIC_API_KEY")
             if not api_key:
                 raise ValueError(
-                    "ANTHROPIC_API_KEY environment variable not set. "
+                    "ANTHROPIC_API_KEY not set (check keychain or env). "
                     "Vision queries require the Anthropic SDK."
                 )
 

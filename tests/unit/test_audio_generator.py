@@ -1,7 +1,7 @@
 """Unit tests for AudioGeneratorAgent"""
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from agents.audio_generator import AudioGeneratorAgent
 from agents.script_writer import Scene
 from core.models.audio import (
@@ -10,6 +10,7 @@ from core.models.audio import (
     MusicMood,
     SyncPoint,
 )
+from core.providers.base import AudioGenerationResult
 
 
 @pytest.fixture
@@ -18,6 +19,21 @@ def mock_claude_client():
     client = AsyncMock()
     client.query = AsyncMock()
     return client
+
+
+@pytest.fixture
+def mock_audio_provider():
+    """Create a mock audio provider that returns fake audio"""
+    provider = AsyncMock()
+    # Mock the generate_speech method to return a successful result
+    provider.generate_speech = AsyncMock(return_value=AudioGenerationResult(
+        success=True,
+        audio_data=b"fake audio data",
+        duration=5.0,
+        format="mp3",
+        sample_rate=44100
+    ))
+    return provider
 
 
 @pytest.fixture
@@ -70,12 +86,13 @@ def sample_scene_no_vo():
 class TestAudioGeneratorAgent:
     """Test AudioGeneratorAgent"""
 
-    def test_initialization(self, mock_claude_client):
+    def test_initialization(self, mock_claude_client, mock_audio_provider):
         """Test agent initialization"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
         assert agent.claude == mock_claude_client
-        assert agent.audio_provider is None  # Mock mode
-        assert agent.music_provider is None  # Mock mode
+        # audio_provider may be auto-initialized if API keys available in keychain
+        # Just verify music_provider is None (no auto-init for music yet)
+        assert agent.music_provider is None
 
     def test_initialization_without_client(self):
         """Test agent creates its own client if none provided"""
@@ -85,12 +102,15 @@ class TestAudioGeneratorAgent:
     def test_is_stub_attribute(self):
         """Test that agent has _is_stub attribute"""
         assert hasattr(AudioGeneratorAgent, '_is_stub')
-        assert AudioGeneratorAgent._is_stub is True
+        assert AudioGeneratorAgent._is_stub is False  # TTS integration complete
 
     @pytest.mark.asyncio
-    async def test_generate_voiceover(self, mock_claude_client):
+    async def test_generate_voiceover(self, mock_claude_client, mock_audio_provider):
         """Test voiceover generation"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(
+            claude_client=mock_claude_client,
+            audio_provider=mock_audio_provider
+        )
 
         text = "This is a test voiceover script for audio generation."
         result = await agent.generate_voiceover(
@@ -114,9 +134,12 @@ class TestAudioGeneratorAgent:
         assert result.timing_map[0].start_time >= 0
 
     @pytest.mark.asyncio
-    async def test_generate_voiceover_with_sync_points(self, mock_claude_client):
+    async def test_generate_voiceover_with_sync_points(self, mock_claude_client, mock_audio_provider):
         """Test voiceover generation with sync points"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(
+            claude_client=mock_claude_client,
+            audio_provider=mock_audio_provider
+        )
 
         sync_points = [
             SyncPoint(2.0, "test", "visual cue", 0.3)
@@ -132,9 +155,9 @@ class TestAudioGeneratorAgent:
         assert len(result.timing_map) == 4  # 4 words
 
     @pytest.mark.asyncio
-    async def test_generate_music(self, mock_claude_client):
+    async def test_generate_music(self, mock_claude_client, mock_audio_provider):
         """Test music generation"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_music(
             mood=MusicMood.UPBEAT,
@@ -149,9 +172,9 @@ class TestAudioGeneratorAgent:
         assert result.generation_cost > 0
 
     @pytest.mark.asyncio
-    async def test_get_sound_effect(self, mock_claude_client):
+    async def test_get_sound_effect(self, mock_claude_client, mock_audio_provider):
         """Test sound effect retrieval"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.get_sound_effect(
             effect_type="notification",
@@ -165,9 +188,9 @@ class TestAudioGeneratorAgent:
         assert "notification" in result.audio_id
 
     @pytest.mark.asyncio
-    async def test_get_sound_effect_default_duration(self, mock_claude_client):
+    async def test_get_sound_effect_default_duration(self, mock_claude_client, mock_audio_provider):
         """Test sound effect with default duration"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.get_sound_effect(effect_type="whoosh")
 
@@ -175,9 +198,9 @@ class TestAudioGeneratorAgent:
         assert result.duration == 1.0  # Default duration
 
     @pytest.mark.asyncio
-    async def test_generate_scene_audio_none_tier(self, mock_claude_client, sample_scene):
+    async def test_generate_scene_audio_none_tier(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test scene audio generation with NONE tier"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_scene_audio(
             scene=sample_scene,
@@ -192,9 +215,9 @@ class TestAudioGeneratorAgent:
         assert len(result.sound_effects) == 0
 
     @pytest.mark.asyncio
-    async def test_generate_scene_audio_music_only(self, mock_claude_client, sample_scene):
+    async def test_generate_scene_audio_music_only(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test scene audio generation with MUSIC_ONLY tier"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_scene_audio(
             scene=sample_scene,
@@ -209,9 +232,9 @@ class TestAudioGeneratorAgent:
         assert result.music.duration == sample_scene.duration
 
     @pytest.mark.asyncio
-    async def test_generate_scene_audio_simple_overlay(self, mock_claude_client, sample_scene):
+    async def test_generate_scene_audio_simple_overlay(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test scene audio generation with SIMPLE_OVERLAY tier"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_scene_audio(
             scene=sample_scene,
@@ -226,9 +249,9 @@ class TestAudioGeneratorAgent:
         assert len(result.sound_effects) == 0  # No SFX for simple overlay
 
     @pytest.mark.asyncio
-    async def test_generate_scene_audio_time_synced(self, mock_claude_client, sample_scene):
+    async def test_generate_scene_audio_time_synced(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test scene audio generation with TIME_SYNCED tier"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_scene_audio(
             scene=sample_scene,
@@ -243,9 +266,9 @@ class TestAudioGeneratorAgent:
         assert result.music.duck_under_vo is True
 
     @pytest.mark.asyncio
-    async def test_generate_scene_audio_full_production(self, mock_claude_client, sample_scene):
+    async def test_generate_scene_audio_full_production(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test scene audio generation with FULL_PRODUCTION tier"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_scene_audio(
             scene=sample_scene,
@@ -259,9 +282,9 @@ class TestAudioGeneratorAgent:
         assert len(result.sound_effects) > 0  # Should have SFX from scene.sfx_cues
 
     @pytest.mark.asyncio
-    async def test_generate_scene_audio_no_voiceover_text(self, mock_claude_client, sample_scene_no_vo):
+    async def test_generate_scene_audio_no_voiceover_text(self, mock_claude_client, mock_audio_provider, sample_scene_no_vo):
         """Test scene audio generation with no voiceover text"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         result = await agent.generate_scene_audio(
             scene=sample_scene_no_vo,
@@ -273,9 +296,9 @@ class TestAudioGeneratorAgent:
         assert result.music is not None
 
     @pytest.mark.asyncio
-    async def test_run(self, mock_claude_client, sample_scene):
+    async def test_run(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test full audio generation run"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         scenes = [sample_scene]
         result = await agent.run(
@@ -290,9 +313,9 @@ class TestAudioGeneratorAgent:
         assert result[0].audio_tier == AudioTier.TIME_SYNCED
 
     @pytest.mark.asyncio
-    async def test_run_multiple_scenes(self, mock_claude_client, sample_scene, sample_scene_no_vo):
+    async def test_run_multiple_scenes(self, mock_claude_client, mock_audio_provider, sample_scene, sample_scene_no_vo):
         """Test audio generation for multiple scenes"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         scenes = [sample_scene, sample_scene_no_vo]
         result = await agent.run(
@@ -307,9 +330,9 @@ class TestAudioGeneratorAgent:
         assert result[1].scene_id == sample_scene_no_vo.scene_id
 
     @pytest.mark.asyncio
-    async def test_run_budget_limit(self, mock_claude_client, sample_scene):
+    async def test_run_budget_limit(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test that budget limit is respected"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         # Create many scenes
         scenes = [sample_scene] * 20
@@ -322,9 +345,9 @@ class TestAudioGeneratorAgent:
         # Should stop early due to budget
         assert len(result) < len(scenes)
 
-    def test_estimate_audio_cost(self, mock_claude_client, sample_scene):
+    def test_estimate_audio_cost(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test audio cost estimation"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         scenes = [sample_scene]
         estimate = agent.estimate_audio_cost(
@@ -344,9 +367,9 @@ class TestAudioGeneratorAgent:
         assert estimate["base_cost"] > 0
         assert estimate["num_scenes"] == 1
 
-    def test_estimate_audio_cost_none_tier(self, mock_claude_client, sample_scene):
+    def test_estimate_audio_cost_none_tier(self, mock_claude_client, mock_audio_provider, sample_scene):
         """Test cost estimation for NONE tier"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         estimate = agent.estimate_audio_cost(
             scenes=[sample_scene],
@@ -356,9 +379,9 @@ class TestAudioGeneratorAgent:
         # NONE tier should have zero cost
         assert estimate["base_cost"] == 0.0
 
-    def test_estimate_audio_cost_multiple_scenes(self, mock_claude_client, sample_scene, sample_scene_no_vo):
+    def test_estimate_audio_cost_multiple_scenes(self, mock_claude_client, mock_audio_provider, sample_scene, sample_scene_no_vo):
         """Test cost estimation for multiple scenes"""
-        agent = AudioGeneratorAgent(claude_client=mock_claude_client)
+        agent = AudioGeneratorAgent(claude_client=mock_claude_client, audio_provider=mock_audio_provider)
 
         scenes = [sample_scene, sample_scene_no_vo]
         estimate = agent.estimate_audio_cost(

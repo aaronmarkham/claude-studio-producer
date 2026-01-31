@@ -29,6 +29,7 @@ from typing import Dict, Any, Optional, List
 from lumaai import LumaAI
 
 from ..base import VideoProvider, VideoProviderConfig, GenerationResult, ProviderType
+from core.secrets import get_api_key
 
 
 class LumaProvider(VideoProvider):
@@ -64,9 +65,9 @@ class LumaProvider(VideoProvider):
         """
         # Handle config - allow None for simple initialization
         if config is None:
-            api_key = os.getenv("LUMA_API_KEY")
+            api_key = get_api_key("LUMA_API_KEY")
             if not api_key:
-                raise ValueError("LUMA_API_KEY environment variable required")
+                raise ValueError("LUMA_API_KEY not set (check keychain or env)")
             config = VideoProviderConfig(
                 provider_type=ProviderType.LUMA,
                 api_key=api_key,
