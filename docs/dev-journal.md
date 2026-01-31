@@ -107,4 +107,42 @@ Initial agent system design:
 
 ---
 
-[← Back to Home](index.html) | [View Specifications →](specs-timeline.html)
+## Jan 9, 2026 - What Is This Even For?
+
+**The Vision**
+
+This project demonstrates:
+1. What you can do quickly with Claude
+2. How to design and implement a working multi-agent workflow
+3. Using learning/memory systems
+4. Using rewards and feedback
+5. Having fun!
+
+**The Workflow**
+
+A virtual studio where:
+- **Producer** takes your budget and pitch, crafts pilots based on what works and what you can afford
+- **Script Writer** creates scenes knowing the provider's capabilities and constraints
+- **Video Generator** shoots scenes (parallelizable across providers)
+- **QA Agents** perform technical review (parallelizable)
+- **Critic** assesses overall quality and makes recommendations
+- **Editor** creates Edit Decision List (EDL) for final candidate videos
+
+**Studio Reinforcement Learning (StudioRL)**
+
+The feedback loop stores learnings in memory for the producer and script writer to leverage. The budget system keeps costs under control, allowing re-runs on promising pilots within budget constraints.
+
+### Are We Having Fun Yet?
+
+![make-it-rain-coffee](screenshots/make-it-rain-coffee.gif)
+
+**Prompt:**
+*A 15-second story of a developer having a breakthrough: Scene 1 - Wide shot of developer at desk in cozy home office at night, hunched over laptop, frustrated expression, warm desk lamp lighting. Scene 2 - They lean back with a satisfied smile, stretch arms up in victory celebration, coffee cup visible nearby, cinematic triumph moment.*
+
+**Result:** Make it rain coffee...!
+
+Sometimes the AI interprets your vision in unexpected ways. This is part of why we have the QA and Critic agents - to catch these creative interpretations and decide whether they're happy accidents or need revision.
+
+---
+
+[← Back to Home](index.html) | [View Specifications →](specs-timeline.html) | [Full Developer Notes →](https://github.com/aaronmarkham/claude-studio-producer/blob/main/docs/dev_notes.md)
