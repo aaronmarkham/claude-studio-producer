@@ -62,3 +62,18 @@ claude-studio test-provider elevenlabs -t "A perfect morning begins with the gen
 </audio>
 
 This adds a beautiful narration using ElevenLabs' Lily voice, completing the multi-sensory coffee experience. The TTS system converts text to natural-sounding speech with emotional expression and proper pacing.
+
+## Layer 5: Combine video and audio
+
+```bash
+claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffee_narration_lily.mp3 -o docs/videos/coffee_final.mp4 --fit longest
+```
+
+**Result:**
+
+<video width="100%" controls>
+  <source src="videos/coffee_final.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+The final production combines all the pieces: DALL-E generated imagery, Luma video animation, and ElevenLabs narration. The `--fit longest` option extends the video to match the full narration duration by freezing the last frame.

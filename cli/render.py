@@ -1,5 +1,6 @@
 """Render command - Re-render EDLs from existing runs and mix video with audio"""
 
+import os
 import json
 import asyncio
 import tempfile
