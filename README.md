@@ -306,6 +306,49 @@ claude-studio produce -c "History of the internet" --style documentary
 | `educational` | ~80-120 | Tutorials, lectures, learning content |
 | `documentary` | ~60-100 | Narratives, historical content, storytelling |
 
+### Production Modes
+
+Claude Studio Producer supports two production workflows that determine which asset drives the timeline:
+
+#### Audio-Led Production (Podcast, Educational, Documentary)
+In audio-led mode, the audio narration drives the timeline. Videos are generated or adjusted to match the audio duration. Perfect for:
+- Podcast-style narratives
+- Educational content with precise voiceover
+- Documentary-style productions
+
+```bash
+# Audio-led production (auto-detected from style)
+claude-studio produce "Explain quantum computing" --style podcast --budget 5 --live
+
+# Or explicitly set mode
+claude-studio produce "Tutorial on Python decorators" --mode audio-led --budget 5 --live
+```
+
+#### Video-Led Production (Visual Storyboard, Cinematic)
+In video-led mode, the video drives the timeline. Audio is generated to match video duration. Perfect for:
+- Visual-first storytelling
+- Cinematic sequences
+- Image-to-video pipelines
+
+```bash
+# Video-led production (default for visual styles)
+claude-studio produce "Cinematic coffee commercial" --style visual_storyboard --budget 5 --live
+```
+
+#### Automatic Audio-Video Mixing
+The production pipeline automatically:
+1. Generates video for each scene
+2. Generates audio narration for each scene
+3. Mixes video + audio using FFmpeg with appropriate fit modes
+4. Concatenates all scenes into final output (`artifacts/<run_id>/final_output.mp4`)
+
+No manual mixing required! The system handles synchronization based on your chosen production mode.
+
+**Fit Modes** (for duration mismatches):
+- `stretch`: Speed-adjust video to match audio (default for audio-led)
+- `truncate`: Trim longer asset to match shorter
+- `loop`: Loop shorter asset to match longer
+
 ### Web Dashboard
 
 ```bash
@@ -523,7 +566,7 @@ uvicorn server.main:app --reload
 - [x] Google Cloud TTS provider (Neural2, WaveNet, Studio voices)
 - [x] Runway ML video provider (image-to-video)
 - [x] Multi-provider pipeline (e.g., DALL-E image → Runway video)
-- [x] Audio-video synchronization with FFmpeg (speed-match, longest, shortest modes)
+- [x] Audio-video synchronization and mixing (Audio-led and video-led modes with automatic pipeline)
 - [x] Video/audio mixing and rendering with volume control
 
 ### In Progress

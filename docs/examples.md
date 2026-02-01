@@ -117,3 +117,114 @@ claude-studio render mix docs/videos/coffee_layer3.mp4 --audio docs/videos/coffe
 | `shortest` | Original 5s | Truncated at 5s | Both end together, cuts narration | 2.1 MB |
 
 **Recommendation:** Use `--fit speed-match` for this type of content where continuous motion enhances the viewing experience.
+
+---
+
+## Full Production Pipeline with Automatic Mixing
+
+The most powerful workflow: generate video, audio, and automatically mix them into a final output. No manual mixing required!
+
+### Audio-Led Production (Podcast Style)
+
+```bash
+# Audio-led production where narration drives the timeline
+claude-studio produce "The history of espresso" --style podcast --budget 10 --live --provider luma
+
+# What happens automatically:
+# 1. ScriptWriter breaks down the concept into scenes
+# 2. VideoGenerator creates videos for each scene (Luma)
+# 3. AudioGenerator creates narration for each scene (ElevenLabs)
+# 4. QAVerifier analyzes quality with Claude Vision
+# 5. EditorAgent creates edit decision list with best takes
+# 6. Automatic mixing: Each scene's video + audio → mixed scene
+# 7. Concatenation: All mixed scenes → final_output.mp4
+```
+
+### Output Structure
+
+After a complete production run, your artifacts directory contains:
+
+```
+artifacts/run_20260131_143022/
+├── video/
+│   ├── scene_001_var_0.mp4       # Generated video clips
+│   ├── scene_002_var_0.mp4
+│   └── scene_003_var_0.mp4
+├── audio/
+│   ├── scene_001.mp3              # Generated narration
+│   ├── scene_002.mp3
+│   └── scene_003.mp3
+├── mixed/                         # ← NEW: Individual mixed scenes
+│   ├── scene_001_mixed.mp4        # Video + audio combined
+│   ├── scene_002_mixed.mp4
+│   └── scene_003_mixed.mp4
+├── final_output.mp4               # ← NEW: Final concatenated output
+├── edl.json                       # Edit decision list with audio URLs
+├── metadata.json                  # Production metadata
+└── qa_results.json                # Quality analysis scores
+```
+
+### Production Modes
+
+The system supports two production workflows:
+
+| Mode | Timeline Driver | When to Use | Auto-Detected For | Fit Mode |
+|------|----------------|-------------|-------------------|----------|
+| `audio-led` | Audio duration sets timing | Podcast, educational, documentary | `--style podcast`, `educational`, `documentary` | `stretch` |
+| `video-led` | Video duration sets timing | Cinematic, visual-first | `--style visual_storyboard`, default | `stretch` |
+
+### Examples with Different Modes
+
+**Audio-Led (Explicit):**
+```bash
+claude-studio produce "Coffee brewing techniques" \
+  --mode audio-led \
+  --budget 15 \
+  --live \
+  --provider luma \
+  --audio-provider elevenlabs
+```
+
+**Video-Led (Default):**
+```bash
+claude-studio produce "Cinematic product showcase" \
+  --style visual_storyboard \
+  --budget 10 \
+  --live \
+  --provider luma
+```
+
+### Resuming with Audio Mixing
+
+The resume command supports automatic mixing if it was skipped:
+
+```bash
+# Resume from editing stage and automatically mix audio+video
+claude-studio resume run_20260131_143022 --from-step editor
+```
+
+If audio files exist in `artifacts/<run_id>/audio/`, the resume command will:
+1. Load scene audio files
+2. Pass them to the EditorAgent
+3. Perform automatic mixing pipeline
+4. Generate `final_output.mp4`
+
+### Fit Modes for Duration Mismatches
+
+When video and audio durations don't match exactly:
+
+- **`stretch`** (default): Speed-adjust video to match audio duration
+  - Best for: Audio-led productions where narration timing is critical
+  - Example: Slows down 5s video to match 8s audio
+
+- **`truncate`**: Trim longer asset to match shorter
+  - Best for: When you want both to end together
+  - Example: 8s audio gets cut to 5s to match video
+
+- **`loop`**: Loop shorter asset to match longer
+  - Best for: Extending video with freeze frame
+  - Example: 5s video freezes last frame until 8s audio completes
+
+### Manual Override
+
+You can still use the `render mix` command for manual control (see Layer 5 above), but the automatic pipeline handles 99% of use cases with intelligent defaults based on your production mode.

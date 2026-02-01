@@ -13,7 +13,8 @@ From a simple idea:
 > "A day in the life of a writer making a document about how to use a multi-agent system"
 
 To a production-ready platform with:
-- 🎬 **7 specialized agents** (Producer, ScriptWriter, VideoGenerator, QA, Critic, Editor, AudioGenerator)
+- 🎬 **7 specialized agents** with audio-video orchestration
+- 🎭 **Production modes** (audio-led for podcasts, video-led for cinematic)
 - 🔌 **Pluggable providers** (Luma, Runway, DALL-E, ElevenLabs, OpenAI, Google TTS)
 - 🧠 **Learning system** that improves prompts over time
 - 📚 **Knowledge base** for document/research-based video production
@@ -94,8 +95,12 @@ To a production-ready platform with:
 # Production (mock mode - no API costs)
 claude-studio produce "concept" --budget 5
 
-# Live mode with real generation
-claude-studio produce "concept" --budget 5 --live --provider luma
+# Live mode with automatic audio-video mixing
+claude-studio produce "concept" --style podcast --budget 10 --live
+
+# Video-led vs audio-led production
+claude-studio produce "concept" --mode audio-led --budget 5 --live
+claude-studio produce "concept" --mode video-led --budget 5 --live
 
 # Knowledge base workflow
 claude-studio kb create "Research" -d "AI papers"
@@ -107,7 +112,7 @@ claude-studio provider test luma -p "coffee steam rising" -d 5 --live
 claude-studio provider test dalle -p "coffee cup on table" --live
 claude-studio provider test elevenlabs -t "Your narration text" --voice lily --live
 
-# Render and mix video + audio
+# Manual rendering (advanced - automatic mixing is recommended)
 claude-studio render mix video.mp4 --audio narration.mp3 -o final.mp4 --fit speed-match
 
 # Memory/learning management
