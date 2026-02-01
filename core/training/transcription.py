@@ -1,6 +1,8 @@
 """Audio transcription using Whisper"""
 
 import asyncio
+import os
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +10,105 @@ from openai import OpenAI
 
 from core.secrets import get_api_key
 from .models import TranscriptionResult, WordTimestamp, TranscriptSegment
+
+# OpenAI Whisper API has a 25MB file size limit
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25MB
+
+
+async def split_audio_into_chunks(audio_path: str, chunk_duration_seconds: int = 1200) -> list[str]:
+    """
+    Split audio into chunks of specified duration (default 20 minutes).
+
+    Returns list of chunk file paths.
+    """
+    duration = await get_audio_duration(audio_path)
+    if duration == 0:
+        raise ValueError(f"Could not determine duration of {audio_path}")
+
+    path = Path(audio_path)
+    chunks = []
+    num_chunks = int((duration + chunk_duration_seconds - 1) // chunk_duration_seconds)
+
+    for i in range(num_chunks):
+        start_time = i * chunk_duration_seconds
+        chunk_path = path.parent / f"{path.stem}_chunk{i:03d}.mp3"
+
+        cmd = [
+            "ffmpeg",
+            "-i", str(audio_path),
+            "-ss", str(start_time),
+            "-t", str(chunk_duration_seconds),
+            "-c", "copy",  # Copy codec for speed
+            "-y",
+            str(chunk_path)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg chunk splitting failed: {result.stderr}")
+
+        chunks.append(str(chunk_path))
+
+    return chunks
+
+
+async def compress_audio_if_needed(audio_path: str) -> tuple[str, bool]:
+    """
+    Compress audio file if it exceeds OpenAI's 25MB limit.
+
+    Returns (path, needs_chunking) where:
+    - path: compressed file path (or original if no compression needed)
+    - needs_chunking: True if even compressed version exceeds limit
+    """
+    file_size = os.path.getsize(audio_path)
+
+    if file_size <= MAX_FILE_SIZE_BYTES:
+        return audio_path, False
+
+    # Need to compress
+    path = Path(audio_path)
+    compressed_path = path.parent / f"{path.stem}_compressed.mp3"
+
+    # Calculate target bitrate (aim for ~20MB to have buffer)
+    # Get duration first
+    duration = await get_audio_duration(audio_path)
+    if duration == 0:
+        raise ValueError(f"Could not determine duration of {audio_path}")
+
+    # Target 20MB, converted to bits per second
+    target_size_bits = 20 * 1024 * 1024 * 8
+    target_bitrate = int(target_size_bits / duration)
+
+    # Convert to kbps
+    target_bitrate_kbps = max(32, target_bitrate // 1000)  # Minimum 32kbps
+
+    # Compress with ffmpeg
+    cmd = [
+        "ffmpeg",
+        "-i", str(audio_path),
+        "-b:a", f"{target_bitrate_kbps}k",
+        "-ar", "16000",  # 16kHz sample rate (sufficient for speech)
+        "-ac", "1",      # Mono
+        "-y",            # Overwrite
+        str(compressed_path)
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg compression failed: {result.stderr}")
+
+    compressed_size = os.path.getsize(compressed_path)
+    print(f"  Compressed {file_size / 1024 / 1024:.1f}MB -> {compressed_size / 1024 / 1024:.1f}MB")
+
+    # Check if still too large
+    needs_chunking = compressed_size > MAX_FILE_SIZE_BYTES
+
+    return str(compressed_path), needs_chunking
 
 
 async def transcribe_podcast(
@@ -19,6 +120,7 @@ async def transcribe_podcast(
     Transcribe podcast audio with word-level timestamps.
 
     Uses OpenAI Whisper API with timestamps for accurate alignment.
+    Automatically compresses files over 25MB to meet API limits.
 
     Args:
         audio_path: Path to audio file
@@ -35,42 +137,109 @@ async def transcribe_podcast(
 
     client = OpenAI(api_key=api_key)
 
-    # Read audio file
-    with open(audio_path, "rb") as f:
-        # Run in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: client.audio.transcriptions.create(
-                model=model,
-                file=f,
-                response_format="verbose_json",
-                timestamp_granularities=["word", "segment"]
+    # Compress if needed and check if chunking is required
+    transcribe_path, needs_chunking = await compress_audio_if_needed(audio_path)
+
+    # Handle chunking for very long files
+    if needs_chunking:
+        print(f"  File still too large after compression, splitting into chunks...")
+        chunks = await split_audio_into_chunks(transcribe_path)
+
+        all_words = []
+        all_segments = []
+        time_offset = 0.0
+        full_text = ""
+
+        for chunk_path in chunks:
+            with open(chunk_path, "rb") as f:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda f=f: client.audio.transcriptions.create(
+                        model=model,
+                        file=f,
+                        response_format="verbose_json",
+                        timestamp_granularities=["word", "segment"]
+                    )
+                )
+
+            full_text += response.text + " "
+
+            # Adjust timestamps and append
+            if hasattr(response, 'words') and response.words:
+                for w in response.words:
+                    all_words.append(WordTimestamp(
+                        word=w.word,
+                        start_time=w.start + time_offset,
+                        end_time=w.end + time_offset,
+                        confidence=getattr(w, 'confidence', 1.0)
+                    ))
+
+            if hasattr(response, 'segments') and response.segments:
+                for s in response.segments:
+                    all_segments.append(TranscriptSegment(
+                        segment_id=f"seg_{len(all_segments):03d}",
+                        text=s.text.strip(),
+                        start_time=s.start + time_offset,
+                        end_time=s.end + time_offset,
+                        duration=s.end - s.start,
+                    ))
+
+            # Update offset for next chunk
+            if hasattr(response, 'segments') and response.segments and response.segments:
+                time_offset += response.segments[-1].end
+
+            # Clean up chunk
+            try:
+                os.remove(chunk_path)
+            except Exception:
+                pass
+
+        word_timestamps = all_words
+        segments = all_segments
+        transcript_text = full_text.strip()
+        language = "en"
+
+    else:
+        # Single file transcription
+        with open(transcribe_path, "rb") as f:
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: client.audio.transcriptions.create(
+                    model=model,
+                    file=f,
+                    response_format="verbose_json",
+                    timestamp_granularities=["word", "segment"]
+                )
             )
-        )
 
-    # Parse word timestamps
-    word_timestamps = []
-    if hasattr(response, 'words') and response.words:
-        for w in response.words:
-            word_timestamps.append(WordTimestamp(
-                word=w.word,
-                start_time=w.start,
-                end_time=w.end,
-                confidence=getattr(w, 'confidence', 1.0)
-            ))
+        # Parse word timestamps
+        word_timestamps = []
+        if hasattr(response, 'words') and response.words:
+            for w in response.words:
+                word_timestamps.append(WordTimestamp(
+                    word=w.word,
+                    start_time=w.start,
+                    end_time=w.end,
+                    confidence=getattr(w, 'confidence', 1.0)
+                ))
 
-    # Parse segments
-    segments = []
-    if hasattr(response, 'segments') and response.segments:
-        for i, s in enumerate(response.segments):
-            segments.append(TranscriptSegment(
-                segment_id=f"seg_{i:03d}",
-                text=s.text.strip(),
-                start_time=s.start,
-                end_time=s.end,
-                duration=s.end - s.start,
-            ))
+        # Parse segments
+        segments = []
+        if hasattr(response, 'segments') and response.segments:
+            for i, s in enumerate(response.segments):
+                segments.append(TranscriptSegment(
+                    segment_id=f"seg_{i:03d}",
+                    text=s.text.strip(),
+                    start_time=s.start,
+                    end_time=s.end,
+                    duration=s.end - s.start,
+                ))
+
+        transcript_text = response.text
+        language = response.language if hasattr(response, 'language') else "en"
 
     # Calculate overall confidence
     confidence = 0.0
@@ -80,15 +249,22 @@ async def transcribe_podcast(
     # Get total duration
     total_duration = segments[-1].end_time if segments else 0.0
 
+    # Clean up compressed file if we created one
+    if transcribe_path != audio_path:
+        try:
+            os.remove(transcribe_path)
+        except Exception:
+            pass  # Non-critical if cleanup fails
+
     return TranscriptionResult(
-        source_path=audio_path,
-        transcript_text=response.text,
+        source_path=audio_path,  # Use original path, not compressed
+        transcript_text=transcript_text,
         word_timestamps=word_timestamps,
         segments=segments,
         total_duration=total_duration,
         speaker_id=speaker_id,
         confidence=confidence,
-        language=response.language if hasattr(response, 'language') else "en",
+        language=language,
     )
 
 

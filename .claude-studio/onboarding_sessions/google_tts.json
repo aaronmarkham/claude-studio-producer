@@ -1,0 +1,588 @@
+{
+  "provider_name": "google_tts",
+  "started_at": "2026-01-28T17:51:51.643688",
+  "status": "in_progress",
+  "current_step": "testing",
+  "docs_analyzed": [
+    "https://docs.cloud.google.com/text-to-speech/docs/reference/rest"
+  ],
+  "docs_url": "https://docs.cloud.google.com/text-to-speech/docs/reference/rest",
+  "spec": {
+    "name": "Google Cloud Text-to-Speech",
+    "provider_type": "audio",
+    "base_url": "https://texttospeech.googleapis.com/v1",
+    "docs_url": "https://docs.cloud.google.com/text-to-speech/docs/reference/rest",
+    "auth_type": "bearer_token",
+    "auth_header": "Authorization",
+    "auth_prefix": "Bearer",
+    "env_var_name": "GOOGLE_CLOUD_API_KEY",
+    "request_method": "sync",
+    "endpoints": [
+      {
+        "name": "synthesize",
+        "method": "POST",
+        "path": "/text:synthesize",
+        "description": "Synthesizes speech synchronously: receives text input and returns audio output",
+        "request_body": {
+          "input": {
+            "text": "string (optional)",
+            "ssml": "string (optional)"
+          },
+          "voice": {
+            "languageCode": "string (required)",
+            "name": "string (optional)",
+            "ssmlGender": "enum (SSML_VOICE_GENDER_UNSPECIFIED, MALE, FEMALE, NEUTRAL)"
+          },
+          "audioConfig": {
+            "audioEncoding": "enum (required)",
+            "speakingRate": "number (0.25 to 4.0)",
+            "pitch": "number (-20.0 to 20.0)",
+            "volumeGainDb": "number (-96.0 to 16.0)",
+            "sampleRateHertz": "integer",
+            "effectsProfileId": "array of strings"
+          }
+        },
+        "response_schema": {
+          "audioContent": "string (base64-encoded audio)",
+          "timepoints": "array (optional timing information)",
+          "audioConfig": "object (configuration used)"
+        }
+      },
+      {
+        "name": "listVoices",
+        "method": "GET",
+        "path": "/voices",
+        "description": "Returns a list of all available voices for synthesis",
+        "request_body": null,
+        "response_schema": {
+          "voices": [
+            {
+              "languageCodes": "array of strings",
+              "name": "string",
+              "ssmlGender": "enum",
+              "naturalSampleRateHertz": "integer"
+            }
+          ]
+        }
+      },
+      {
+        "name": "synthesizeLongAudio",
+        "method": "POST",
+        "path": "/text:synthesizeLongAudio",
+        "description": "Synthesizes long form audio asynchronously for texts longer than 5000 characters",
+        "request_body": {
+          "parent": "string (project location)",
+          "input": "object (same as synthesize)",
+          "voice": "object (same as synthesize)",
+          "audioConfig": "object (same as synthesize)",
+          "outputGcsUri": "string (required - GCS output location)"
+        },
+        "response_schema": {
+          "name": "string (operation name)",
+          "metadata": "object",
+          "done": "boolean",
+          "error": "object (if failed)",
+          "response": "object (if successful)"
+        }
+      }
+    ],
+    "models": [
+      {
+        "model_id": "en-US-Standard-A",
+        "name": "Standard Voice A (US English)",
+        "description": "Standard quality female voice for US English",
+        "capabilities": [
+          "text",
+          "ssml"
+        ],
+        "pricing": null
+      },
+      {
+        "model_id": "en-US-Wavenet-A",
+        "name": "WaveNet Voice A (US English)",
+        "description": "High quality WaveNet female voice for US English",
+        "capabilities": [
+          "text",
+          "ssml"
+        ],
+        "pricing": null
+      },
+      {
+        "model_id": "en-US-Neural2-A",
+        "name": "Neural2 Voice A (US English)",
+        "description": "Latest generation neural voice for US English",
+        "capabilities": [
+          "text",
+          "ssml"
+        ],
+        "pricing": null
+      },
+      {
+        "model_id": "en-US-Studio-O",
+        "name": "Studio Voice O (US English)",
+        "description": "Studio quality voice optimized for narration and content creation",
+        "capabilities": [
+          "text",
+          "ssml",
+          "multi-speaker"
+        ],
+        "pricing": null
+      },
+      {
+        "model_id": "en-US-Polyglot-1",
+        "name": "Polyglot Voice (Multilingual)",
+        "description": "Multilingual voice supporting code-switching between languages",
+        "capabilities": [
+          "text",
+          "ssml",
+          "multilingual"
+        ],
+        "pricing": null
+      }
+    ],
+    "tips": [
+      "Use SSML for advanced control over pronunciation, pauses, and prosody",
+      "Neural2 voices offer the best balance of quality and cost",
+      "Studio voices are best for long-form content like audiobooks and podcasts",
+      "Use synthesizeLongAudio endpoint for texts over 5000 characters",
+      "Specify voice name explicitly for consistent results across generations",
+      "Use effectsProfileId for audio optimization (e.g., 'telephony-class-application', 'headphone-class-device')",
+      "Adjust speakingRate (0.25-4.0) and pitch (-20 to 20) for customization",
+      "Request timing information via enableTimePointing for lip-sync applications",
+      "Use languageCode filter in listVoices to discover available voices for your language",
+      "Cache listVoices response as it changes infrequently",
+      "For multilingual content, consider Polyglot voices that support code-switching"
+    ],
+    "gotchas": [
+      "Requires Google Cloud project with Text-to-Speech API enabled",
+      "Authentication requires OAuth2 token or API key (OAuth2 recommended for production)",
+      "Standard quota: 4 million characters per month free tier, then charged per character",
+      "WaveNet and Neural2 voices cost approximately 4x more than Standard voices",
+      "Studio voices are premium and cost approximately 16x more than Standard voices",
+      "Maximum input text length: 5000 bytes (UTF-8) for synchronous synthesis",
+      "For texts over 5000 characters, must use synthesizeLongAudio endpoint",
+      "synthesizeLongAudio requires Google Cloud Storage bucket for output",
+      "Audio content in response is base64-encoded and needs decoding",
+      "Rate limits: 300 requests per minute per project (can request increase)",
+      "SSML input counts against character limit including markup tags",
+      "Some voices may not be available in all regions",
+      "Voice characteristics (pitch, gender) cannot be changed beyond supported parameters",
+      "Long audio synthesis is asynchronous and may take several minutes",
+      "Operation names for long audio synthesis are required for status polling",
+      "Pricing varies by voice type: Standard < WaveNet \u2248 Neural2 < Studio",
+      "Free tier quota is shared across all voice types but counted at different rates"
+    ],
+    "confidence_score": 0.95
+  },
+  "questions": [],
+  "answers": [],
+  "stub_path": null,
+  "implementation_path": "core/providers/audio/google_tts.py",
+  "provider_type": "audio",
+  "test_results": [
+    {
+      "name": "test_basic_generation",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_basic_generation",
+        "description": "Test basic text-to-speech generation with default settings",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Hello world"
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None",
+          "len(result.audio_data) > 0"
+        ]
+      }
+    },
+    {
+      "name": "test_generation_with_custom_voice",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_generation_with_custom_voice",
+        "description": "Test text-to-speech generation with specific voice model",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Testing custom voice",
+          "voice_name": "en-US-Neural2-A"
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_generation_with_audio_parameters",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_generation_with_audio_parameters",
+        "description": "Test generation with custom speaking rate, pitch, and volume",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Testing audio parameters",
+          "speaking_rate": 1.5,
+          "pitch": 5.0,
+          "volume_gain_db": 2.0
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_list_voices",
+      "status": "passed",
+      "error": null,
+      "output": "[{'id': 'en-US-Neural2-A', 'name': 'US Female', 'language': 'en-US', 'type': 'Neural2'}, {'id': 'en-US-Neural2-D', 'name': 'US Male', 'language': 'en-US', 'type': 'Neural2'}, {'id': 'en-GB-Neural2-A', 'name': 'UK Female', 'language': 'en-GB', 'type': 'Neural2'}, {'id': 'en-GB-Neural2-B', 'name': 'UK Male', 'language': 'en-GB', 'type': 'Neural2'}]",
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_list_voices",
+        "description": "Test retrieving available voices from the provider",
+        "test_type": "integration",
+        "method": "list_voices",
+        "inputs": {},
+        "assertions": [
+          "result is not None",
+          "isinstance(result, list)",
+          "len(result) > 0"
+        ]
+      }
+    },
+    {
+      "name": "test_list_voices_with_language_filter",
+      "status": "failed",
+      "error": "GoogleTTSProvider.list_voices() got an unexpected keyword argument 'language_code'",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_list_voices_with_language_filter",
+        "description": "Test listing voices filtered by language code",
+        "test_type": "integration",
+        "method": "list_voices",
+        "inputs": {
+          "language_code": "en-US"
+        },
+        "assertions": [
+          "result is not None",
+          "isinstance(result, list)"
+        ]
+      }
+    },
+    {
+      "name": "test_validate_credentials_success",
+      "status": "failed",
+      "error": "GoogleTTSProvider.validate_credentials() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_validate_credentials_success",
+        "description": "Test credential validation with valid API key",
+        "test_type": "integration",
+        "method": "validate_credentials",
+        "inputs": {},
+        "assertions": [
+          "result == True"
+        ]
+      }
+    },
+    {
+      "name": "test_validate_credentials_invalid_key",
+      "status": "failed",
+      "error": "GoogleTTSProvider.validate_credentials() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_validate_credentials_invalid_key",
+        "description": "Test credential validation with invalid API key",
+        "test_type": "integration",
+        "method": "validate_credentials",
+        "inputs": {},
+        "setup": {
+          "api_key": "invalid_key_12345"
+        },
+        "assertions": [
+          "result == False"
+        ]
+      }
+    },
+    {
+      "name": "test_empty_text_error",
+      "status": "passed",
+      "error": null,
+      "output": "Error correctly raised: GoogleTTSProvider.generate_speech() not yet implemented",
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_empty_text_error",
+        "description": "Test error handling when empty text is provided",
+        "test_type": "unit",
+        "method": "generate_speech",
+        "inputs": {
+          "text": ""
+        },
+        "assertions": [
+          "raises ValueError or result.error is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_none_text_error",
+      "status": "passed",
+      "error": null,
+      "output": "Error correctly raised: GoogleTTSProvider.generate_speech() not yet implemented",
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_none_text_error",
+        "description": "Test error handling when None is provided as text",
+        "test_type": "unit",
+        "method": "generate_speech",
+        "inputs": {
+          "text": null
+        },
+        "assertions": [
+          "raises TypeError or raises ValueError"
+        ]
+      }
+    },
+    {
+      "name": "test_invalid_speaking_rate",
+      "status": "failed",
+      "error": "GoogleTTSProvider.__init__() got an unexpected keyword argument 'speaking_rate'",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_invalid_speaking_rate",
+        "description": "Test that speaking rate is clamped to valid range",
+        "test_type": "unit",
+        "method": "__init__",
+        "inputs": {
+          "speaking_rate": 10.0
+        },
+        "assertions": [
+          "provider.default_speaking_rate <= 4.0"
+        ]
+      }
+    },
+    {
+      "name": "test_invalid_pitch",
+      "status": "failed",
+      "error": "GoogleTTSProvider.__init__() got an unexpected keyword argument 'pitch'",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_invalid_pitch",
+        "description": "Test that pitch is clamped to valid range",
+        "test_type": "unit",
+        "method": "__init__",
+        "inputs": {
+          "pitch": 50.0
+        },
+        "assertions": [
+          "provider.default_pitch <= 20.0"
+        ]
+      }
+    },
+    {
+      "name": "test_invalid_volume_gain",
+      "status": "failed",
+      "error": "GoogleTTSProvider.__init__() got an unexpected keyword argument 'volume_gain_db'",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_invalid_volume_gain",
+        "description": "Test that volume gain is clamped to valid range",
+        "test_type": "unit",
+        "method": "__init__",
+        "inputs": {
+          "volume_gain_db": 100.0
+        },
+        "assertions": [
+          "provider.default_volume_gain_db <= 16.0"
+        ]
+      }
+    },
+    {
+      "name": "test_ssml_input",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_ssml_input",
+        "description": "Test text-to-speech generation with SSML markup",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "<speak>Hello <break time='500ms'/> world</speak>",
+          "is_ssml": true
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_different_audio_encodings",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_different_audio_encodings",
+        "description": "Test generation with different audio encoding formats",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Testing audio format",
+          "audio_encoding": "LINEAR16"
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_provider_name",
+      "status": "passed",
+      "error": null,
+      "output": "google_tts",
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_provider_name",
+        "description": "Test that provider name is correctly set",
+        "test_type": "unit",
+        "method": "name",
+        "inputs": {},
+        "assertions": [
+          "provider.name == 'google_cloud_tts'"
+        ]
+      }
+    },
+    {
+      "name": "test_api_key_from_env",
+      "status": "failed",
+      "error": "GoogleTTSProvider.__init__() missing 1 required positional argument: 'config'",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_api_key_from_env",
+        "description": "Test that API key can be loaded from environment variable",
+        "test_type": "unit",
+        "method": "__init__",
+        "inputs": {},
+        "setup": {
+          "env": {
+            "GOOGLE_CLOUD_API_KEY": "test_key_from_env"
+          }
+        },
+        "assertions": [
+          "provider.config.api_key == 'test_key_from_env'"
+        ]
+      }
+    },
+    {
+      "name": "test_long_text_generation",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_long_text_generation",
+        "description": "Test generation with longer text input",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "This is a longer text that should be synthesized properly. It contains multiple sentences and should test the provider's ability to handle more substantial content."
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None",
+          "len(result.audio_data) > 0"
+        ]
+      }
+    },
+    {
+      "name": "test_effects_profile",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_effects_profile",
+        "description": "Test generation with audio effects profile",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Testing audio effects",
+          "effects_profile_id": [
+            "telephony-class-application"
+          ]
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_custom_sample_rate",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_custom_sample_rate",
+        "description": "Test generation with custom sample rate",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Testing sample rate",
+          "sample_rate_hertz": 24000
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    },
+    {
+      "name": "test_multiple_languages",
+      "status": "failed",
+      "error": "GoogleTTSProvider.generate_speech() not yet implemented",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_multiple_languages",
+        "description": "Test generation with different language codes",
+        "test_type": "integration",
+        "method": "generate_speech",
+        "inputs": {
+          "text": "Hola mundo",
+          "language_code": "es-ES"
+        },
+        "assertions": [
+          "result is not None",
+          "result.audio_data is not None"
+        ]
+      }
+    }
+  ],
+  "learnings": []
+}

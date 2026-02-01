@@ -1,0 +1,5 @@
+provider,run_id,timestamp,overall_success,adherence_score,quality_score,effective_patterns_count,ineffective_patterns_count,prompt_tips_count
+luma,20260108_232546,2026-01-09 07:28:26.638898+00:00,False,78,78,4,5,7
+luma,20260108_234452,2026-01-09 07:47:59.583631+00:00,True,92,92,7,0,8
+luma,20260109_075142,2026-01-09 16:00:25.150477+00:00,False,78,78,5,6,8
+luma,20260109_080534,2026-01-09 16:16:02.873936+00:00,False,66,66,4,6,8

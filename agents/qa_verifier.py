@@ -248,7 +248,12 @@ class QAVerifierAgent(StudioAgent):
                     )
 
                     if result.returncode != 0:
-                        print(f"[QA] Warning: ffmpeg frame extraction failed: {result.stderr.decode()[:200]}")
+                        # ffmpeg outputs version info to stderr first, so get the last lines for the actual error
+                        stderr_lines = result.stderr.decode().strip().split('\n')
+                        # Get last 3 non-empty lines which usually contain the actual error
+                        error_lines = [line for line in stderr_lines if line.strip()][-3:]
+                        error_msg = '\n'.join(error_lines)
+                        print(f"[QA] Warning: ffmpeg frame extraction failed:\n{error_msg}")
                         continue
 
                     # Read and encode as base64

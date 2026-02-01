@@ -1,0 +1,477 @@
+{
+  "provider_name": "dalle",
+  "started_at": "2026-01-28T17:03:20.933331",
+  "status": "in_progress",
+  "current_step": "testing",
+  "docs_analyzed": [
+    "https://platform.openai.com/docs/guides/images"
+  ],
+  "docs_url": "https://platform.openai.com/docs/guides/images",
+  "spec": {
+    "name": "OpenAI Images (DALL-E)",
+    "provider_type": "image",
+    "base_url": "https://api.openai.com",
+    "docs_url": "https://platform.openai.com/docs/guides/images",
+    "auth_type": "bearer_token",
+    "auth_header": "Authorization",
+    "auth_prefix": "Bearer",
+    "env_var_name": "OPENAI_API_KEY",
+    "request_method": "sync",
+    "endpoints": [
+      {
+        "name": "create_image",
+        "method": "POST",
+        "path": "/v1/images/generations",
+        "description": "Generate images from text prompts",
+        "request_body": {
+          "prompt": "string (required)",
+          "model": "string (optional, default: dall-e-2)",
+          "n": "integer (optional, 1-10 for dall-e-2, 1 only for dall-e-3, default: 1)",
+          "quality": "string (optional, 'standard' or 'hd', dall-e-3 only, default: standard)",
+          "response_format": "string (optional, 'url' or 'b64_json', default: url)",
+          "size": "string (optional, '256x256'|'512x512'|'1024x1024' for dall-e-2, '1024x1024'|'1792x1024'|'1024x1792' for dall-e-3)",
+          "style": "string (optional, 'vivid' or 'natural', dall-e-3 only, default: vivid)",
+          "user": "string (optional, unique identifier for end-user)"
+        },
+        "response_schema": {
+          "created": "integer (unix timestamp)",
+          "data": [
+            {
+              "url": "string (if response_format=url)",
+              "b64_json": "string (if response_format=b64_json)",
+              "revised_prompt": "string (dall-e-3 only, shows how the prompt was revised)"
+            }
+          ]
+        }
+      },
+      {
+        "name": "create_image_edit",
+        "method": "POST",
+        "path": "/v1/images/edits",
+        "description": "Edit an image using a mask and prompt (DALL-E 2 only)",
+        "request_body": {
+          "image": "file (required, PNG, <4MB, square)",
+          "prompt": "string (required)",
+          "mask": "file (optional, PNG, <4MB, same dimensions as image)",
+          "model": "string (optional, only dall-e-2 supported)",
+          "n": "integer (optional, 1-10, default: 1)",
+          "size": "string (optional, '256x256'|'512x512'|'1024x1024')",
+          "response_format": "string (optional, 'url' or 'b64_json', default: url)",
+          "user": "string (optional)"
+        },
+        "response_schema": {
+          "created": "integer",
+          "data": [
+            {
+              "url": "string",
+              "b64_json": "string"
+            }
+          ]
+        }
+      },
+      {
+        "name": "create_image_variation",
+        "method": "POST",
+        "path": "/v1/images/variations",
+        "description": "Create variations of an existing image (DALL-E 2 only)",
+        "request_body": {
+          "image": "file (required, PNG, <4MB, square)",
+          "model": "string (optional, only dall-e-2 supported)",
+          "n": "integer (optional, 1-10, default: 1)",
+          "size": "string (optional, '256x256'|'512x512'|'1024x1024')",
+          "response_format": "string (optional, 'url' or 'b64_json', default: url)",
+          "user": "string (optional)"
+        },
+        "response_schema": {
+          "created": "integer",
+          "data": [
+            {
+              "url": "string",
+              "b64_json": "string"
+            }
+          ]
+        }
+      }
+    ],
+    "models": [
+      {
+        "model_id": "dall-e-3",
+        "name": "DALL-E 3",
+        "description": "Latest and most capable image generation model with improved prompt understanding and quality",
+        "capabilities": [
+          "text-to-image",
+          "high-resolution",
+          "prompt-revision",
+          "style-control",
+          "quality-control"
+        ],
+        "pricing": null
+      },
+      {
+        "model_id": "dall-e-2",
+        "name": "DALL-E 2",
+        "description": "Previous generation model, faster and cheaper, supports edits and variations",
+        "capabilities": [
+          "text-to-image",
+          "image-edit",
+          "image-variation",
+          "multiple-images"
+        ],
+        "pricing": null
+      }
+    ],
+    "tips": [
+      "DALL-E 3 automatically revises prompts for safety and quality - check revised_prompt in response",
+      "For DALL-E 3, use 'natural' style for more realistic images, 'vivid' for more dramatic/artistic",
+      "Use 'hd' quality for DALL-E 3 when fine details are important (costs 2x)",
+      "For edits, mask should use transparency (alpha channel) to indicate areas to edit",
+      "Images for edits/variations must be square and PNG format",
+      "Use b64_json response format if you need to process images programmatically without downloading",
+      "The 'user' parameter helps OpenAI detect and prevent abuse",
+      "DALL-E 3 prompts can be detailed and descriptive - the model handles complexity well",
+      "For multiple variations, DALL-E 2 is more cost-effective (supports n>1)",
+      "URLs returned expire after 1 hour - download or store images if needed long-term"
+    ],
+    "gotchas": [
+      "Content policy: No photorealistic faces of real people, violence, adult content, etc.",
+      "DALL-E 3 only supports n=1 (single image), unlike DALL-E 2",
+      "Image edits and variations are NOT supported with DALL-E 3, only DALL-E 2",
+      "Image URLs expire after 60 minutes",
+      "Input images for edits/variations must be exactly square (same width and height)",
+      "Maximum file size for uploads is 4MB",
+      "Requests may be rejected or prompts revised due to content policy",
+      "API returns 400 if prompt violates content policy",
+      "Different pricing: DALL-E 3 standard costs ~$0.040/image, HD costs ~$0.080/image; DALL-E 2 1024x1024 costs ~$0.020/image",
+      "Generation time varies: DALL-E 3 typically 30-60 seconds, DALL-E 2 typically 10-20 seconds",
+      "No batch processing - each request is synchronous",
+      "Cannot specify negative prompts or use advanced parameters like CFG scale, steps, etc."
+    ],
+    "confidence_score": 0.9
+  },
+  "questions": [],
+  "answers": [],
+  "stub_path": null,
+  "implementation_path": "core/providers/image/dalle.py",
+  "provider_type": "image",
+  "test_results": [
+    {
+      "name": "test_basic_generation_dalle3",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_basic_generation_dalle3",
+        "description": "Test basic image generation with DALL-E 3",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A beautiful sunset over mountains",
+          "model": "dall-e-3"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result",
+          "len(result['data']) > 0",
+          "'url' in result['data'][0] or 'b64_json' in result['data'][0]"
+        ]
+      }
+    },
+    {
+      "name": "test_basic_generation_dalle2",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_basic_generation_dalle2",
+        "description": "Test basic image generation with DALL-E 2",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A red apple on a table",
+          "model": "dall-e-2"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result",
+          "len(result['data']) > 0",
+          "'url' in result['data'][0] or 'b64_json' in result['data'][0]"
+        ]
+      }
+    },
+    {
+      "name": "test_generation_with_size",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_generation_with_size",
+        "description": "Test image generation with custom size parameter",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A futuristic cityscape",
+          "model": "dall-e-3",
+          "size": "1024x1024"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result"
+        ]
+      }
+    },
+    {
+      "name": "test_generation_with_quality",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_generation_with_quality",
+        "description": "Test DALL-E 3 generation with quality parameter",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A photorealistic cat",
+          "model": "dall-e-3",
+          "quality": "hd"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result"
+        ]
+      }
+    },
+    {
+      "name": "test_generation_with_style",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_generation_with_style",
+        "description": "Test DALL-E 3 generation with style parameter",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A robot playing piano",
+          "model": "dall-e-3",
+          "style": "vivid"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result"
+        ]
+      }
+    },
+    {
+      "name": "test_get_models",
+      "status": "skipped",
+      "error": "Method 'get_models' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_get_models",
+        "description": "Test retrieving list of available models",
+        "test_type": "unit",
+        "method": "get_models",
+        "inputs": {},
+        "assertions": [
+          "result is not None",
+          "isinstance(result, list)",
+          "len(result) == 2",
+          "any(m['model_id'] == 'dall-e-3' for m in result)",
+          "any(m['model_id'] == 'dall-e-2' for m in result)"
+        ]
+      }
+    },
+    {
+      "name": "test_setup_auth_success",
+      "status": "skipped",
+      "error": "Method 'setup_auth' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_setup_auth_success",
+        "description": "Test successful authentication setup with valid API key",
+        "test_type": "unit",
+        "method": "setup_auth",
+        "inputs": {},
+        "setup": "os.environ['OPENAI_API_KEY'] = 'test-key-123'",
+        "assertions": [
+          "provider.api_key == 'test-key-123'"
+        ]
+      }
+    },
+    {
+      "name": "test_setup_auth_missing_key",
+      "status": "skipped",
+      "error": "Method 'setup_auth' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_setup_auth_missing_key",
+        "description": "Test authentication setup fails without API key",
+        "test_type": "unit",
+        "method": "setup_auth",
+        "inputs": {},
+        "setup": "os.environ.pop('OPENAI_API_KEY', None)",
+        "assertions": [
+          "raises ValueError",
+          "'OPENAI_API_KEY environment variable is not set' in str(error)"
+        ]
+      }
+    },
+    {
+      "name": "test_error_empty_prompt",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_error_empty_prompt",
+        "description": "Test error handling for empty prompt",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": ""
+        },
+        "assertions": [
+          "raises Exception"
+        ]
+      }
+    },
+    {
+      "name": "test_error_invalid_model",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_error_invalid_model",
+        "description": "Test error handling for invalid model name",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A painting",
+          "model": "invalid-model"
+        },
+        "assertions": [
+          "raises Exception"
+        ]
+      }
+    },
+    {
+      "name": "test_error_invalid_size",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_error_invalid_size",
+        "description": "Test error handling for invalid size parameter",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A landscape",
+          "model": "dall-e-3",
+          "size": "invalid-size"
+        },
+        "assertions": [
+          "raises Exception"
+        ]
+      }
+    },
+    {
+      "name": "test_dalle2_multiple_images",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_dalle2_multiple_images",
+        "description": "Test DALL-E 2 generation with multiple images (n parameter)",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A cute dog",
+          "model": "dall-e-2",
+          "n": 2
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result",
+          "len(result['data']) == 2"
+        ]
+      }
+    },
+    {
+      "name": "test_response_format_url",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_response_format_url",
+        "description": "Test image generation with URL response format",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A blue ocean",
+          "model": "dall-e-2",
+          "response_format": "url"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result",
+          "'url' in result['data'][0]"
+        ]
+      }
+    },
+    {
+      "name": "test_response_format_b64_json",
+      "status": "skipped",
+      "error": "Method 'generate' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_response_format_b64_json",
+        "description": "Test image generation with base64 JSON response format",
+        "test_type": "integration",
+        "method": "generate",
+        "inputs": {
+          "prompt": "A green forest",
+          "model": "dall-e-2",
+          "response_format": "b64_json"
+        },
+        "assertions": [
+          "result is not None",
+          "'data' in result",
+          "'b64_json' in result['data'][0]"
+        ]
+      }
+    },
+    {
+      "name": "test_get_headers",
+      "status": "skipped",
+      "error": "Method '_get_headers' not found on provider",
+      "output": null,
+      "duration_ms": 0,
+      "test_case": {
+        "name": "test_get_headers",
+        "description": "Test HTTP headers generation for API requests",
+        "test_type": "unit",
+        "method": "_get_headers",
+        "inputs": {},
+        "assertions": [
+          "result is not None",
+          "'Authorization' in result",
+          "result['Authorization'].startswith('Bearer ')"
+        ]
+      }
+    }
+  ],
+  "learnings": []
+}
