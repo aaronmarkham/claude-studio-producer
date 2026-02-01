@@ -13,6 +13,7 @@
 1. Claude (obviously)
 2. Strands SDK (for agent workflows and scaling)
 3. Click and Rich (for the CLI)
+4. FFmpeg (for video rendering)
 
 **Optional**
 * lumaai (you can use other [providers](docs/providers.md))
@@ -92,8 +93,8 @@ flowchart TB
     end
 
     subgraph Generation["Parallel Generation"]
-        Video["VideoGenerator<br/>Luma / Runway"]
-        Audio["AudioGenerator<br/>OpenAI TTS"]
+        Video["VideoGenerator<br/>Luma / Runway / DALL-E"]
+        Audio["AudioGenerator<br/>ElevenLabs / OpenAI / Google"]
     end
 
     subgraph Evaluation["Real Evaluation Pipeline"]
@@ -522,15 +523,16 @@ uvicorn server.main:app --reload
 - [x] Google Cloud TTS provider (Neural2, WaveNet, Studio voices)
 - [x] Runway ML video provider (image-to-video)
 - [x] Multi-provider pipeline (e.g., DALL-E image → Runway video)
+- [x] Audio-video synchronization with FFmpeg (speed-match, longest, shortest modes)
+- [x] Video/audio mixing and rendering with volume control
 
 ### In Progress
 - [ ] Additional video providers (Pika, Kling)
 - [ ] Additional audio providers (Inworld)
+- [ ] Multi-pilot competitive generation
 
 ### Future
 - [ ] AWS AgentCore memory backend (production)
-- [ ] Multi-pilot competitive generation
-- [ ] Audio-video synchronization
 - [ ] S3 storage integration
 
 ## License
