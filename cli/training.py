@@ -2,8 +2,12 @@
 
 import asyncio
 import click
+import logging
+import sys
+from datetime import datetime
 from pathlib import Path
 from rich.console import Console
+from rich.logging import RichHandler
 
 from core.claude_client import ClaudeClient
 from core.memory.manager import MemoryManager
@@ -44,11 +48,27 @@ def run(pairs_dir, output_dir, max_trials, mock):
 
 async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int, mock: bool):
     """Main training pipeline execution"""
-    console.print("[bold cyan]Claude Studio Producer - Training Pipeline[/bold cyan]\n")
-
     pairs_path = Path(pairs_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+
+    # Set up logging
+    log_file = output_path / f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            RichHandler(console=console, show_time=False, show_path=False)
+        ]
+    )
+    logger = logging.getLogger("training")
+
+    logger.info("Starting training pipeline")
+    logger.info(f"Output directory: {output_path}")
+    logger.info(f"Log file: {log_file}")
+
+    console.print("[bold cyan]Claude Studio Producer - Training Pipeline[/bold cyan]\n")
 
     # Initialize clients
     claude_client = ClaudeClient()

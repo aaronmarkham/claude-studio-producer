@@ -79,7 +79,7 @@ Return as JSON array with one entry per segment:
 }}
 """
 
-    response = await claude_client.query(prompt, response_format="json")
+    response = await claude_client.query(prompt)
 
     # Parse response
     try:
@@ -227,7 +227,7 @@ Return as JSON:
 }}
 """
 
-    response = await claude_client.query(prompt, response_format="json")
+    response = await claude_client.query(prompt)
 
     # Parse response
     try:
