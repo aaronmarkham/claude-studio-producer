@@ -279,10 +279,10 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
         logger.info(f"Created aggregated profile v{aggregated_profile.version}")
         console.print(f"Created aggregated profile v{aggregated_profile.version}")
 
-        # Store in memory
-        await store_profile_in_memory(aggregated_profile, memory_manager)
-        logger.info("Stored profile in memory")
-        console.print("Stored profile in memory")
+        # Store profile to file
+        await store_profile_in_memory(aggregated_profile, memory_manager, output_path)
+        logger.info("Stored profile to aggregated_profile.json")
+        console.print("Stored profile to aggregated_profile.json")
     except Exception as e:
         logger.error(f"Profile synthesis failed: {e}", exc_info=True)
         console.print(f"[red]Error: Profile synthesis failed: {e}[/red]")

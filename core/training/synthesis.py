@@ -115,22 +115,25 @@ def calculate_depth_targets(structures, training_pairs) -> dict:
 async def store_profile_in_memory(
     profile: AggregatedProfile,
     memory_manager: MemoryManager,
+    output_dir: Path = None,
 ):
-    """Store aggregated profile in memory for agent use."""
+    """Store aggregated profile for agent use."""
+    from pathlib import Path
+    import json
 
-    namespace = "/org/default/learnings/podcast_training"
+    # Save to training output directory
+    if output_dir is None:
+        output_dir = Path("artifacts/training_output")
 
-    # Store full profile
-    await memory_manager.store(
-        namespace=f"{namespace}/profiles",
-        key=f"profile_{profile.version}",
-        data=profile.to_dict(),
-        metadata={
-            "type": "podcast_profile",
-            "training_pairs": profile.training_pairs_used,
-            "created_at": profile.created_at.isoformat(),
-        }
-    )
+    profile_file = output_dir / "aggregated_profile.json"
+    profile_data = {
+        "version": profile.version,
+        "training_pairs_used": profile.training_pairs_used,
+        "created_at": profile.created_at.isoformat(),
+        "profile": profile.to_dict(),
+    }
+
+    profile_file.write_text(json.dumps(profile_data, indent=2, default=str))
 
     # Store canonical sequence separately for easy access
     await memory_manager.store(
