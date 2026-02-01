@@ -20,6 +20,12 @@ class NarrativeStyle(str, Enum):
     DOCUMENTARY = "documentary"               # Documentary narrator style
 
 
+class ProductionMode(str, Enum):
+    """Which asset drives the timeline"""
+    VIDEO_LED = "video_led"      # Video determines duration, audio fits to video
+    AUDIO_LED = "audio_led"      # Audio determines duration, video fits to audio
+
+
 @dataclass
 class Scene:
     """A single scene in the video script"""

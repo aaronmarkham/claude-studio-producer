@@ -607,6 +607,8 @@ def load_seed_assets(directory: str) -> List[SeedAsset]:
               default="auto", help="Scene execution strategy for continuity (auto detects from script)")
 @click.option("--style", type=click.Choice(["visual_storyboard", "podcast", "educational", "documentary"]),
               default="visual_storyboard", help="Narrative style (podcast=rich NotebookLM-style narration)")
+@click.option('--mode', type=click.Choice(['video-led', 'audio-led']), default='video-led',
+              help='Production mode: video-led (video determines timing) or audio-led (audio determines timing)')
 def produce_cmd(
     concept: str,
     budget: float,
@@ -625,7 +627,8 @@ def produce_cmd(
     timeout: int,
     seed_assets: Optional[str],
     execution_strategy: str,
-    style: str
+    style: str,
+    mode: str
 ):
     """
     Run the full video production pipeline with multi-agent orchestration.
@@ -734,7 +737,8 @@ def produce_cmd(
             timeout=timeout,
             seed_assets=loaded_assets,
             execution_strategy=execution_strategy,
-            narrative_style=style
+            narrative_style=style,
+            mode=mode
         ))
 
         total_time = time.time() - start_time
@@ -776,12 +780,13 @@ async def _run_production(
     timeout: int = 600,
     seed_assets: Optional[List[SeedAsset]] = None,
     execution_strategy: str = "auto",
-    narrative_style: str = "visual_storyboard"
+    narrative_style: str = "visual_storyboard",
+    mode: str = "video-led"
 ) -> dict:
     """Run the production pipeline with impressive agent orchestration display"""
 
     from agents.producer import ProducerAgent
-    from agents.script_writer import ScriptWriterAgent, NarrativeStyle
+    from agents.script_writer import ScriptWriterAgent, NarrativeStyle, ProductionMode
     from agents.video_generator import VideoGeneratorAgent
     from agents.audio_generator import AudioGeneratorAgent
     from agents.qa_verifier import QAVerifierAgent
@@ -912,6 +917,12 @@ async def _run_production(
         "documentary": NarrativeStyle.DOCUMENTARY,
     }
     style_enum = style_map.get(narrative_style, NarrativeStyle.VISUAL_STORYBOARD)
+
+    # Determine production mode from flags and style
+    if mode == 'audio-led' or narrative_style in ['podcast', 'educational', 'documentary']:
+        production_mode = ProductionMode.AUDIO_LED
+    else:
+        production_mode = ProductionMode.VIDEO_LED
 
     scenes = await script_writer.create_script(
         video_concept=concept,
@@ -1124,6 +1135,21 @@ async def _run_production(
             console.print(f"│   │  Music: [{t.dimmed}]Skipped (tier=none)[/{t.dimmed}]")
         metadata["stages"]["audio_generator"] = {"skipped": True}
 
+    # Build scene_audio_map for editor
+    scene_audio_map: Dict[str, str] = {}
+    if scene_audio:
+        for audio_track in scene_audio:
+            if audio_track.audio_path and Path(audio_track.audio_path).exists():
+                scene_audio_map[audio_track.scene_id] = str(audio_track.audio_path)
+
+        # For audio-led mode: update scene durations from actual audio
+        if production_mode == ProductionMode.AUDIO_LED:
+            for audio_track in scene_audio:
+                for scene in scenes:
+                    if scene.scene_id == audio_track.scene_id:
+                        scene.duration = audio_track.duration
+                        break
+
     if not as_json:
         console.print("│   └" + BORDER_LINE)
         console.print("│")
@@ -1310,6 +1336,7 @@ async def _run_production(
         scenes=scenes,
         video_candidates=video_candidates,
         qa_results=qa_results,
+        scene_audio=scene_audio_map,
         original_request=concept,
         num_candidates=3
     )
@@ -1340,6 +1367,7 @@ async def _run_production(
                         "scene_id": d.scene_id,
                         "selected_variation": d.selected_variation,
                         "video_url": d.video_url,
+                        "audio_url": d.audio_url,
                         "in_point": d.in_point,
                         "out_point": d.out_point,
                         "transition_in": d.transition_in,
@@ -1378,6 +1406,79 @@ async def _run_production(
         print_edit_candidates_artifact(edl, verbose=verbose)
         console.print(f"│     [{t.success}]✓ Recommended: \"{edl.recommended_candidate_id}\"[/{t.success}] [{t.dimmed}]({editor_time:.1f}s)[/{t.dimmed}]")
         console.print("├" + BORDER_LINE)
+
+    # === AUDIO-VIDEO MIXING ===
+    # Mix audio with video for each scene if we have audio
+    mixed_scenes_paths: List[Path] = []
+    if scene_audio_map and edl.recommended_candidate_id:
+        # Get the recommended candidate
+        candidate = None
+        for c in edl.candidates:
+            if c.candidate_id == edl.recommended_candidate_id:
+                candidate = c
+                break
+
+        if candidate:
+            from core.rendering.mixer import mix_single_scene
+
+            if not as_json:
+                console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]AudioMixer[/{t.agent_name}]")
+                console.print(f"│     └─ Mixing video + audio for {len(candidate.decisions)} scene(s)...")
+
+            mixed_dir = run_dir / "mixed"
+            mixed_dir.mkdir(exist_ok=True)
+
+            for decision in candidate.decisions:
+                video_path = decision.video_url
+                audio_path = scene_audio_map.get(decision.scene_id)
+
+                if video_path and audio_path and Path(video_path).exists() and Path(audio_path).exists():
+                    output_path = mixed_dir / f"{decision.scene_id}_mixed.mp4"
+
+                    # Determine fit mode based on production mode
+                    if production_mode == ProductionMode.AUDIO_LED:
+                        # Audio is master - stretch video to fit audio duration
+                        fit_mode = "stretch"
+                    else:
+                        # Video is master - truncate audio
+                        fit_mode = "truncate"
+
+                    try:
+                        await mix_single_scene(
+                            video_path=str(video_path),
+                            audio_path=str(audio_path),
+                            output_path=str(output_path),
+                            fit_mode=fit_mode,
+                        )
+                        mixed_scenes_paths.append(output_path)
+                        if not as_json:
+                            console.print(f"│     └─ [{t.success}]✓ Mixed {decision.scene_id}[/{t.success}]")
+                    except Exception as e:
+                        if not as_json:
+                            console.print(f"│     └─ [{t.warning}]⚠ Failed to mix {decision.scene_id}: {e}[/{t.warning}]")
+                        # Fall back to video-only
+                        if Path(video_path).exists():
+                            mixed_scenes_paths.append(Path(video_path))
+                elif video_path and Path(video_path).exists():
+                    # No audio, use video as-is
+                    mixed_scenes_paths.append(Path(video_path))
+
+            # Concatenate all mixed scenes into final output
+            if mixed_scenes_paths:
+                from core.rendering.mixer import concatenate_videos
+
+                final_output = run_dir / "final_output.mp4"
+                try:
+                    await concatenate_videos(mixed_scenes_paths, final_output)
+                    results["output_video"] = str(final_output)
+                    if not as_json:
+                        console.print(f"│     [{t.success}]✓ Final output: {final_output.name}[/{t.success}]")
+                except Exception as e:
+                    if not as_json:
+                        console.print(f"│     [{t.error}]✗ Failed to concatenate: {e}[/{t.error}]")
+
+            if not as_json:
+                console.print("│")
 
     # ═══════════════════════════════════════════════════════════════════════════
     # STAGE 4: Rendering

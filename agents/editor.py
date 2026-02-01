@@ -49,7 +49,8 @@ class EditorAgent(StudioAgent):
         scenes: List[Scene],
         video_candidates: Dict[str, List[GeneratedVideo]],
         qa_results: Dict[str, List[QAResult]],
-        original_request: str,
+        scene_audio: Optional[Dict[str, str]] = None,
+        original_request: str = "",
         num_candidates: int = 3
     ) -> EditDecisionList:
         """
@@ -70,6 +71,7 @@ class EditorAgent(StudioAgent):
             scenes=scenes,
             video_candidates=video_candidates,
             qa_results=qa_results,
+            scene_audio=scene_audio,
             original_request=original_request,
             num_candidates=num_candidates
         )
@@ -101,7 +103,8 @@ class EditorAgent(StudioAgent):
         scenes: List[Scene],
         video_candidates: Dict[str, List[GeneratedVideo]],
         qa_results: Dict[str, List[QAResult]],
-        original_request: str,
+        scene_audio: Optional[Dict[str, str]] = None,
+        original_request: str = "",
         num_candidates: int = 3
     ) -> List[EditCandidate]:
         """
@@ -187,10 +190,16 @@ class EditorAgent(StudioAgent):
                 text_start_time = scene.text_start_time if scene else None
                 text_duration = scene.text_duration if scene else None
 
+                # Get audio URL if available
+                audio_url = None
+                if scene_audio and scene_id in scene_audio:
+                    audio_url = scene_audio[scene_id]
+
                 decision = EditDecision(
                     scene_id=scene_id,
                     selected_variation=variation_idx,
                     video_url=video_url,
+                    audio_url=audio_url,
                     in_point=in_point,
                     out_point=out_point,
                     transition_in=edit_data_item.get("transition_in", "cut"),
@@ -363,7 +372,8 @@ Return JSON with the revised edit decisions."""
         scenes: List[Scene],
         video_candidates: Dict[str, List[GeneratedVideo]],
         qa_results: Dict[str, List[QAResult]],
-        original_request: str,
+        scene_audio: Optional[Dict[str, str]] = None,
+        original_request: str = "",
         num_candidates: int = 3
     ) -> EditDecisionList:
         """
@@ -373,6 +383,7 @@ Return JSON with the revised edit decisions."""
             scenes: List of scene specifications
             video_candidates: Dict mapping scene_id to list of video variations
             qa_results: Dict mapping scene_id to list of QA results
+            scene_audio: Optional dict mapping scene_id to audio file paths
             original_request: User's original video concept
             num_candidates: Number of edit candidates to create (default: 3)
 
@@ -383,6 +394,7 @@ Return JSON with the revised edit decisions."""
             scenes=scenes,
             video_candidates=video_candidates,
             qa_results=qa_results,
+            scene_audio=scene_audio,
             original_request=original_request,
             num_candidates=num_candidates
         )

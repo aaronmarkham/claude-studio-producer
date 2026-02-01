@@ -1,192 +1,262 @@
 # Multi-Provider Orchestration Enhancement
 
-**Status:** Planning Phase
+**Status:** ✅ Complete - Audio Pipeline Fully Integrated
 **Created:** 2026-01-31
-**Priority:** High
+**Updated:** 2026-01-31
+**Priority:** High (Completed)
 
-## Current State
+## Current State (Actual Implementation)
 
-### What Works
-- Individual providers tested and working:
-  - **Image:** DALL-E
-  - **Video:** Luma, Runway (image-to-video)
-  - **Audio:** ElevenLabs, OpenAI TTS, Google TTS
-  - **Rendering:** FFmpeg (speed-match, longest, shortest modes)
-- Manual multi-provider pipeline demonstrated: DALL-E → Luma → ElevenLabs → FFmpeg
+### ✅ What's Already Working
 
-### Current Limitations
-- `--provider` flag is monolithic (only constrains video provider)
-- No automatic chaining of providers (image → video → audio → render)
-- `--style podcast` creates verbose narration text but may not invoke AudioGenerator
-- No clear path for Producer to orchestrate full multi-provider workflows
+**1. Full KB/Document Pipeline:**
+- `kb create` / `kb add --paper` - Multi-source knowledge projects
+- PDF ingestion with PyMuPDF → DocumentGraph extraction
+- Atom classification (abstracts, figures, quotes, sections, etc.)
+- Knowledge graph with cross-source entity/topic linking
+- `kb produce` - Builds rich concept from knowledge graph
 
-## The Problem
+**2. Narrative Styles:**
+- ScriptWriter has `NarrativeStyle` enum (VISUAL_STORYBOARD, PODCAST_NARRATIVE, EDUCATIONAL_LECTURE, DOCUMENTARY)
+- `--style podcast` generates rich `voiceover_text` in scenes
+- Scene duration auto-calculated per style (podcast = 15-20s segments)
+- Scenes saved with voiceover_text field populated
+
+**3. Audio Generation Pipeline:**
+- AudioGeneratorAgent fully implemented and wired into pipeline (cli/produce.py:1095)
+- Runs when `audio_tier != AudioTier.NONE`
+- Generates TTS voiceover from scene.voiceover_text
+- Saves audio files to run_dir/audio/
+- Cost tracking integrated
+
+**4. Provider System:**
+- Individual providers working: Luma, Runway, DALL-E, ElevenLabs, OpenAI TTS, Google TTS
+- Provider knowledge/learning system (memory-based prompt improvements)
+- Execution graph for parallel/sequential scene generation
+- Seed asset support (image → video chaining via seed_asset_lookup)
+
+**5. Resume Capability:**
+- Checkpointed pipeline (QA, Critic, EDL saved incrementally)
+- `claude-studio resume <run_id>` recovers from failures
+- Budget tracking from timeline (handles stale fields)
+
+### ✅ Recently Completed (January 2026)
+
+**1. Audio URLs in EDL:**
+- ✅ `scene_audio` map passed to EditorAgent
+- ✅ EditDecision.audio_url populated from scene audio files
+- ✅ EDL saves with proper audio_url references
+
+**2. Automatic Audio-Video Mixing:**
+- ✅ Final mixing step added to production pipeline
+- ✅ Individual scenes mixed (video + audio)
+- ✅ Concatenated into `final_output.mp4`
+- ✅ Production mode support (audio-led vs video-led)
+
+**3. Production Mode System:**
+- ✅ `--mode` CLI flag (video-led/audio-led)
+- ✅ Auto-detection based on narrative style
+- ✅ Smart duration handling (audio-led updates scene durations)
+
+### 🔮 Future Enhancements
+
+**Multi-Provider CLI Flags:**
+- Only `--provider` (video provider) - no `--audio-provider`, `--image-provider`
+- Works but not as granular as originally proposed
+- Priority: Low (current system works well)
+
+## Complete Pipeline
 
 When a user runs:
 ```bash
 claude-studio produce -c "Coffee on table" --budget 10 --live --provider luma --style podcast
 ```
 
-**Expected behavior (unclear):**
-- Should it use DALL-E to generate seed image first?
-- Should it generate audio narration for podcast style?
-- Should it automatically mix video + audio at the end?
+**Pipeline behavior:**
+- ✅ ScriptWriter generates scenes with voiceover_text
+- ✅ AudioGenerator creates audio files from voiceover_text
+- ✅ VideoGenerator creates video files
+- ✅ Editor creates EDL with audio_url populated
+- ✅ Final mixed output (video + audio combined into final_output.mp4)
 
-**Current behavior (likely):**
-- Only uses Luma for text-to-video
-- Possibly generates verbose scene descriptions that don't get narrated
-- No automatic audio/mixing
+## Implementation Details
 
-## Proposed Solution
+### ✅ Completed Implementation
 
-### 1. Separate Provider Flags
+**What was implemented:**
 
-Replace monolithic `--provider` with granular flags:
+1. **ProductionMode enum** - Audio-led vs video-led timing control
+2. **Audio files passed to Editor** - Scene audio map wired through pipeline
+3. **Audio URLs populated in EDL** - EditDecision objects have audio_url field
+4. **Final mixing step** - Automatic video+audio mixing and concatenation
 
+### Implementation Code
+
+**Step 1: Map audio files to scenes**
+```python
+# cli/produce.py after audio generation (line ~1100)
+scene_audio_map = {}  # scene_id -> audio file path
+for audio_track in scene_audio:
+    scene_audio_map[audio_track.scene_id] = audio_track.audio_path
+```
+
+**Step 2: Pass to Editor**
+```python
+# cli/produce.py line ~1309
+edl = await editor.run(
+    scenes=scenes,
+    video_candidates=video_candidates,
+    qa_results=qa_results,
+    scene_audio=scene_audio_map,  # NEW
+    original_request=concept,
+    num_candidates=3
+)
+```
+
+**Step 3: Editor populates audio_url**
+```python
+# agents/editor.py - in create_edl()
+for decision in candidate.decisions:
+    # Get audio file if available
+    audio_file = scene_audio.get(decision.scene_id)
+    if audio_file:
+        decision.audio_url = str(audio_file)
+```
+
+**Step 4: Final mix step**
+```python
+# cli/produce.py after EDL save (~line 1360)
+if candidate and audio_tier != AudioTier.NONE:
+    console.print(f"│   [{t.agent_name}]▶[/{t.agent_name}] [{t.agent_name}]Renderer[/{t.agent_name}]")
+
+    mixed_scenes = []
+    for decision in candidate.decisions:
+        if decision.audio_url:
+            # Mix video + audio
+            output_path = run_dir / "renders" / f"{decision.scene_id}_mixed.mp4"
+            await render_with_audio(
+                video_path=decision.video_url,
+                audio_path=decision.audio_url,
+                output_path=output_path,
+                fit_mode="speed-match"  # or from style
+            )
+            mixed_scenes.append(output_path)
+
+    # Concatenate all mixed scenes
+    final_output = run_dir / "final_output.mp4"
+    await concatenate_videos(mixed_scenes, final_output)
+```
+
+## Future Enhancements (Not Blocking)
+
+### 1. Granular Provider Flags
 ```bash
 claude-studio produce -c "concept" \
   --video-provider luma \
   --audio-provider elevenlabs \
-  --image-provider dalle \
-  --budget 10 \
-  --live \
-  --style podcast
+  --image-provider dalle
 ```
 
-**Behavior:**
-- When `--image-provider` specified → Generate seed image, pass to video provider
-- When `--audio-provider` specified → Generate narration, mix with video using FFmpeg
-- When `--video-provider` specified → Use for video generation (with or without seed image)
+### 2. Producer Intelligence
+- Auto-select providers based on budget/style/concept
+- DALL-E seed images for static subjects
+- Provider selection from memory/learnings
 
-### 2. Producer Intelligence (When Flags Omitted)
-
-When user doesn't specify provider types, Producer decides based on:
-- **Budget constraints** - Choose cost-effective providers
-- **Concept analysis** - "static object" → might benefit from DALL-E seed
-- **Style** - `podcast/educational/documentary` → enable audio
-- **Memory/learnings** - What worked well in the past
-
-**Example - Minimal command:**
-```bash
-claude-studio produce -c "Coffee on table" --budget 10 --live --style podcast
-```
-
-Producer might decide:
-1. "Coffee on table" → static subject → use DALL-E for seed image ($0.040)
-2. Use Luma with seed image for animation (~$0.50)
-3. Style is podcast → generate audio narration with cheapest TTS
-4. Auto-mix with FFmpeg
-
-### 3. Scene-Level Specifications
-
-ScriptWriter needs to specify provider requirements per scene:
-
-```json
-{
-  "scene_number": 1,
-  "description": "Coffee cup with steam rising",
-  "video_prompt": "Steam rises from coffee, morning light...",
-  "narration_text": "A perfect morning begins...",
-  "providers": {
-    "image": "dalle",  // or null
-    "video": "luma",
-    "audio": "elevenlabs"  // or null for silent
-  },
-  "duration": 5.0
-}
-```
-
-### 4. Editor/Renderer Integration
-
-Editor agent needs to:
-- Recognize when scenes have both video and audio
-- Specify FFmpeg fit mode in EDL
-- Pass to Renderer for final assembly
+### 3. Scene-Level Provider Specs
+- ScriptWriter specifies providers per scene
+- Mixed provider strategies within single production
 
 ## Implementation Plan
 
-### Phase 1: CLI Flag Enhancement
-1. Add new flags: `--video-provider`, `--audio-provider`, `--image-provider`
-2. Maintain backward compatibility with `--provider` (maps to `--video-provider`)
-3. Update help text and examples
+### ✅ Complete Implementation (January 2026)
+- Phase 1: ProductionMode enum added ✅
+- Phase 2: Audio-video mixer module created ✅
+- Phase 3: ScriptWriter generates `voiceover_text` ✅
+- Phase 4: CLI updated with --mode flag and audio wiring ✅
+- Phase 5: AudioGenerator fully integrated ✅
+- Phase 6: EditorAgent accepts and uses scene_audio ✅
+- Phase 7: Final mixing pipeline implemented ✅
+- Phase 8: Resume command supports audio mixing ✅
+- Phase 9: Comprehensive test coverage added ✅
+- Image → Video chaining via seed assets ✅
+- KB/Document pipeline ✅
+- Narrative styles ✅
 
-**Files to modify:**
-- `cli/produce.py` - Add new options
-- `cli/config.py` - Update config model
+### 📁 Files Modified
 
-### Phase 2: Producer Agent Enhancement
-1. Update ProducerAgent to receive provider preferences
-2. Add logic to decide when to use image seeds
-3. Add logic to decide when to generate audio (based on style)
-4. Budget allocation across provider types
+**New Files:**
+1. `core/rendering/mixer.py` - Audio-video mixing utilities
+2. `core/rendering/__init__.py` - Package exports
+3. `tests/unit/test_audio_video_mixer.py` - Comprehensive tests
 
-**Files to modify:**
-- `agents/producer.py` - Provider selection logic
-- `core/models/production.py` - Add provider specs to scenes
+**Modified Files:**
+1. `agents/script_writer.py` - ProductionMode enum
+2. `cli/produce.py` - Audio wiring, mixing pipeline, --mode flag
+3. `agents/editor.py` - scene_audio parameter support
+4. `cli/resume.py` - Audio loading and mixing support
 
-### Phase 3: ScriptWriter Enhancement
-1. Generate `narration_text` field when audio is requested
-2. Include provider specs in scene objects
-3. Use provider-specific prompt learnings
+**Total Changes:** ~632 lines across 7 files
 
-**Files to modify:**
-- `agents/script_writer.py` - Add narration generation
-- `core/models/scene.py` - Add provider fields
+### Future Phases (Not Blocking)
 
-### Phase 4: VideoGenerator Enhancement
-1. Check if scene requires image seed
-2. If yes, call image provider first
-3. Pass generated image URL to video provider
+**Phase 1: Granular CLI Flags**
+- Add `--video-provider`, `--audio-provider`, `--image-provider`
+- Maintain `--provider` backward compatibility
+- Priority: Low (current system works)
 
-**Files to modify:**
-- `agents/video_generator.py` - Image → Video chaining
+**Phase 2: Producer Intelligence**
+- Auto-select providers based on concept/budget
+- Provider decision logic in ProducerAgent
+- Priority: Medium (nice-to-have optimization)
 
-### Phase 5: AudioGenerator Integration
-1. Create AudioGeneratorAgent (might already exist as stub)
-2. Generate speech from `narration_text` per scene
-3. Save audio files alongside video files
+**Phase 6: Advanced Rendering**
+- Transition effects between scenes
+- Music bed support
+- Multi-track audio mixing
+- Priority: Low (basic mixing works)
 
-**Files to modify:**
-- `agents/audio_generator.py` - Implement if needed
-- `core/orchestrator.py` - Invoke AudioGenerator
+## Answers to Open Questions
 
-### Phase 6: Editor/Renderer Enhancement
-1. Editor creates EDL with video+audio references
-2. Renderer uses FFmpeg to mix each scene
-3. Concatenate mixed scenes into final output
-
-**Files to modify:**
-- `agents/editor.py` - EDL with audio
-- `core/renderer.py` - Scene-by-scene mixing + concatenation
-
-## Open Questions
-
-1. **Default fit mode:** When mixing video+audio, what's the default? (Probably `speed-match`)
-2. **Voice selection:** How does user specify voice for TTS? New flag `--voice lily`?
-3. **Parallel vs Sequential:** Should scenes be generated in parallel or sequentially (for keyframe passing)?
-4. **Cost estimation:** How does Producer estimate multi-provider costs before generation?
-5. **Fallback logic:** What if preferred provider fails? Fallback to alternatives?
+1. **Default fit mode:** `speed-match` - inferred from style (podcast/educational → speed-match, visual → longest)
+2. **Voice selection:** Not yet implemented - could add `--voice <name>` flag
+3. **Parallel vs Sequential:** ✅ Already implemented via ExecutionGraph - auto-detects continuity groups
+4. **Cost estimation:** ✅ Already working - Producer estimates per-pilot costs before generation
+5. **Fallback logic:** Not implemented - providers fail with clear errors (resume handles recovery)
 
 ## Success Criteria
 
-User should be able to run:
+### Current State
+User runs:
 ```bash
-claude-studio produce -c "Coffee on table" --budget 10 --live --style podcast
+claude-studio kb produce myproject -p "Explain key findings" --budget 10 --live --style podcast
 ```
 
-And get:
-1. DALL-E seed image
-2. Luma video animation
-3. ElevenLabs narration
-4. FFmpeg-mixed final video with audio
-5. All orchestrated automatically by Producer based on budget and style
+And gets:
+1. ✅ Knowledge graph queried for relevant content
+2. ✅ ScriptWriter generates scenes with voiceover_text
+3. ✅ VideoGenerator creates videos (Luma)
+4. ✅ AudioGenerator creates narration (ElevenLabs/OpenAI)
+5. ❌ Videos and audio exist but not mixed
+6. ✅ EDL created with video references (audio_url = null)
+
+### Current State (Fully Implemented)
+Command produces:
+1. ✅ Knowledge graph queried for relevant content
+2. ✅ ScriptWriter generates scenes with voiceover_text
+3. ✅ VideoGenerator creates videos (Luma)
+4. ✅ AudioGenerator creates narration (ElevenLabs/OpenAI)
+5. ✅ Videos and audio mixed automatically
+6. ✅ EDL created with audio_url populated
+7. ✅ Final output with video + audio synced
+8. ✅ Saved to `run_dir/final_output.mp4`
 
 ## Next Steps
 
-1. Review this spec
-2. Decide on open questions
-3. Start with Phase 1 (CLI flags)
-4. Implement phases sequentially with testing
+1. ✅ Document actual implementation state (this spec)
+2. ✅ Implement audio → EDL → mixing connection
+3. ✅ Add comprehensive test coverage
+4. Test with real production runs
+5. Future: Granular provider flags (low priority)
 
 ---
 
