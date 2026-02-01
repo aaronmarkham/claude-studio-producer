@@ -2,7 +2,7 @@
 
 import json
 from collections import Counter, defaultdict
-from typing import List
+from typing import Dict, List, Optional
 
 from core.claude_client import ClaudeClient
 from core.models.knowledge import KnowledgeGraph as DocumentGraph
@@ -21,7 +21,7 @@ async def classify_segments(
     transcription: TranscriptionResult,
     document_graph: DocumentGraph,
     claude_client: ClaudeClient,
-) -> List[AlignedSegment]:
+) -> tuple[List[AlignedSegment], Optional[Dict[str, int]]]:
     """
     Use LLM to classify each transcript segment and align to PDF atoms.
 
@@ -79,7 +79,11 @@ Return as JSON array with one entry per segment:
 }}
 """
 
-    response = await claude_client.query(prompt)
+    response, usage = await claude_client.query(prompt, return_usage=True)
+
+    # Log usage if available
+    if usage:
+        print(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
 
     # Parse response
     try:
@@ -121,7 +125,7 @@ Return as JSON array with one entry per segment:
         )
         aligned_segments.append(aligned_seg)
 
-    return aligned_segments
+    return aligned_segments, usage
 
 
 async def extract_structure_profile(
@@ -182,7 +186,7 @@ async def extract_style_profile(
     transcription: TranscriptionResult,
     speaker_gender: str,
     claude_client: ClaudeClient,
-) -> StyleProfile:
+) -> tuple[StyleProfile, Optional[Dict[str, int]]]:
     """Extract style patterns using LLM analysis."""
 
     prompt = f"""Analyze the speaking style of this podcast transcript.
@@ -227,7 +231,11 @@ Return as JSON:
 }}
 """
 
-    response = await claude_client.query(prompt)
+    response, usage = await claude_client.query(prompt, return_usage=True)
+
+    # Log usage if available
+    if usage:
+        print(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
 
     # Parse response
     try:
@@ -240,7 +248,7 @@ Return as JSON:
     total_analogies = sum(len(s.analogies_used) for s in aligned_segments)
     duration_minutes = transcription.total_duration / 60.0 if transcription.total_duration > 0 else 1.0
 
-    return StyleProfile(
+    profile = StyleProfile(
         speaker_id=transcription.speaker_id or "unknown",
         speaker_gender=speaker_gender,
         avg_sentence_length=data.get("avg_sentence_length", 15.0),
@@ -258,3 +266,5 @@ Return as JSON:
         figure_intro_pattern=data.get("figure_intro_pattern", ""),
         figure_explanation_depth=data.get("figure_explanation_depth", "moderate"),
     )
+
+    return profile, usage

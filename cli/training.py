@@ -90,9 +90,10 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
 
     console.print("[bold cyan]Claude Studio Producer - Training Pipeline[/bold cyan]\n")
 
-    # Initialize clients
+    # Initialize clients and usage tracking
     claude_client = ClaudeClient()
     memory_manager = MemoryManager()
+    total_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
     # 1. Discover training pairs
     logger.info("Phase 1: Discovering Training Pairs")
@@ -231,11 +232,16 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
             if not analysis_checkpoint:
                 logger.info(f"  Classifying segments for {pair.pair_id}")
                 console.print("  Classifying segments...")
-                pair.aligned_segments = await classify_segments(
+                pair.aligned_segments, usage = await classify_segments(
                     pair.transcription,
                     pair.document_graph,
                     claude_client,
                 )
+                if usage:
+                    total_usage["input_tokens"] += usage["input_tokens"]
+                    total_usage["output_tokens"] += usage["output_tokens"]
+                    total_usage["total_tokens"] += usage["total_tokens"]
+                    logger.info(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
                 logger.info(f"  Classified {len(pair.aligned_segments)} segments")
                 console.print(f"  Classified {len(pair.aligned_segments)} segments")
 
@@ -250,12 +256,17 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
                 # Extract style profile
                 logger.info(f"  Extracting style profile for {pair.pair_id}")
                 console.print("  Extracting style profile...")
-                pair.style_profile = await extract_style_profile(
+                pair.style_profile, usage = await extract_style_profile(
                     pair.aligned_segments,
                     pair.transcription,
                     pair.speaker_gender,
                     claude_client,
                 )
+                if usage:
+                    total_usage["input_tokens"] += usage["input_tokens"]
+                    total_usage["output_tokens"] += usage["output_tokens"]
+                    total_usage["total_tokens"] += usage["total_tokens"]
+                    logger.info(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
                 logger.info(f"  Profiles extracted for {pair.pair_id}")
 
                 # Save analysis checkpoint
@@ -313,6 +324,20 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
         logger.info(f"Results saved to: {output_path}")
         console.print(f"\n[bold green]Training complete! Generated {len(results)} trials[/bold green]")
         console.print(f"Results saved to: {output_path}")
+
+        # Log total API usage
+        logger.info(f"Total API usage: {total_usage['input_tokens']} input + {total_usage['output_tokens']} output = {total_usage['total_tokens']} tokens")
+        console.print(f"\n[bold cyan]Total API Usage:[/bold cyan]")
+        console.print(f"  Input tokens:  {total_usage['input_tokens']:,}")
+        console.print(f"  Output tokens: {total_usage['output_tokens']:,}")
+        console.print(f"  Total tokens:  {total_usage['total_tokens']:,}")
+
+        # Estimate cost (Claude Sonnet 4 pricing: $3/MTok input, $15/MTok output)
+        cost_input = total_usage['input_tokens'] / 1_000_000 * 3.0
+        cost_output = total_usage['output_tokens'] / 1_000_000 * 15.0
+        total_cost = cost_input + cost_output
+        logger.info(f"Estimated cost: ${total_cost:.2f} (${cost_input:.2f} input + ${cost_output:.2f} output)")
+        console.print(f"  Estimated cost: [bold]${total_cost:.2f}[/bold] (${cost_input:.2f} input + ${cost_output:.2f} output)")
 
     except Exception as e:
         logger.error(f"Training loop failed: {e}", exc_info=True)

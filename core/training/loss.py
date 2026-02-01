@@ -72,7 +72,7 @@ For each concept, determine:
 Return JSON: {{"concepts": [{{"concept": "...", "covered": true, "depth": "explained"}}]}}
 """
 
-    response = await claude_client.query(prompt)
+    response, usage = await claude_client.query(prompt, return_usage=True)
 
     # Parse response
     try:
@@ -231,7 +231,7 @@ Return JSON:
 }}
 """
 
-    response = await claude_client.query(prompt)
+    response, usage = await claude_client.query(prompt, return_usage=True)
 
     # Parse response
     try:

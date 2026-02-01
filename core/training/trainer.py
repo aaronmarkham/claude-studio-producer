@@ -220,13 +220,7 @@ async def store_trial_results(
     }
     results_file.write_text(json.dumps(results_data, indent=2))
 
-    # Store in memory
-    namespace = "/org/default/learnings/podcast_training/trials"
-    await memory_manager.store(
-        namespace=namespace,
-        key=trial_result.trial_id,
-        data=results_data,
-    )
+    # Results are saved to file above; MemoryManager is for production run learnings only
 
 
 def print_trial_summary(trial_result: TrialResult):

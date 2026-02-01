@@ -20,16 +20,27 @@ class ClaudeClient:
     def __init__(self, debug: bool = False):
         self.debug = debug
         
-    async def query(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def query(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        return_usage: bool = False
+    ) -> Union[str, tuple[str, Optional[Dict[str, int]]]]:
         """
-        Send a query to Claude and get back clean text response
+        Send a query to Claude and get back clean text response with optional usage metadata
 
         Args:
             prompt: The user prompt
             system_prompt: Optional system prompt (not supported in simple query API)
+            return_usage: If True, return (response, usage_dict); if False, return just response
 
         Returns:
-            Clean text response from Claude
+            If return_usage=False (default): Just the response text string
+            If return_usage=True: Tuple of (response_text, usage_dict) where usage_dict contains:
+                - input_tokens: Number of input tokens
+                - output_tokens: Number of output tokens
+                - total_tokens: Total tokens used
+                Returns (response_text, None) if usage data unavailable
 
         Raises:
             ImportError: If neither Claude Agent SDK nor Anthropic SDK is available
@@ -41,6 +52,7 @@ class ClaudeClient:
             full_prompt = prompt
 
         response_text = ""
+        usage = None
 
         if self.debug:
             print(f"\n[DEBUG] Sending prompt ({len(full_prompt)} chars)")
@@ -52,6 +64,13 @@ class ClaudeClient:
                 text = self._extract_text_from_message(message)
                 if text:
                     response_text += text
+                # Try to extract usage from message if available
+                if hasattr(message, 'usage') and message.usage:
+                    usage = {
+                        'input_tokens': getattr(message.usage, 'input_tokens', 0),
+                        'output_tokens': getattr(message.usage, 'output_tokens', 0),
+                    }
+                    usage['total_tokens'] = usage['input_tokens'] + usage['output_tokens']
         except (ImportError, Exception) as sdk_err:
             # Fall back to Anthropic SDK (catches both missing SDK and runtime errors)
             if self.debug and not isinstance(sdk_err, ImportError):
@@ -73,6 +92,14 @@ class ClaudeClient:
                     messages=[{"role": "user", "content": full_prompt}]
                 )
                 response_text = response.content[0].text
+
+                # Extract usage from Anthropic SDK response
+                if hasattr(response, 'usage'):
+                    usage = {
+                        'input_tokens': response.usage.input_tokens,
+                        'output_tokens': response.usage.output_tokens,
+                        'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
+                    }
             except ImportError:
                 raise ImportError(
                     "Neither claude-agent-sdk nor anthropic SDK is installed. "
@@ -82,11 +109,17 @@ class ClaudeClient:
 
         if self.debug:
             print(f"[DEBUG] Received response ({len(response_text)} chars)")
+            if usage:
+                print(f"[DEBUG] Usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} total")
             print(f"[DEBUG] First 500 chars:")
             print(response_text[:500])
             print("[DEBUG] ---")
 
-        return response_text.strip()
+        # Return based on return_usage parameter (backward compatibility)
+        if return_usage:
+            return response_text.strip(), usage
+        else:
+            return response_text.strip()
 
     async def query_with_image(
         self,
