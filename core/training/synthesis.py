@@ -1,7 +1,9 @@
 """Profile aggregation and synthesis"""
 
+import json
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 from core.memory.manager import MemoryManager
@@ -118,9 +120,6 @@ async def store_profile_in_memory(
     output_dir: Path = None,
 ):
     """Store aggregated profile for agent use."""
-    from pathlib import Path
-    import json
-
     # Save to training output directory
     if output_dir is None:
         output_dir = Path("artifacts/training_output")
@@ -134,21 +133,3 @@ async def store_profile_in_memory(
     }
 
     profile_file.write_text(json.dumps(profile_data, indent=2, default=str))
-
-    # Store canonical sequence separately for easy access
-    await memory_manager.store(
-        namespace=f"{namespace}/structure",
-        key="canonical_sequence",
-        data={"sequence": [s.value for s in profile.canonical_segment_sequence]}
-    )
-
-    # Store style patterns
-    await memory_manager.store(
-        namespace=f"{namespace}/style",
-        key="patterns",
-        data={
-            "intro": profile.universal_intro_patterns,
-            "transition": profile.universal_transition_patterns,
-            "figure": profile.universal_figure_patterns,
-        }
-    )
