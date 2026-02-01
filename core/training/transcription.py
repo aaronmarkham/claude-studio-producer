@@ -6,6 +6,7 @@ from typing import Optional
 
 from openai import OpenAI
 
+from core.secrets import get_api_key
 from .models import TranscriptionResult, WordTimestamp, TranscriptSegment
 
 
@@ -27,7 +28,12 @@ async def transcribe_podcast(
     Returns:
         TranscriptionResult with full transcription and timestamps
     """
-    client = OpenAI()
+    # Get API key from keychain (or environment variable as fallback)
+    api_key = get_api_key("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not found in keychain or environment")
+
+    client = OpenAI(api_key=api_key)
 
     # Read audio file
     with open(audio_path, "rb") as f:
