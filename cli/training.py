@@ -75,21 +75,27 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
     memory_manager = MemoryManager()
 
     # 1. Discover training pairs
+    logger.info("Phase 1: Discovering Training Pairs")
     console.print("[bold]Phase 1: Discovering Training Pairs[/bold]")
     training_pairs = await discover_training_pairs(pairs_path)
+    logger.info(f"Found {len(training_pairs)} training pairs")
     console.print(f"Found {len(training_pairs)} training pairs\n")
 
     if not training_pairs:
+        logger.error("No training pairs found!")
         console.print("[red]No training pairs found![/red]")
         return
 
     # 2. Ingest and transcribe
+    logger.info("Phase 2: Ingestion & Transcription")
     console.print("[bold]Phase 2: Ingestion & Transcription[/bold]")
     for pair in training_pairs:
+        logger.info(f"Processing {pair.pair_id}")
         console.print(f"\nProcessing {pair.pair_id}...")
 
         # Create minimal document graph (PDF ingestion would go here in production)
         if not pair.document_graph:
+            logger.info(f"  Creating document graph for {pair.pair_id}")
             console.print("  Creating document graph...")
             try:
                 # Extract title from PDF filename
@@ -121,6 +127,7 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
 
         # Transcribe audio
         if not pair.transcription:
+            logger.info(f"  Transcribing audio for {pair.pair_id}")
             console.print("  Transcribing audio...")
             try:
                 pair.transcription = await transcribe_podcast(
@@ -128,33 +135,40 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
                     speaker_id=pair.pair_id,
                 )
                 pair.duration_minutes = pair.transcription.total_duration / 60.0
+                logger.info(f"  Duration: {pair.duration_minutes:.1f} minutes, Segments: {len(pair.transcription.segments)}")
                 console.print(f"  Duration: {pair.duration_minutes:.1f} minutes")
                 console.print(f"  Segments: {len(pair.transcription.segments)}")
             except Exception as e:
+                logger.error(f"  Transcription failed for {pair.pair_id}: {e}")
                 console.print(f"  [red]Error: Transcription failed: {e}[/red]")
                 import traceback
                 traceback.print_exc()
                 continue
 
     # 3. Analyze segments
+    logger.info("Phase 3: Segment Analysis")
     console.print("\n[bold]Phase 3: Segment Analysis[/bold]")
     for pair in training_pairs:
         if not pair.transcription or not pair.document_graph:
             continue
 
+        logger.info(f"Analyzing {pair.pair_id}")
         console.print(f"\nAnalyzing {pair.pair_id}...")
 
         try:
             # Classify segments
+            logger.info(f"  Classifying segments for {pair.pair_id}")
             console.print("  Classifying segments...")
             pair.aligned_segments = await classify_segments(
                 pair.transcription,
                 pair.document_graph,
                 claude_client,
             )
+            logger.info(f"  Classified {len(pair.aligned_segments)} segments")
             console.print(f"  Classified {len(pair.aligned_segments)} segments")
 
             # Extract structure profile
+            logger.info(f"  Extracting structure profile for {pair.pair_id}")
             console.print("  Extracting structure profile...")
             pair.structure_profile = await extract_structure_profile(
                 pair.aligned_segments,
@@ -162,6 +176,7 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
             )
 
             # Extract style profile
+            logger.info(f"  Extracting style profile for {pair.pair_id}")
             console.print("  Extracting style profile...")
             pair.style_profile = await extract_style_profile(
                 pair.aligned_segments,
@@ -169,27 +184,34 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
                 pair.speaker_gender,
                 claude_client,
             )
+            logger.info(f"  Profiles extracted for {pair.pair_id}")
         except Exception as e:
+            logger.error(f"  Analysis failed for {pair.pair_id}: {e}", exc_info=True)
             console.print(f"  [red]Error: Analysis failed: {e}[/red]")
             import traceback
             traceback.print_exc()
 
     # 4. Synthesize profiles
+    logger.info("Phase 4: Profile Synthesis")
     console.print("\n[bold]Phase 4: Profile Synthesis[/bold]")
     try:
         aggregated_profile = await synthesize_profiles(training_pairs)
+        logger.info(f"Created aggregated profile v{aggregated_profile.version}")
         console.print(f"Created aggregated profile v{aggregated_profile.version}")
 
         # Store in memory
         await store_profile_in_memory(aggregated_profile, memory_manager)
+        logger.info("Stored profile in memory")
         console.print("Stored profile in memory")
     except Exception as e:
+        logger.error(f"Profile synthesis failed: {e}", exc_info=True)
         console.print(f"[red]Error: Profile synthesis failed: {e}[/red]")
         import traceback
         traceback.print_exc()
         return
 
     # 5. Run training loop
+    logger.info(f"Phase 5: Training Loop (max_trials={max_trials})")
     console.print("\n[bold]Phase 5: Training Loop[/bold]")
     config = TrainingConfig(
         max_trials=max_trials,
@@ -207,10 +229,13 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
             output_dir=output_path,
         )
 
+        logger.info(f"Training complete! Generated {len(results)} trials")
+        logger.info(f"Results saved to: {output_path}")
         console.print(f"\n[bold green]Training complete! Generated {len(results)} trials[/bold green]")
         console.print(f"Results saved to: {output_path}")
 
     except Exception as e:
+        logger.error(f"Training loop failed: {e}", exc_info=True)
         console.print(f"[red]Error: Training loop failed: {e}[/red]")
         import traceback
         traceback.print_exc()
