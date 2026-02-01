@@ -1,3 +1,8 @@
+# System Requirements
+# FFmpeg must be installed separately for video/audio processing
+# Install: brew install ffmpeg (macOS), apt install ffmpeg (Linux), choco install ffmpeg (Windows)
+# See: https://ffmpeg.org/download.html
+
 # Core dependencies
 anthropic>=0.34.0
 strands-agents>=0.1.0

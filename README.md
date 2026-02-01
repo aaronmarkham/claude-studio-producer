@@ -27,6 +27,30 @@ If you're curious about the design aspect, there are a bunch of [spec docs](docs
 
 [Read more about the project in my developer notes](docs/dev_notes.md)
 
+## Prerequisites
+
+**System Requirements:**
+- Python 3.11+
+- FFmpeg (required for video/audio processing)
+
+**Install FFmpeg:**
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# Windows
+choco install ffmpeg
+# Or download from https://ffmpeg.org/download.html
+```
+
+Verify installation:
+```bash
+ffmpeg -version
+```
+
 ## Quick Start
 
 ```bash
@@ -35,15 +59,19 @@ git clone https://github.com/aaronmarkham/claude-studio-producer.git
 cd claude-studio-producer
 pip install -e ".[server]"
 
-# Set up API keys
+# Set up API keys securely with OS keychain
+claude-studio secrets set ANTHROPIC
+claude-studio secrets set LUMA
+
+# Or use environment variables
 cp .env.example .env
 # Add ANTHROPIC_API_KEY and LUMA_API_KEY
 
 # Run a production (mock mode - no API costs)
-python -m cli.produce "A serene mountain lake at sunset" --budget 5
+claude-studio produce "A serene mountain lake at sunset" --budget 5
 
 # Run with real video generation
-python -m cli.produce "A serene mountain lake at sunset" --budget 5 --live
+claude-studio produce "A serene mountain lake at sunset" --budget 5 --live --provider luma
 ```
 
 ## Architecture
