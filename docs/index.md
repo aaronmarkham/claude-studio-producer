@@ -22,19 +22,23 @@ To a production-ready platform with:
 
 ## Example Videos
 
-### Coffee Cup - Multi-Provider Pipeline
-*DALL-E → Luma: Image generation → Video animation*
+### Coffee Cup - Complete Multi-Provider Pipeline
+*DALL-E → Luma → ElevenLabs → FFmpeg: Image → Video → Audio → Final Render*
 
 <video width="100%" controls>
-  <source src="videos/coffee_layer3.mp4" type="video/mp4">
+  <source src="videos/coffee_final.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
 **Production Pipeline:**
 1. **DALL-E**: Generated coffee cup image from text prompt
 2. **Luma**: Transformed static image into dynamic video with realistic steam and lighting
+3. **ElevenLabs**: Created natural voiceover narration with Lily's voice
+4. **FFmpeg**: Mixed video and audio with speed-match synchronization
 
-**Prompt:** "Steam rises gently from the coffee cup, morning light shifts slowly across the wooden table, peaceful cozy atmosphere"
+**Video Prompt:** "Steam rises gently from the coffee cup, morning light shifts slowly across the wooden table, peaceful cozy atmosphere"
+
+**Narration:** "A perfect morning begins with the gentle aroma of freshly brewed coffee. Steam dances upward in delicate spirals, catching the soft rays of morning light that stream through the window. The wooden table beneath cradles this simple ritual."
 
 [View more examples →](examples.html)
 
@@ -100,7 +104,11 @@ claude-studio kb produce "Research" -p "Explain transformers" --style educationa
 
 # Test providers
 claude-studio provider test luma -p "coffee steam rising" -d 5 --live
-claude-studio provider test dalle -t image -p "coffee cup on table" --live
+claude-studio provider test dalle -p "coffee cup on table" --live
+claude-studio provider test elevenlabs -t "Your narration text" --voice lily --live
+
+# Render and mix video + audio
+claude-studio render mix video.mp4 --audio narration.mp3 -o final.mp4 --fit speed-match
 
 # Memory/learning management
 claude-studio memory list luma
