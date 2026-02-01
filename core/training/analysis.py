@@ -33,6 +33,17 @@ async def classify_segments(
     abstract = getattr(document_graph, 'unified_summary', 'N/A')[:500]
     themes = getattr(document_graph, 'key_themes', [])
 
+    # Build segment list for JSON (avoid nested f-strings)
+    segments_data = [
+        {
+            'id': s.segment_id,
+            'text': s.text,
+            'time': f'{s.start_time:.1f}-{s.end_time:.1f}s'
+        }
+        for s in transcription.segments[:50]
+    ]
+    segments_json = json.dumps(segments_data, indent=2)
+
     prompt = f"""Analyze this podcast transcript segment by segment and classify each one.
 
 PAPER BEING DISCUSSED:
@@ -41,7 +52,7 @@ Summary: {abstract}
 Key Themes: {', '.join(themes) if themes else 'N/A'}
 
 TRANSCRIPT (segmented):
-{json.dumps([{{'id': s.segment_id, 'text': s.text, 'time': f'{s.start_time:.1f}-{s.end_time:.1f}s'}} for s in transcription.segments[:50]], indent=2)}
+{segments_json}
 
 For each segment, identify:
 1. segment_type: One of {[t.value for t in SegmentType]}
