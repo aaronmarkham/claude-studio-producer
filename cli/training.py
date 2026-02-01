@@ -2,6 +2,7 @@
 
 import asyncio
 import click
+import json
 import logging
 import sys
 from datetime import datetime
@@ -30,6 +31,20 @@ from core.training import (
 console = Console()
 
 
+def save_checkpoint(checkpoint_dir: Path, pair_id: str, checkpoint_type: str, data: dict):
+    """Save a checkpoint to disk"""
+    checkpoint_file = checkpoint_dir / f"{pair_id}_{checkpoint_type}.json"
+    checkpoint_file.write_text(json.dumps(data, indent=2, default=str))
+
+
+def load_checkpoint(checkpoint_dir: Path, pair_id: str, checkpoint_type: str) -> dict | None:
+    """Load a checkpoint from disk if it exists"""
+    checkpoint_file = checkpoint_dir / f"{pair_id}_{checkpoint_type}.json"
+    if checkpoint_file.exists():
+        return json.loads(checkpoint_file.read_text())
+    return None
+
+
 @click.group()
 def training():
     """Training pipeline commands"""
@@ -52,6 +67,10 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    # Set up checkpointing directory
+    checkpoint_dir = output_path / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     # Set up logging
     log_file = output_path / f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     logging.basicConfig(
@@ -66,6 +85,7 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
 
     logger.info("Starting training pipeline")
     logger.info(f"Output directory: {output_path}")
+    logger.info(f"Checkpoint directory: {checkpoint_dir}")
     logger.info(f"Log file: {log_file}")
 
     console.print("[bold cyan]Claude Studio Producer - Training Pipeline[/bold cyan]\n")
@@ -125,25 +145,66 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
                     key_themes=[],
                 )
 
-        # Transcribe audio
+        # Transcribe audio (or load from checkpoint)
         if not pair.transcription:
-            logger.info(f"  Transcribing audio for {pair.pair_id}")
-            console.print("  Transcribing audio...")
-            try:
-                pair.transcription = await transcribe_podcast(
-                    pair.audio_path,
-                    speaker_id=pair.pair_id,
-                )
-                pair.duration_minutes = pair.transcription.total_duration / 60.0
-                logger.info(f"  Duration: {pair.duration_minutes:.1f} minutes, Segments: {len(pair.transcription.segments)}")
-                console.print(f"  Duration: {pair.duration_minutes:.1f} minutes")
-                console.print(f"  Segments: {len(pair.transcription.segments)}")
-            except Exception as e:
-                logger.error(f"  Transcription failed for {pair.pair_id}: {e}")
-                console.print(f"  [red]Error: Transcription failed: {e}[/red]")
-                import traceback
-                traceback.print_exc()
-                continue
+            # Check for existing checkpoint
+            checkpoint = load_checkpoint(checkpoint_dir, pair.pair_id, "transcription")
+            if checkpoint:
+                logger.info(f"  Loading transcription from checkpoint for {pair.pair_id}")
+                console.print("  [yellow]Loading transcription from checkpoint...[/yellow]")
+                try:
+                    # Reconstruct TranscriptionResult from checkpoint
+                    from core.training.models import WordTimestamp, TranscriptSegment
+                    pair.transcription = TranscriptionResult(
+                        source_path=checkpoint["source_path"],
+                        transcript_text=checkpoint["transcript_text"],
+                        word_timestamps=[WordTimestamp(**w) for w in checkpoint["word_timestamps"]],
+                        segments=[TranscriptSegment(**s) for s in checkpoint["segments"]],
+                        total_duration=checkpoint["total_duration"],
+                        speaker_id=checkpoint["speaker_id"],
+                        confidence=checkpoint["confidence"],
+                        language=checkpoint["language"],
+                    )
+                    pair.duration_minutes = pair.transcription.total_duration / 60.0
+                    logger.info(f"  Loaded: {pair.duration_minutes:.1f} minutes, {len(pair.transcription.segments)} segments")
+                    console.print(f"  Duration: {pair.duration_minutes:.1f} minutes")
+                    console.print(f"  Segments: {len(pair.transcription.segments)}")
+                except Exception as e:
+                    logger.warning(f"  Failed to load checkpoint, will re-transcribe: {e}")
+                    console.print(f"  [yellow]Checkpoint load failed, re-transcribing...[/yellow]")
+                    checkpoint = None
+
+            if not checkpoint:
+                logger.info(f"  Transcribing audio for {pair.pair_id}")
+                console.print("  Transcribing audio...")
+                try:
+                    pair.transcription = await transcribe_podcast(
+                        pair.audio_path,
+                        speaker_id=pair.pair_id,
+                    )
+                    pair.duration_minutes = pair.transcription.total_duration / 60.0
+                    logger.info(f"  Duration: {pair.duration_minutes:.1f} minutes, Segments: {len(pair.transcription.segments)}")
+                    console.print(f"  Duration: {pair.duration_minutes:.1f} minutes")
+                    console.print(f"  Segments: {len(pair.transcription.segments)}")
+
+                    # Save checkpoint
+                    save_checkpoint(checkpoint_dir, pair.pair_id, "transcription", {
+                        "source_path": pair.transcription.source_path,
+                        "transcript_text": pair.transcription.transcript_text,
+                        "word_timestamps": [{"word": w.word, "start_time": w.start_time, "end_time": w.end_time, "confidence": w.confidence} for w in pair.transcription.word_timestamps],
+                        "segments": [{"segment_id": s.segment_id, "text": s.text, "start_time": s.start_time, "end_time": s.end_time, "duration": s.duration} for s in pair.transcription.segments],
+                        "total_duration": pair.transcription.total_duration,
+                        "speaker_id": pair.transcription.speaker_id,
+                        "confidence": pair.transcription.confidence,
+                        "language": pair.transcription.language,
+                    })
+                    logger.info(f"  Saved transcription checkpoint for {pair.pair_id}")
+                except Exception as e:
+                    logger.error(f"  Transcription failed for {pair.pair_id}: {e}")
+                    console.print(f"  [red]Error: Transcription failed: {e}[/red]")
+                    import traceback
+                    traceback.print_exc()
+                    continue
 
     # 3. Analyze segments
     logger.info("Phase 3: Segment Analysis")
@@ -156,35 +217,54 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
         console.print(f"\nAnalyzing {pair.pair_id}...")
 
         try:
-            # Classify segments
-            logger.info(f"  Classifying segments for {pair.pair_id}")
-            console.print("  Classifying segments...")
-            pair.aligned_segments = await classify_segments(
-                pair.transcription,
-                pair.document_graph,
-                claude_client,
-            )
-            logger.info(f"  Classified {len(pair.aligned_segments)} segments")
-            console.print(f"  Classified {len(pair.aligned_segments)} segments")
+            # Classify segments (or load from checkpoint)
+            analysis_checkpoint = load_checkpoint(checkpoint_dir, pair.pair_id, "analysis")
+            if analysis_checkpoint and 'aligned_segments' in analysis_checkpoint:
+                logger.info(f"  Loading analysis from checkpoint for {pair.pair_id}")
+                console.print("  [yellow]Loading analysis from checkpoint...[/yellow]")
+                # Note: Full reconstruction would need all dataclasses, simplified for now
+                logger.info(f"  Loaded {len(analysis_checkpoint['aligned_segments'])} segments")
+                console.print(f"  Loaded {len(analysis_checkpoint['aligned_segments'])} segments from checkpoint")
+                # Still need to run analysis since we can't easily reconstruct complex objects
+                analysis_checkpoint = None  # Force re-analysis for now
 
-            # Extract structure profile
-            logger.info(f"  Extracting structure profile for {pair.pair_id}")
-            console.print("  Extracting structure profile...")
-            pair.structure_profile = await extract_structure_profile(
-                pair.aligned_segments,
-                pair.transcription,
-            )
+            if not analysis_checkpoint:
+                logger.info(f"  Classifying segments for {pair.pair_id}")
+                console.print("  Classifying segments...")
+                pair.aligned_segments = await classify_segments(
+                    pair.transcription,
+                    pair.document_graph,
+                    claude_client,
+                )
+                logger.info(f"  Classified {len(pair.aligned_segments)} segments")
+                console.print(f"  Classified {len(pair.aligned_segments)} segments")
 
-            # Extract style profile
-            logger.info(f"  Extracting style profile for {pair.pair_id}")
-            console.print("  Extracting style profile...")
-            pair.style_profile = await extract_style_profile(
-                pair.aligned_segments,
-                pair.transcription,
-                pair.speaker_gender,
-                claude_client,
-            )
-            logger.info(f"  Profiles extracted for {pair.pair_id}")
+                # Extract structure profile
+                logger.info(f"  Extracting structure profile for {pair.pair_id}")
+                console.print("  Extracting structure profile...")
+                pair.structure_profile = await extract_structure_profile(
+                    pair.aligned_segments,
+                    pair.transcription,
+                )
+
+                # Extract style profile
+                logger.info(f"  Extracting style profile for {pair.pair_id}")
+                console.print("  Extracting style profile...")
+                pair.style_profile = await extract_style_profile(
+                    pair.aligned_segments,
+                    pair.transcription,
+                    pair.speaker_gender,
+                    claude_client,
+                )
+                logger.info(f"  Profiles extracted for {pair.pair_id}")
+
+                # Save analysis checkpoint
+                save_checkpoint(checkpoint_dir, pair.pair_id, "analysis", {
+                    "aligned_segments": [{"segment_id": s.segment_id if hasattr(s, 'segment_id') else str(i)} for i, s in enumerate(pair.aligned_segments)],
+                    "num_segments": len(pair.aligned_segments),
+                    "timestamp": datetime.now().isoformat(),
+                })
+                logger.info(f"  Saved analysis checkpoint for {pair.pair_id}")
         except Exception as e:
             logger.error(f"  Analysis failed for {pair.pair_id}: {e}", exc_info=True)
             console.print(f"  [red]Error: Analysis failed: {e}[/red]")
