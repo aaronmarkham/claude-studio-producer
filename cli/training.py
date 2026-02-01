@@ -285,21 +285,42 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
     # 4. Synthesize profiles
     logger.info("Phase 4: Profile Synthesis")
     console.print("\n[bold]Phase 4: Profile Synthesis[/bold]")
-    try:
-        aggregated_profile = await synthesize_profiles(training_pairs)
-        logger.info(f"Created aggregated profile v{aggregated_profile.version}")
-        console.print(f"Created aggregated profile v{aggregated_profile.version}")
 
-        # Store profile to file
-        await store_profile_in_memory(aggregated_profile, memory_manager, output_path)
-        logger.info("Stored profile to aggregated_profile.json")
-        console.print("Stored profile to aggregated_profile.json")
-    except Exception as e:
-        logger.error(f"Profile synthesis failed: {e}", exc_info=True)
-        console.print(f"[red]Error: Profile synthesis failed: {e}[/red]")
-        import traceback
-        traceback.print_exc()
-        return
+    # Check for existing profile
+    profile_file = output_path / "aggregated_profile.json"
+    aggregated_profile = None
+
+    if profile_file.exists():
+        logger.info("Loading existing aggregated profile from checkpoint")
+        console.print("  [yellow]Loading existing profile from checkpoint...[/yellow]")
+        try:
+            profile_data = json.loads(profile_file.read_text())
+            logger.info(f"Loaded profile version {profile_data.get('version', 'unknown')}")
+            console.print(f"  Loaded profile version {profile_data.get('version', 'unknown')}")
+            # Profile already exists, skip synthesis
+            # Note: We're not reconstructing the full AggregatedProfile object here,
+            # but the file exists which is what Phase 5 needs
+        except Exception as e:
+            logger.warning(f"Failed to load profile checkpoint: {e}")
+            console.print(f"  [yellow]Checkpoint load failed, re-synthesizing...[/yellow]")
+            profile_file = None  # Force re-synthesis
+
+    if not profile_file or not profile_file.exists():
+        try:
+            aggregated_profile = await synthesize_profiles(training_pairs)
+            logger.info(f"Created aggregated profile v{aggregated_profile.version}")
+            console.print(f"Created aggregated profile v{aggregated_profile.version}")
+
+            # Store profile to file
+            await store_profile_in_memory(aggregated_profile, memory_manager, output_path)
+            logger.info("Stored profile to aggregated_profile.json")
+            console.print("Stored profile to aggregated_profile.json")
+        except Exception as e:
+            logger.error(f"Profile synthesis failed: {e}", exc_info=True)
+            console.print(f"[red]Error: Profile synthesis failed: {e}[/red]")
+            import traceback
+            traceback.print_exc()
+            return
 
     # 5. Run training loop
     logger.info(f"Phase 5: Training Loop (max_trials={max_trials})")
