@@ -53,7 +53,7 @@ To a production-ready platform with:
 
 - [GitHub Repository](https://github.com/aaronmarkham/claude-studio-producer) - Source code, installation, quickstart
 - [Examples](examples.html) - Command examples with real outputs
-- [FFmpeg Integration](ffmpeg.html) - Video/audio processing features and setup
+- [Rendering & Mixing](rendering.html) - Video/audio processing features and setup
 - [README](https://github.com/aaronmarkham/claude-studio-producer/blob/main/README.md) - Full project overview
 
 ### 🏗️ Architecture Deep Dives

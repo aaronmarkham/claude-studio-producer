@@ -1,11 +1,13 @@
 ---
 layout: default
-title: FFmpeg Integration
+title: Rendering & Mixing
 ---
 
-# FFmpeg Integration
+# Rendering & Mixing
 
-Claude Studio Producer uses FFmpeg for professional video and audio processing. This page covers installation, features, and common operations.
+Claude Studio Producer provides professional video and audio processing capabilities. This page covers mixing video with audio, rendering EDLs, and advanced processing features.
+
+All processing is powered by FFmpeg under the hood.
 
 ## Installation
 
