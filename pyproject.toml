@@ -43,6 +43,8 @@ dependencies = [
     "rich>=13.0.0",
     "lumaai>=0.1.0",
     "keyring>=25.0.0",
+    "openai>=1.0.0",
+    "rouge-score>=0.1.2",
 ]
 
 [project.optional-dependencies]

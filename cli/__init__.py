@@ -17,13 +17,15 @@ from .document import document_cmd
 from .kb import kb_cmd
 from .provider_cli import provider
 from .secrets import secrets_cli
+from .resume import resume_cmd
+from .training import training
 
 # Load .env file at CLI startup
 load_dotenv()
 
 
 @click.group()
-@click.version_option(version="0.5.0")
+@click.version_option(version="0.6.0")
 def main():
     """Claude Studio Producer - AI Video Production Pipeline
 
@@ -35,6 +37,7 @@ def main():
     \b
     Commands:
       produce        Run full video production pipeline
+      resume         Resume a production from where it stopped
       render         Render commands (edl, mix video+audio)
       test-provider  Test a single provider (quick validation)
       luma           Luma API management (list, download, recover)
@@ -43,6 +46,7 @@ def main():
       document       Document ingestion (PDF to knowledge graph)
       kb             Knowledge base management (multi-source projects)
       provider       Provider onboarding and management
+      training       Training pipeline for podcast calibration
       secrets        Secure API key management (OS keychain)
       status         Show system status
       providers      List and manage providers
@@ -55,6 +59,7 @@ def main():
 
 # Main production commands
 main.add_command(produce_cmd, name="produce")
+main.add_command(resume_cmd, name="resume")
 main.add_command(render_cmd, name="render")
 main.add_command(test_provider_cmd, name="test-provider")
 main.add_command(luma_cmd, name="luma")
@@ -65,6 +70,9 @@ main.add_command(kb_cmd, name="kb")
 
 # Provider management commands
 main.add_command(provider, name="provider")
+
+# Training commands
+main.add_command(training, name="training")
 
 # Security commands
 main.add_command(secrets_cli, name="secrets")
