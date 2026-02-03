@@ -114,12 +114,19 @@ Storage: `artifacts/memory.json` (local) or Bedrock AgentCore (production)
 4. **Checkpointing** - Provider onboarding has resume capability (`--resume`)
 5. **Parallelism consideration** - For narrative consistency, video scenes often need sequential generation with keyframe passing
 
+## Active Specs (read before implementing)
+
+- [AUDIO_VIDEO_ORCHESTRATION_PATCH.md](docs/specs/AUDIO_VIDEO_ORCHESTRATION_PATCH.md) — Wire audio into EDL + mixing
+- [PODCAST_TRAINING_PIPELINE.md](docs/specs/PODCAST_TRAINING_PIPELINE.md) — ML-style podcast quality training
+- [MULTI_PROVIDER_ORCHESTRATION.md](docs/specs/MULTI_PROVIDER_ORCHESTRATION.md) — Provider system architecture
+
 ## Working Style
 
 - Use the codebase-scout subagent to find files before modifying them
 - Use the test-runner subagent after making changes
 - Read only the specific section of a spec needed for the current task
 - Do not read entire files when Grep can find the relevant lines
+- After implementing, always run: `python -m py_compile <file>` then `pytest`
 
 ## Current State (Jan 2026)
 
