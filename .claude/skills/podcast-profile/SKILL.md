@@ -4,7 +4,8 @@ description: >
   Podcast generation patterns learned from training data.
   Includes segment structures, style profiles, and quality thresholds.
 context: fork
-agent: codebase-scout
+requires:
+  tools: [Read, Glob, Grep]
 ---
 
 # Podcast Profile Skill
