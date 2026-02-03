@@ -74,4 +74,3 @@ setup_here.sh
 artifacts/*
 !artifacts/.gitkeep
 !artifacts/README.md
-.claude/

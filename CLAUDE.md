@@ -114,6 +114,13 @@ Storage: `artifacts/memory.json` (local) or Bedrock AgentCore (production)
 4. **Checkpointing** - Provider onboarding has resume capability (`--resume`)
 5. **Parallelism consideration** - For narrative consistency, video scenes often need sequential generation with keyframe passing
 
+## Working Style
+
+- Use the codebase-scout subagent to find files before modifying them
+- Use the test-runner subagent after making changes
+- Read only the specific section of a spec needed for the current task
+- Do not read entire files when Grep can find the relevant lines
+
 ## Current State (Jan 2026)
 
 Working:
