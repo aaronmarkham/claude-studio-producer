@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Any, Optional, Dict, List
 
 import click
 from rich.console import Console
@@ -875,3 +875,456 @@ def produce_cmd_kb(project, prompt, sources, tier, duration, budget, provider, a
         if debug:
             import traceback
             traceback.print_exc()
+
+
+# Known structural/noise terms that shouldn't be topics
+STRUCTURAL_NOISE_TERMS = {
+    # Block types (should never be topics)
+    "figure", "figure caption", "caption", "header", "footer",
+    "paragraph", "abstract", "section", "subsection", "title",
+    "table", "equation", "citation", "reference", "bibliography",
+    "author", "date", "keyword", "metadata", "page header", "page footer",
+    # Document structure
+    "volume information", "mathematical expression", "mathematical bracket",
+    "author biography", "affiliations", "contact", "acknowledgments",
+    # Generic academic
+    "introduction", "conclusion", "related work", "background",
+    "methodology", "methods", "results", "discussion", "evaluation",
+    "experimental", "experiment", "future work",
+}
+
+
+def _calculate_topic_quality(topics: Dict[str, List[str]], atom_sources: Dict[str, str]) -> Dict[str, Any]:
+    """Analyze topic quality and detect noise."""
+    total_topics = len(topics)
+    if total_topics == 0:
+        return {"score": 0, "noise_count": 0, "noise_topics": [], "good_topics": []}
+
+    noise_topics = []
+    good_topics = []
+
+    for topic, atom_ids in topics.items():
+        topic_lower = topic.lower().strip()
+
+        # Check for structural noise
+        is_noise = False
+        noise_reason = None
+
+        if topic_lower in STRUCTURAL_NOISE_TERMS:
+            is_noise = True
+            noise_reason = "structural term"
+        elif len(topic_lower) < 3:
+            is_noise = True
+            noise_reason = "too short"
+        elif topic_lower.isdigit():
+            is_noise = True
+            noise_reason = "numeric only"
+        # Check for single common words
+        elif ' ' not in topic_lower and len(topic_lower) < 6:
+            is_noise = True
+            noise_reason = "short single word"
+
+        if is_noise:
+            noise_topics.append({
+                "topic": topic,
+                "count": len(atom_ids),
+                "reason": noise_reason,
+            })
+        else:
+            # Count sources this topic appears in
+            sources = set(atom_sources.get(aid, "") for aid in atom_ids)
+            sources.discard("")
+            good_topics.append({
+                "topic": topic,
+                "count": len(atom_ids),
+                "sources": len(sources),
+            })
+
+    # Sort by count
+    noise_topics.sort(key=lambda x: x["count"], reverse=True)
+    good_topics.sort(key=lambda x: x["count"], reverse=True)
+
+    # Calculate quality score (0-100)
+    noise_count = len(noise_topics)
+    good_count = len(good_topics)
+    if total_topics > 0:
+        quality_score = int((good_count / total_topics) * 100)
+    else:
+        quality_score = 0
+
+    return {
+        "score": quality_score,
+        "total_topics": total_topics,
+        "noise_count": noise_count,
+        "good_count": good_count,
+        "noise_topics": noise_topics[:20],  # Top 20 noise
+        "good_topics": good_topics[:20],    # Top 20 good
+    }
+
+
+def _calculate_entity_quality(entities: Dict[str, List[str]]) -> Dict[str, Any]:
+    """Analyze entity extraction quality."""
+    total = len(entities)
+    if total == 0:
+        return {"score": 0, "acronyms": [], "proper_names": [], "other": []}
+
+    acronyms = []
+    proper_names = []
+    other = []
+
+    for entity, atom_ids in entities.items():
+        count = len(atom_ids)
+        # Acronyms: all caps, 2-6 chars
+        if entity.isupper() and 2 <= len(entity) <= 6:
+            acronyms.append({"entity": entity, "count": count})
+        # Proper names: capitalized multi-word
+        elif ' ' in entity and entity[0].isupper():
+            proper_names.append({"entity": entity, "count": count})
+        else:
+            other.append({"entity": entity, "count": count})
+
+    # Sort each by count
+    acronyms.sort(key=lambda x: x["count"], reverse=True)
+    proper_names.sort(key=lambda x: x["count"], reverse=True)
+    other.sort(key=lambda x: x["count"], reverse=True)
+
+    # Good entities are acronyms and proper names
+    good_count = len(acronyms) + len(proper_names)
+    quality_score = int((good_count / total) * 100) if total > 0 else 0
+
+    return {
+        "score": quality_score,
+        "total_entities": total,
+        "acronyms": acronyms[:10],
+        "proper_names": proper_names[:10],
+        "other": other[:10],
+    }
+
+
+def _get_atom_type_distribution(atoms: Dict[str, Any]) -> Dict[str, int]:
+    """Count atoms by type."""
+    from core.models.document import AtomType
+    dist = {}
+    for atom in atoms.values():
+        atom_type = atom.atom_type.value if hasattr(atom.atom_type, 'value') else str(atom.atom_type)
+        dist[atom_type] = dist.get(atom_type, 0) + 1
+    return dict(sorted(dist.items(), key=lambda x: -x[1]))
+
+
+@kb_cmd.command("inspect")
+@click.argument("project", required=False)
+@click.option("--file", "-f", "file_path", type=click.Path(exists=True), help="Inspect a knowledge graph JSON file directly")
+@click.option("--topics", "show_topics", is_flag=True, help="Show topic distribution and quality")
+@click.option("--entities", "show_entities", is_flag=True, help="Show entity extraction quality")
+@click.option("--atoms", "show_atoms", is_flag=True, help="Sample atoms by type")
+@click.option("--quality", "show_quality", is_flag=True, help="Full quality report")
+@click.option("--sample", "-n", default=3, help="Number of samples per category")
+@click.option("--source", "-s", help="Inspect specific source ID only")
+def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: bool, show_entities: bool, show_atoms: bool, show_quality: bool, sample: int, source: str):
+    """Inspect knowledge graph quality and content.
+
+    \b
+    Examples:
+      claude-studio kb inspect myproject --quality     # Full quality report
+      claude-studio kb inspect myproject --topics      # Topic distribution
+      claude-studio kb inspect myproject --atoms -n 5  # Sample 5 atoms per type
+      claude-studio kb inspect myproject -s src_abc123 # Inspect specific source
+      claude-studio kb inspect --file path/to/knowledge_graph.json  # Inspect any KG file
+    """
+    from core.models.knowledge import KnowledgeGraph
+    from core.models.document import DocumentAtom, AtomType
+
+    proj = None
+
+    # Load from file or project
+    if file_path:
+        # Direct file inspection
+        kg_path = Path(file_path)
+        console.print(f"[cyan]Inspecting file:[/cyan] {kg_path.name}\n")
+
+        with open(kg_path, encoding="utf-8") as f:
+            kg_data = json.load(f)
+
+        # Handle both KnowledgeGraph and DocumentGraph formats
+        if "atoms" in kg_data:
+            # Check if it's a DocumentGraph (has document_id) or KnowledgeGraph (has project_id)
+            if "document_id" in kg_data:
+                # Convert DocumentGraph format to KnowledgeGraph-like structure
+                atoms = {}
+                for aid, atom_data in kg_data.get("atoms", {}).items():
+                    atoms[aid] = DocumentAtom(
+                        atom_id=atom_data["atom_id"],
+                        atom_type=AtomType(atom_data["atom_type"]),
+                        content=atom_data.get("content", ""),
+                        source_page=atom_data.get("source_page"),
+                        source_location=atom_data.get("source_location"),
+                        topics=atom_data.get("topics", []),
+                        entities=atom_data.get("entities", []),
+                        relationships=atom_data.get("relationships", []),
+                        importance_score=atom_data.get("importance_score", 0.5),
+                        caption=atom_data.get("caption"),
+                        figure_number=atom_data.get("figure_number"),
+                        data_summary=atom_data.get("data_summary"),
+                    )
+
+                # Build indices
+                topic_index = {}
+                entity_index = {}
+                for aid, atom in atoms.items():
+                    for topic in atom.topics:
+                        if topic not in topic_index:
+                            topic_index[topic] = []
+                        topic_index[topic].append(aid)
+                    for entity in atom.entities:
+                        if entity not in entity_index:
+                            entity_index[entity] = []
+                        entity_index[entity].append(aid)
+
+                # Extract key themes from most common topics
+                topic_counts = [(topic, len(aids)) for topic, aids in topic_index.items()]
+                topic_counts.sort(key=lambda x: x[1], reverse=True)
+                key_themes = [topic for topic, _ in topic_counts[:10]]
+
+                kg = KnowledgeGraph(
+                    project_id=kg_data.get("document_id", "unknown"),
+                    atoms=atoms,
+                    atom_sources={aid: "file" for aid in atoms},
+                    cross_links=[],
+                    topic_index=topic_index,
+                    entity_index=entity_index,
+                    key_themes=key_themes,
+                )
+            else:
+                kg = KnowledgeGraph.from_dict(kg_data)
+        else:
+            console.print("[red]Invalid knowledge graph format.[/red]")
+            return
+
+    elif project:
+        project_dir = _resolve_project(project)
+        if not project_dir:
+            console.print(f"[red]Project not found:[/red] {project}")
+            return
+
+        proj = _load_project(project_dir)
+
+        # Load knowledge graph
+        kg_path = project_dir / "knowledge_graph.json"
+        if not kg_path.exists():
+            console.print("[red]No knowledge graph found.[/red] Add sources first.")
+            return
+
+        with open(kg_path, encoding="utf-8") as f:
+            kg_data = json.load(f)
+        kg = KnowledgeGraph.from_dict(kg_data)
+    else:
+        console.print("[red]Specify a project name or --file path[/red]")
+        return
+
+    # Filter by source if specified (only works with project mode)
+    if source and proj:
+        if source not in proj.sources:
+            # Try prefix match
+            matches = [sid for sid in proj.sources if sid.startswith(source) or sid.endswith(source)]
+            if len(matches) == 1:
+                source = matches[0]
+            elif len(matches) > 1:
+                console.print(f"[yellow]Ambiguous source ID. Matches:[/yellow] {', '.join(matches)}")
+                return
+            else:
+                console.print(f"[red]Source not found:[/red] {source}")
+                return
+
+        # Filter atoms to this source
+        filtered_atoms = {aid: atom for aid, atom in kg.atoms.items()
+                         if kg.atom_sources.get(aid) == source}
+        filtered_sources = {aid: sid for aid, sid in kg.atom_sources.items() if sid == source}
+
+        # Rebuild topic/entity indices for filtered atoms
+        filtered_topics = {}
+        filtered_entities = {}
+        for aid, atom in filtered_atoms.items():
+            for topic in atom.topics:
+                if topic not in filtered_topics:
+                    filtered_topics[topic] = []
+                filtered_topics[topic].append(aid)
+            for entity in atom.entities:
+                if entity not in filtered_entities:
+                    filtered_entities[entity] = []
+                filtered_entities[entity].append(aid)
+
+        console.print(f"[cyan]Inspecting source:[/cyan] {source}")
+        console.print(f"[dim]{proj.sources[source].title}[/dim]\n")
+    elif source and not proj:
+        console.print("[yellow]Source filtering only works with project mode, ignoring --source[/yellow]\n")
+        filtered_atoms = kg.atoms
+        filtered_sources = kg.atom_sources
+        filtered_topics = kg.topic_index
+        filtered_entities = kg.entity_index
+    else:
+        filtered_atoms = kg.atoms
+        filtered_sources = kg.atom_sources
+        filtered_topics = kg.topic_index
+        filtered_entities = kg.entity_index
+        if proj:
+            console.print(f"[cyan]Inspecting project:[/cyan] {proj.name}\n")
+
+    # Default to quality report if no specific option given
+    if not any([show_topics, show_entities, show_atoms, show_quality]):
+        show_quality = True
+
+    # === QUALITY REPORT ===
+    if show_quality:
+        console.print("[bold]═══ Knowledge Graph Quality Report ═══[/bold]\n")
+
+        # Overview
+        console.print(f"[bold]Overview:[/bold]")
+        console.print(f"  Atoms: {len(filtered_atoms)}")
+        console.print(f"  Topics indexed: {len(filtered_topics)}")
+        console.print(f"  Entities indexed: {len(filtered_entities)}")
+        if not source:
+            console.print(f"  Sources: {kg.source_count}")
+            console.print(f"  Cross-links: {kg.cross_link_count}")
+
+        # Atom type distribution
+        type_dist = _get_atom_type_distribution(filtered_atoms)
+        console.print(f"\n[bold]Atom Type Distribution:[/bold]")
+        for atype, count in type_dist.items():
+            pct = count / len(filtered_atoms) * 100 if filtered_atoms else 0
+            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            console.print(f"  {atype:18} {bar} {count:4} ({pct:.1f}%)")
+
+        # Topic quality
+        topic_quality = _calculate_topic_quality(filtered_topics, filtered_sources)
+        console.print(f"\n[bold]Topic Quality:[/bold] ", end="")
+        score = topic_quality["score"]
+        if score >= 80:
+            console.print(f"[green]{score}/100[/green] ✓")
+        elif score >= 50:
+            console.print(f"[yellow]{score}/100[/yellow] ⚠")
+        else:
+            console.print(f"[red]{score}/100[/red] ✗")
+
+        console.print(f"  Good topics: {topic_quality['good_count']}")
+        console.print(f"  Noise topics: {topic_quality['noise_count']}")
+
+        if topic_quality["noise_topics"]:
+            console.print(f"\n  [yellow]Top noise topics (should not be topics):[/yellow]")
+            for t in topic_quality["noise_topics"][:5]:
+                console.print(f"    • \"{t['topic']}\" ({t['count']} atoms) - {t['reason']}")
+
+        # Concept/Topic Distribution (visual, like atom type dist)
+        if topic_quality["good_topics"]:
+            console.print(f"\n[bold]Concept Distribution:[/bold]")
+            max_count = topic_quality["good_topics"][0]["count"] if topic_quality["good_topics"] else 1
+            for t in topic_quality["good_topics"][:12]:
+                pct = t["count"] / max_count * 100
+                bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+                topic_display = t["topic"][:28] if len(t["topic"]) > 28 else t["topic"]
+                console.print(f"  {topic_display:28} {bar} {t['count']:3}")
+
+        # Entity quality
+        entity_quality = _calculate_entity_quality(filtered_entities)
+        console.print(f"\n[bold]Entity Quality:[/bold] ", end="")
+        escore = entity_quality["score"]
+        if escore >= 70:
+            console.print(f"[green]{escore}/100[/green] ✓")
+        elif escore >= 40:
+            console.print(f"[yellow]{escore}/100[/yellow] ⚠")
+        else:
+            console.print(f"[red]{escore}/100[/red] ✗")
+
+        if entity_quality["acronyms"]:
+            console.print(f"  [green]Acronyms:[/green] {', '.join(e['entity'] for e in entity_quality['acronyms'][:8])}")
+        if entity_quality["proper_names"]:
+            names = [e['entity'] for e in entity_quality['proper_names'][:5]]
+            console.print(f"  [green]Proper names:[/green] {', '.join(names)}")
+
+        # Key themes assessment
+        if kg.key_themes:
+            console.print(f"\n[bold]Key Themes:[/bold]")
+            for theme in kg.key_themes[:8]:
+                theme_lower = theme.lower()
+                if theme_lower in STRUCTURAL_NOISE_TERMS:
+                    console.print(f"  [red]✗[/red] \"{theme}\" [dim](noise)[/dim]")
+                else:
+                    console.print(f"  [green]✓[/green] \"{theme}\"")
+
+    # === TOPICS VIEW ===
+    if show_topics and not show_quality:
+        console.print("[bold]═══ Topic Distribution ═══[/bold]\n")
+
+        topic_quality = _calculate_topic_quality(filtered_topics, filtered_sources)
+
+        console.print(f"Total topics: {topic_quality['total_topics']}")
+        console.print(f"Quality score: {topic_quality['score']}/100\n")
+
+        if topic_quality["good_topics"]:
+            console.print("[green]Good semantic topics:[/green]")
+            table = Table(box=box.SIMPLE)
+            table.add_column("Topic", style="bold")
+            table.add_column("Atoms", justify="right")
+            table.add_column("Sources", justify="right")
+
+            for t in topic_quality["good_topics"][:sample * 5]:
+                table.add_row(t["topic"], str(t["count"]), str(t.get("sources", 1)))
+            console.print(table)
+
+        if topic_quality["noise_topics"]:
+            console.print("\n[yellow]Noise topics (likely misclassified):[/yellow]")
+            for t in topic_quality["noise_topics"][:sample * 3]:
+                console.print(f"  • \"{t['topic']}\" - {t['reason']} ({t['count']} atoms)")
+
+    # === ENTITIES VIEW ===
+    if show_entities and not show_quality:
+        console.print("[bold]═══ Entity Extraction ═══[/bold]\n")
+
+        entity_quality = _calculate_entity_quality(filtered_entities)
+        console.print(f"Total entities: {entity_quality['total_entities']}")
+        console.print(f"Quality score: {entity_quality['score']}/100\n")
+
+        if entity_quality["acronyms"]:
+            console.print("[green]Acronyms:[/green]")
+            for e in entity_quality["acronyms"][:sample * 3]:
+                console.print(f"  {e['entity']:12} ({e['count']} atoms)")
+
+        if entity_quality["proper_names"]:
+            console.print("\n[green]Proper names:[/green]")
+            for e in entity_quality["proper_names"][:sample * 3]:
+                console.print(f"  {e['entity'][:30]:30} ({e['count']} atoms)")
+
+        if entity_quality["other"]:
+            console.print("\n[dim]Other entities:[/dim]")
+            for e in entity_quality["other"][:sample * 2]:
+                console.print(f"  {e['entity'][:30]:30} ({e['count']} atoms)")
+
+    # === ATOMS VIEW ===
+    if show_atoms:
+        console.print("\n[bold]═══ Atom Samples by Type ═══[/bold]\n")
+
+        type_dist = _get_atom_type_distribution(filtered_atoms)
+
+        for atype, count in type_dist.items():
+            console.print(f"[bold cyan]{atype}[/bold cyan] ({count} atoms)")
+
+            # Get sample atoms of this type
+            type_atoms = [a for a in filtered_atoms.values()
+                         if (a.atom_type.value if hasattr(a.atom_type, 'value') else str(a.atom_type)) == atype]
+
+            for atom in type_atoms[:sample]:
+                content_preview = atom.content[:100].replace('\n', ' ')
+                if len(atom.content) > 100:
+                    content_preview += "..."
+
+                console.print(f"  [dim]Page {atom.source_page or '?'}:[/dim] {content_preview}")
+
+                if atom.topics:
+                    topics_str = ", ".join(atom.topics[:3])
+                    console.print(f"    [dim]Topics:[/dim] {topics_str}")
+                if atom.entities:
+                    entities_str = ", ".join(atom.entities[:3])
+                    console.print(f"    [dim]Entities:[/dim] {entities_str}")
+                console.print()
+
+            if count > sample:
+                console.print(f"  [dim]... and {count - sample} more[/dim]\n")

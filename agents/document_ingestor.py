@@ -345,24 +345,36 @@ class DocumentIngestorAgent(StudioAgent):
 
     async def _describe_image(self, img_info: Dict[str, Any]) -> str:
         """Use LLM vision to describe an extracted image"""
+        import tempfile
+        import os
+
         img_bytes = img_info["image_bytes"]
         ext = img_info.get("ext", "png")
-        media_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
-        b64 = base64.b64encode(img_bytes).decode("utf-8")
 
-        prompt = (
-            "Describe this figure/image from an academic paper. "
-            "What does it show? Include key data points, axes labels, trends, or diagram elements. "
-            "Be concise but specific (2-3 sentences)."
-        )
+        # Save image bytes to temp file for ClaudeClient
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=f'.{ext}', delete=False) as tmp:
+            tmp.write(img_bytes)
+            tmp_path = tmp.name
 
-        # Use vision-capable query
-        response = await self.claude.query_with_image(
-            prompt=prompt,
-            image_data=b64,
-            media_type=media_type,
-        )
-        return response.strip()
+        try:
+            prompt = (
+                "Describe this figure/image from an academic paper. "
+                "What does it show? Include key data points, axes labels, trends, or diagram elements. "
+                "Be concise but specific (2-3 sentences)."
+            )
+
+            # Use vision-capable query with file path
+            response = await self.claude.query_with_image(
+                prompt=prompt,
+                image_path=tmp_path,
+            )
+            return response.strip()
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
     def _find_caption(
         self, img_info: Dict[str, Any], text_blocks: List[Dict[str, Any]]
@@ -438,6 +450,17 @@ Classification guidelines:
 - equation: Mathematical equations
 - author: Author names/affiliations
 - date: Publication dates
+
+Topics extraction (IMPORTANT):
+- Topics are SEMANTIC/CONCEPTUAL subjects discussed in the block content
+- Good topics: "Kalman filter", "UAV positioning", "sensor fusion", "GPS-denied navigation"
+- BAD topics: "figure caption", "header", "paragraph", "abstract", "section" (these are block TYPES, not topics)
+- Extract 1-3 meaningful technical/conceptual topics per block
+- For structural blocks (citations, dates, authors), topics can be empty []
+
+Entities extraction:
+- Named entities: specific algorithms, systems, datasets, organizations
+- Examples: "IKF-PF", "ROS", "Gazebo", "Ultra-Wideband"
 
 Importance scoring (0-1):
 - 1.0: Title, key findings, conclusions
