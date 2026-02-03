@@ -4,7 +4,9 @@ description: >
   Guidelines for integrating video and audio generation providers.
   Includes API patterns, rate limits, and provider-specific gotchas.
 context: fork
-agent: spec-implementer
+requires:
+  tools: [Read, Edit, Write, Glob, Grep, Bash]
+  model: sonnet
 ---
 
 # Provider Integration Skill

@@ -4,7 +4,8 @@ description: >
   Video production pipeline patterns including rendering,
   encoding, and quality validation. Covers FFmpeg and tier specs.
 context: fork
-agent: spec-implementer
+requires:
+  tools: [Read, Bash, Glob, Grep]
 ---
 
 # Video Production Skill
