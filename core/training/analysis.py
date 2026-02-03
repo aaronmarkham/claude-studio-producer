@@ -4,6 +4,8 @@ import json
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
+import textstat
+
 from core.claude_client import ClaudeClient
 from core.models.knowledge import KnowledgeGraph as DocumentGraph
 
@@ -15,6 +17,46 @@ from .models import (
     TranscriptionResult,
     TranscriptSegment,
 )
+
+
+def calculate_vocabulary_complexity(text: str) -> float:
+    """
+    Calculate vocabulary complexity using textstat metrics.
+
+    Returns a normalized score between 0 and 1, where:
+    - 0.0-0.3: Simple vocabulary (elementary level)
+    - 0.3-0.5: Moderate vocabulary (high school level)
+    - 0.5-0.7: Advanced vocabulary (college level)
+    - 0.7-1.0: Complex vocabulary (professional/academic)
+    """
+    if not text or len(text.strip()) == 0:
+        return 0.5
+
+    # Get multiple readability scores
+    flesch_reading_ease = textstat.flesch_reading_ease(text)  # 0-100, higher = easier
+    flesch_kincaid_grade = textstat.flesch_kincaid_grade(text)  # US grade level
+    dale_chall_score = textstat.dale_chall_readability_score(text)  # 4.9-16+
+
+    # Normalize Flesch Reading Ease (invert since higher = easier)
+    # 100-90 (very easy) -> 0.0-0.1
+    # 50-60 (standard) -> 0.4-0.5
+    # 0-30 (very difficult) -> 0.7-1.0
+    normalized_flesch = (100 - max(0, min(100, flesch_reading_ease))) / 100
+
+    # Normalize Flesch-Kincaid Grade Level
+    # Grade 0-5 -> 0.0-0.25
+    # Grade 8-12 -> 0.40-0.60
+    # Grade 16+ -> 0.80-1.0
+    normalized_fk = min(1.0, max(0, flesch_kincaid_grade) / 20)
+
+    # Normalize Dale-Chall (4.9 = easy, 9.9+ = very difficult)
+    # 4.9 = 0.0, 7.0 = 0.42, 9.9+ = 1.0
+    normalized_dc = min(1.0, max(0, (dale_chall_score - 4.9) / 5.0))
+
+    # Weighted average (emphasize Flesch-Kincaid as it's most reliable)
+    complexity = (0.4 * normalized_fk + 0.3 * normalized_flesch + 0.3 * normalized_dc)
+
+    return round(complexity, 3)
 
 
 async def classify_segments(
@@ -85,11 +127,13 @@ Return as JSON array with one entry per segment:
     if usage:
         print(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
 
-    # Parse response
+    # Parse response using JSONExtractor to handle markdown code fences
     try:
-        data = json.loads(response)
+        from core.claude_client import JSONExtractor
+        data = JSONExtractor.extract(response)
         segments_data = data.get("segments", [])
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  WARNING: Failed to parse classification response: {e}")
         # Fallback: create basic aligned segments
         segments_data = []
 
@@ -237,10 +281,12 @@ Return as JSON:
     if usage:
         print(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
 
-    # Parse response
+    # Parse response using JSONExtractor to handle markdown code fences
     try:
-        data = json.loads(response)
-    except json.JSONDecodeError:
+        from core.claude_client import JSONExtractor
+        data = JSONExtractor.extract(response)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  WARNING: Failed to parse style profile response: {e}")
         data = {}
 
     # Count questions and analogies
@@ -248,11 +294,14 @@ Return as JSON:
     total_analogies = sum(len(s.analogies_used) for s in aligned_segments)
     duration_minutes = transcription.total_duration / 60.0 if transcription.total_duration > 0 else 1.0
 
+    # Calculate vocabulary complexity using textstat
+    vocab_complexity = calculate_vocabulary_complexity(transcription.transcript_text)
+
     profile = StyleProfile(
         speaker_id=transcription.speaker_id or "unknown",
         speaker_gender=speaker_gender,
         avg_sentence_length=data.get("avg_sentence_length", 15.0),
-        vocabulary_complexity=0.5,  # Placeholder
+        vocabulary_complexity=vocab_complexity,
         jargon_density=data.get("jargon_density", 0.3),
         questions_per_minute=total_questions / duration_minutes,
         analogies_per_segment=total_analogies / len(aligned_segments) if aligned_segments else 0,

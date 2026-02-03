@@ -74,11 +74,13 @@ Return JSON: {{"concepts": [{{"concept": "...", "covered": true, "depth": "expla
 
     response, usage = await claude_client.query(prompt, return_usage=True)
 
-    # Parse response
+    # Parse response using JSONExtractor to handle markdown code fences
     try:
-        data = json.loads(response)
+        from core.claude_client import JSONExtractor
+        data = JSONExtractor.extract(response)
         results = data.get("concepts", [])
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  WARNING: Failed to parse coverage response: {e}")
         results = []
 
     covered = [c for c in results if c.get("covered", False)]
@@ -233,13 +235,15 @@ Return JSON:
 
     response, usage = await claude_client.query(prompt, return_usage=True)
 
-    # Parse response
+    # Parse response using JSONExtractor to handle markdown code fences
     try:
-        data = json.loads(response)
+        from core.claude_client import JSONExtractor
+        data = JSONExtractor.extract(response)
         engagement = data.get("engagement_score", 50)
         clarity = data.get("clarity_score", 50)
         accuracy = data.get("accuracy_score", 50)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  WARNING: Failed to parse quality response: {e}")
         engagement = clarity = accuracy = 50
         data = {}
 
@@ -346,11 +350,11 @@ async def calculate_all_metrics(
         claude_client,
     )
 
-    # Structure loss (simplified - would need to parse generated segments)
-    # For now, use a placeholder
-    structure_loss = 0.3  # Placeholder
-    segment_type_accuracy = 0.7
-    sequence_similarity = 0.7
+    # Structure loss disabled - would require expensive LLM call to classify generated segments
+    # Set to 0 and rely on loss_weights having structure=0.00 to exclude it from total
+    structure_loss = 0.0
+    segment_type_accuracy = 0.0
+    sequence_similarity = 0.0
 
     # Quality loss
     quality_loss, quality_details = await calculate_quality_loss(

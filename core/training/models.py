@@ -297,13 +297,13 @@ class TrainingConfig:
     convergence_threshold: float = 0.05
     convergence_window: int = 2
 
-    # Loss weights
+    # Loss weights (structure disabled - requires expensive segment classification of generated content)
     loss_weights: Dict[str, float] = field(default_factory=lambda: {
-        "duration": 0.25,
-        "coverage": 0.25,
-        "structure": 0.20,
-        "quality": 0.20,
-        "rouge": 0.10,
+        "duration": 0.30,
+        "coverage": 0.30,
+        "structure": 0.00,  # Disabled - would need to classify generated segments
+        "quality": 0.25,
+        "rouge": 0.15,
     })
 
     # Target depth for training

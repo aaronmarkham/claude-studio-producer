@@ -102,6 +102,7 @@ class AudioGeneratorAgent(StudioAgent):
             effective_voice_id = voice_id
             if not effective_voice_id:
                 # Default voice mapping based on style
+                # Provider will resolve these names to actual voice IDs
                 voice_mapping = {
                     VoiceStyle.PROFESSIONAL: "Rachel",  # ElevenLabs default professional
                     VoiceStyle.CONVERSATIONAL: "Adam",

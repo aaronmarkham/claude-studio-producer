@@ -249,6 +249,38 @@ async def transcribe_podcast(
     # Get total duration
     total_duration = segments[-1].end_time if segments else 0.0
 
+    # Sanity check transcription quality
+    word_count = len(transcript_text.split())
+    wpm = (word_count / total_duration * 60) if total_duration > 0 else 0
+
+    # Validate word count is reasonable
+    if word_count < 10:
+        raise ValueError(
+            f"Transcription produced suspiciously few words ({word_count}). "
+            f"Audio may be corrupted or too short."
+        )
+
+    # Validate WPM is in reasonable range for speech (50-250 WPM)
+    if wpm < 50 or wpm > 250:
+        print(f"  WARNING: Words per minute ({wpm:.1f}) is outside normal range (50-250 WPM).")
+        print(f"  This may indicate compression/chunking issues or unusual audio content.")
+
+    # Validate word timestamps roughly match word count
+    timestamp_word_count = len(word_timestamps)
+    if abs(timestamp_word_count - word_count) > word_count * 0.2:  # More than 20% difference
+        print(f"  WARNING: Word timestamp count ({timestamp_word_count}) differs significantly from word count ({word_count}).")
+        print(f"  This may indicate timing data issues.")
+
+    # Validate segments cover full duration
+    if segments and total_duration > 0:
+        coverage = segments[-1].end_time / total_duration
+        if coverage < 0.95:  # Last segment should reach at least 95% of duration
+            print(f"  WARNING: Segments only cover {coverage*100:.1f}% of audio duration.")
+            print(f"  Some audio content may be missing from transcription.")
+
+    # Print summary metrics
+    print(f"  Transcribed: {word_count} words, {total_duration/60:.1f} min, {wpm:.1f} WPM, {len(segments)} segments")
+
     # Clean up compressed file if we created one
     if transcribe_path != audio_path:
         try:

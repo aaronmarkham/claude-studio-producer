@@ -137,6 +137,14 @@ class ElevenLabsProvider(AudioProvider):
             if not voices:
                 raise RuntimeError("No voices available")
             effective_voice_id = voices[0]["voice_id"]
+        elif effective_voice_id and len(effective_voice_id) < 30:
+            # Short string might be a voice name rather than ID
+            # ElevenLabs voice IDs are typically longer alphanumeric strings
+            # Try to resolve as name first
+            resolved_id = await self.resolve_voice_name(effective_voice_id)
+            if resolved_id:
+                effective_voice_id = resolved_id
+            # If resolution fails, pass it through - let the API reject it with a clear error
         
         # Build voice settings
         voice_settings = dict(self.default_voice_settings)
@@ -327,13 +335,34 @@ List of voice dictionaries containing:
                 data = await response.json()
                 return data.get("voices", [])
     
+    async def resolve_voice_name(self, voice_name: str) -> Optional[str]:
+        """
+        Resolve a voice name to its voice_id.
+
+        Args:
+            voice_name: Human-readable voice name (e.g., "Adam", "Rachel")
+
+        Returns:
+            voice_id if found, None otherwise
+        """
+        voices = await self.list_voices()
+
+        # Try exact match first (case-insensitive)
+        for voice in voices:
+            name = voice.get("name", "")
+            # Names are like "Adam - Dominant, Firm", so check if it starts with the requested name
+            if name.lower().startswith(voice_name.lower()):
+                return voice.get("voice_id")
+
+        return None
+
     async def get_voice(self, voice_id: str) -> Dict[str, Any]:
         """
         Get detailed information about a specific voice.
-        
+
         Args:
             voice_id: The voice ID to retrieve
-            
+
         Returns:
             Dictionary containing voice details including:
                 - voice_id: Voice identifier
@@ -341,14 +370,14 @@ List of voice dictionaries containing:
                 - samples: Audio samples
                 - category: Voice category
                 - settings: Default voice settings
-                
+
         Raises:
             ValueError: If API key is missing
             RuntimeError: If API request fails
         """
         if not self.config.api_key:
             raise ValueError("ElevenLabs API key is required.")
-        
+
         url = f"{self.config.base_url}/v1/voices/{voice_id}"
         headers = self._get_headers()
         
