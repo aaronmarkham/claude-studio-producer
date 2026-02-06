@@ -496,3 +496,341 @@ def _select_transition(scene: VideoScene, direction: str) -> str:
 
     # Default to smooth dissolve
     return "dissolve"
+
+
+# =============================================================================
+# Budget Tier System
+# =============================================================================
+
+# Cost constants (USD)
+DALLE_COST_PER_IMAGE = 0.08  # DALL-E 3 HD 1792x1024
+LUMA_COST_PER_ANIMATION = 0.25  # Luma Dream Machine
+
+# Budget tier definitions
+BUDGET_TIERS = {
+    "micro": {
+        "description": "Text overlays only - no image generation",
+        "max_dalle_images": 0,
+        "max_luma_animations": 0,
+        "use_ken_burns": False,
+        "text_overlay_all": True,
+    },
+    "low": {
+        "description": "Hero images for key moments only",
+        "max_dalle_images": 15,
+        "max_luma_animations": 0,
+        "use_ken_burns": True,
+        "text_overlay_all": False,
+    },
+    "medium": {
+        "description": "Consolidated images with Ken Burns motion",
+        "max_dalle_images": 40,
+        "max_luma_animations": 0,
+        "use_ken_burns": True,
+        "text_overlay_all": False,
+    },
+    "high": {
+        "description": "Full images, selective Luma animation",
+        "max_dalle_images": 80,
+        "max_luma_animations": 5,
+        "use_ken_burns": True,
+        "text_overlay_all": False,
+    },
+    "full": {
+        "description": "All scenes get unique visuals",
+        "max_dalle_images": 999,
+        "max_luma_animations": 999,
+        "use_ken_burns": True,
+        "text_overlay_all": False,
+    },
+}
+
+# Scene importance weights by segment type
+SEGMENT_IMPORTANCE = {
+    "KEY_FINDING": 10,       # Must visualize - this is the paper's contribution
+    "FIGURE_DISCUSSION": 9,  # Highly visual by nature
+    "METHODOLOGY": 8,        # Complex, benefits from diagrams
+    "PROBLEM_STATEMENT": 7,  # Sets up the paper, important context
+    "IMPLICATION": 6,        # Real-world impact, engaging
+    "BACKGROUND": 4,         # Context, can be simpler
+    "LIMITATION": 3,         # Often brief, less visual
+    "TANGENT": 2,            # Side note, low priority
+    "INTRO": 5,              # Opening visual matters
+    "CONCLUSION": 5,         # Closing visual matters
+    "TRANSITION": 0,         # No visual needed
+}
+
+
+def score_scene_importance(scene: VideoScene) -> float:
+    """
+    Score a scene's importance for visual generation.
+
+    Higher scores = more important to generate a unique visual.
+    Considers segment type, key_concepts richness, duration, and data quality.
+
+    Args:
+        scene: VideoScene to score
+
+    Returns:
+        Importance score (0-100 scale)
+    """
+    # Base score from segment type
+    seg_type_str = scene.segment_type.value.upper()
+    base_score = SEGMENT_IMPORTANCE.get(seg_type_str, 5)
+
+    # Bonus for rich key_concepts (indicates well-analyzed segment)
+    concepts_bonus = min(len(scene.key_concepts) * 2, 10)
+
+    # Bonus for technical terms (more complex content)
+    terms_bonus = min(len(scene.technical_terms) * 1.5, 7)
+
+    # Bonus for referenced figures (direct connection to paper)
+    figure_bonus = 5 if scene.referenced_figures else 0
+
+    # Penalty for fallback titles (data quality issue)
+    fallback_penalty = -5 if scene.title_is_fallback else 0
+
+    # Duration factor (longer scenes might need more visual interest)
+    duration_factor = min(scene.duration / 30.0, 1.5)  # Cap at 1.5x for 45+ sec
+
+    # Calculate final score
+    raw_score = (base_score + concepts_bonus + terms_bonus + figure_bonus + fallback_penalty)
+    final_score = raw_score * duration_factor
+
+    return min(max(final_score, 0), 100)  # Clamp to 0-100
+
+
+def consolidate_scenes(
+    scenes: List[VideoScene],
+    max_images: int
+) -> List[List[VideoScene]]:
+    """
+    Group scenes that can share a single visual.
+
+    Adjacent scenes of the same type or with similar concepts are grouped.
+    Each group will share one DALL-E image with Ken Burns panning across scenes.
+
+    Args:
+        scenes: List of VideoScene objects
+        max_images: Maximum number of unique images to generate
+
+    Returns:
+        List of scene groups, where each group shares one visual
+    """
+    if not scenes:
+        return []
+
+    if max_images >= len(scenes):
+        # No consolidation needed - each scene gets its own image
+        return [[s] for s in scenes]
+
+    # Score all scenes
+    scored_scenes = [(scene, score_scene_importance(scene)) for scene in scenes]
+
+    # Group adjacent scenes of same type
+    groups: List[List[VideoScene]] = []
+    current_group: List[VideoScene] = [scenes[0]]
+
+    for i in range(1, len(scenes)):
+        prev_scene = scenes[i - 1]
+        curr_scene = scenes[i]
+
+        # Check if scenes can be grouped
+        same_type = prev_scene.segment_type == curr_scene.segment_type
+        close_in_time = (curr_scene.start_time - prev_scene.end_time) < 5.0  # Within 5 sec
+
+        if same_type and close_in_time:
+            current_group.append(curr_scene)
+        else:
+            groups.append(current_group)
+            current_group = [curr_scene]
+
+    groups.append(current_group)
+
+    # If still too many groups, merge lowest-importance adjacent groups
+    while len(groups) > max_images:
+        # Find the pair of adjacent groups with lowest combined importance
+        min_importance = float('inf')
+        merge_idx = 0
+
+        for i in range(len(groups) - 1):
+            group_a_importance = max(score_scene_importance(s) for s in groups[i])
+            group_b_importance = max(score_scene_importance(s) for s in groups[i + 1])
+            combined = group_a_importance + group_b_importance
+
+            if combined < min_importance:
+                min_importance = combined
+                merge_idx = i
+
+        # Merge the two groups
+        groups[merge_idx] = groups[merge_idx] + groups[merge_idx + 1]
+        groups.pop(merge_idx + 1)
+
+    return groups
+
+
+def estimate_tier_costs(
+    scenes: List[VideoScene],
+    visual_plans: Optional[List[VisualPlan]] = None
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Estimate costs for each budget tier.
+
+    Args:
+        scenes: List of VideoScene objects
+        visual_plans: Optional existing visual plans (for full tier baseline)
+
+    Returns:
+        Dictionary mapping tier name to cost breakdown
+    """
+    total_scenes = len(scenes)
+
+    # Count scenes that would get Luma in full mode
+    luma_candidates = sum(
+        1 for s in scenes
+        if s.animation_candidate and s.visual_complexity in ["medium", "high"]
+    )
+
+    # Count Ken Burns candidates
+    ken_burns_candidates = sum(1 for s in scenes if s.ken_burns_enabled)
+
+    estimates = {}
+
+    for tier_name, tier_config in BUDGET_TIERS.items():
+        max_images = tier_config["max_dalle_images"]
+        max_luma = tier_config["max_luma_animations"]
+
+        # Calculate actual counts for this tier
+        if tier_config["text_overlay_all"]:
+            dalle_count = 0
+            luma_count = 0
+            ken_burns_count = 0
+            text_only_count = total_scenes
+        else:
+            # Consolidate to fit budget
+            groups = consolidate_scenes(scenes, max_images)
+            dalle_count = len(groups)
+
+            # Luma only for highest-importance scenes up to limit
+            if max_luma > 0:
+                # Score groups and pick top N for Luma
+                group_scores = []
+                for group in groups:
+                    max_score = max(score_scene_importance(s) for s in group)
+                    has_luma_candidate = any(
+                        s.animation_candidate and s.visual_complexity in ["medium", "high"]
+                        for s in group
+                    )
+                    if has_luma_candidate:
+                        group_scores.append(max_score)
+                group_scores.sort(reverse=True)
+                luma_count = min(max_luma, len(group_scores))
+            else:
+                luma_count = 0
+
+            # Ken Burns for non-Luma scenes
+            if tier_config["use_ken_burns"]:
+                ken_burns_count = dalle_count - luma_count
+            else:
+                ken_burns_count = 0
+
+            text_only_count = total_scenes - dalle_count
+
+        # Calculate costs
+        dalle_cost = dalle_count * DALLE_COST_PER_IMAGE
+        luma_cost = luma_count * LUMA_COST_PER_ANIMATION
+        total_cost = dalle_cost + luma_cost
+
+        estimates[tier_name] = {
+            "description": tier_config["description"],
+            "dalle_images": dalle_count,
+            "luma_animations": luma_count,
+            "ken_burns": ken_burns_count,
+            "text_only": text_only_count,
+            "dalle_cost": round(dalle_cost, 2),
+            "luma_cost": round(luma_cost, 2),
+            "total_cost": round(total_cost, 2),
+            "scenes_per_image": round(total_scenes / max(dalle_count, 1), 1),
+        }
+
+    return estimates
+
+
+def select_scenes_for_generation(
+    scenes: List[VideoScene],
+    tier: str = "medium"
+) -> Dict[str, Any]:
+    """
+    Select which scenes get visuals based on budget tier.
+
+    Args:
+        scenes: List of VideoScene objects
+        tier: Budget tier name
+
+    Returns:
+        Dictionary with:
+        - 'generate': List of scene groups that get DALL-E images
+        - 'luma': List of scene IDs that get Luma animation
+        - 'ken_burns': List of scene IDs that get Ken Burns
+        - 'text_only': List of scene IDs that get text overlay only
+    """
+    tier_config = BUDGET_TIERS.get(tier, BUDGET_TIERS["medium"])
+
+    if tier_config["text_overlay_all"]:
+        return {
+            "generate": [],
+            "luma": [],
+            "ken_burns": [],
+            "text_only": [s.scene_id for s in scenes],
+        }
+
+    # Consolidate scenes into groups
+    groups = consolidate_scenes(scenes, tier_config["max_dalle_images"])
+
+    # Score groups for Luma selection
+    group_data = []
+    for group in groups:
+        max_score = max(score_scene_importance(s) for s in group)
+        has_luma_candidate = any(
+            s.animation_candidate and s.visual_complexity in ["medium", "high"]
+            for s in group
+        )
+        group_data.append({
+            "group": group,
+            "score": max_score,
+            "luma_candidate": has_luma_candidate,
+            "scene_ids": [s.scene_id for s in group],
+        })
+
+    # Sort by score for Luma allocation
+    luma_eligible = [g for g in group_data if g["luma_candidate"]]
+    luma_eligible.sort(key=lambda x: x["score"], reverse=True)
+
+    # Allocate Luma to top N
+    luma_ids = []
+    for g in luma_eligible[:tier_config["max_luma_animations"]]:
+        luma_ids.extend(g["scene_ids"])
+
+    # Ken Burns for DALL-E scenes without Luma
+    ken_burns_ids = []
+    if tier_config["use_ken_burns"]:
+        for g in group_data:
+            for sid in g["scene_ids"]:
+                if sid not in luma_ids:
+                    ken_burns_ids.append(sid)
+
+    # All scene IDs that are in groups (get DALL-E)
+    generated_ids = set()
+    for g in group_data:
+        generated_ids.update(g["scene_ids"])
+
+    # Text-only for scenes not in any group (shouldn't happen, but safety)
+    text_only_ids = [s.scene_id for s in scenes if s.scene_id not in generated_ids]
+
+    return {
+        "generate": groups,
+        "luma": luma_ids,
+        "ken_burns": ken_burns_ids,
+        "text_only": text_only_ids,
+        "group_count": len(groups),
+    }

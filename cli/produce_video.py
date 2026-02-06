@@ -44,6 +44,58 @@ def print_header(title: str, subtitle: str = ""):
     console.print()
 
 
+def print_budget_tiers(scenes: list):
+    """Print cost comparison for all budget tiers"""
+    t = get_theme()
+    from core.video_production import estimate_tier_costs, BUDGET_TIERS
+
+    estimates = estimate_tier_costs(scenes)
+
+    table = Table(
+        title="Budget Tier Comparison",
+        box=box.ROUNDED,
+        border_style=t.panel_border,
+        show_header=True
+    )
+    table.add_column("Tier", style="bold", width=10)
+    table.add_column("Description", width=35)
+    table.add_column("Images", justify="right", width=8)
+    table.add_column("Luma", justify="right", width=6)
+    table.add_column("Ken Burns", justify="right", width=10)
+    table.add_column("Text Only", justify="right", width=10)
+    table.add_column("Est. Cost", justify="right", style="bold", width=10)
+
+    tier_order = ["micro", "low", "medium", "high", "full"]
+    for tier_name in tier_order:
+        est = estimates[tier_name]
+        cost_style = "green" if est["total_cost"] < 3 else "yellow" if est["total_cost"] < 10 else "red"
+        table.add_row(
+            tier_name.upper(),
+            est["description"],
+            str(est["dalle_images"]),
+            str(est["luma_animations"]) if est["luma_animations"] > 0 else "-",
+            str(est["ken_burns"]) if est["ken_burns"] > 0 else "-",
+            str(est["text_only"]) if est["text_only"] > 0 else "-",
+            f"[{cost_style}]${est['total_cost']:.2f}[/]"
+        )
+
+    console.print(table)
+    console.print()
+
+    # Show recommendation
+    total_scenes = len(scenes)
+    if total_scenes <= 30:
+        recommended = "medium"
+    elif total_scenes <= 60:
+        recommended = "low"
+    else:
+        recommended = "low"
+
+    console.print(f"[{t.label}]Recommendation:[/] For {total_scenes} scenes, consider [bold]{recommended.upper()}[/] tier")
+    console.print(f"[{t.dimmed}]  Use --budget {recommended} to apply this tier[/]")
+    console.print()
+
+
 def print_scene_table(scenes: list):
     """Print summary table of scenes by type"""
     t = get_theme()
@@ -99,11 +151,29 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
     """Print comprehensive asset generation summary with cost estimates"""
     t = get_theme()
 
-    # Count assets
+    # Count assets (respecting budget mode)
     total = len(visual_plans)
+
+    # Count scenes that actually need DALL-E generation
+    # - Has a non-empty dalle_prompt AND
+    # - Not in text_only or shared mode
+    dalle_needed = []
+    for p in visual_plans:
+        budget_mode = getattr(p, 'budget_mode', None)
+        if budget_mode == "text_only" or budget_mode == "shared":
+            continue  # No DALL-E needed
+        if not p.dalle_prompt:
+            continue  # Empty prompt means no generation
+        dalle_needed.append(p)
+
+    # Count by animation type
     luma_scenes = [p for p in visual_plans if p.animate_with_luma]
     ken_burns_scenes = [p for p in visual_plans if p.ken_burns and p.ken_burns.get("enabled")]
-    kb_matched = [p for p in visual_plans if getattr(p, 'kb_figure_path', None)]
+    kb_matched = [p for p in dalle_needed if getattr(p, 'kb_figure_path', None)]
+
+    # Count text-only and shared scenes
+    text_only_count = len([p for p in visual_plans if getattr(p, 'budget_mode', None) == "text_only"])
+    shared_count = len([p for p in visual_plans if getattr(p, 'budget_mode', None) == "shared"])
 
     # Cost estimates (approximate)
     # DALL-E 3 HD 1792x1024: ~$0.08 per image
@@ -112,7 +182,7 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
     luma_cost_per_video = 0.25
 
     # Calculate what needs to be generated
-    dalle_to_generate = total - len(kb_matched)  # Scenes without KB figures need DALL-E
+    dalle_to_generate = len(dalle_needed) - len(kb_matched)  # Scenes without KB figures need DALL-E
     luma_to_generate = len(luma_scenes)
 
     # Build summary table
@@ -166,16 +236,39 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
         "[green]$0.00[/]"
     )
 
+    # Shared images (reuse another scene's image - free)
+    if shared_count > 0:
+        table.add_row(
+            "Shared Images",
+            "-",
+            f"[cyan]{shared_count}[/]",
+            "[green]$0.00[/]"
+        )
+
+    # Text-only scenes (no image generation)
+    if text_only_count > 0:
+        table.add_row(
+            "Text Overlay Only",
+            "-",
+            f"[dim]{text_only_count}[/]",
+            "[green]$0.00[/]"
+        )
+
     # Total row
     total_cost = dalle_cost + luma_cost
+    generated_assets = dalle_to_generate + luma_to_generate
     table.add_row(
         "[bold]TOTAL[/]",
         f"[bold green]{len(kb_matched)}[/]",
-        f"[bold]{dalle_to_generate + luma_to_generate}[/]",
+        f"[bold]{generated_assets}[/]",
         f"[bold]${total_cost:.2f}[/]"
     )
 
     console.print(table)
+
+    # Show budget mode summary if applicable
+    if text_only_count > 0 or shared_count > 0:
+        console.print(f"\n[{t.dimmed}]Budget optimization: {shared_count} scenes share images, {text_only_count} use text overlays[/]")
 
     # Show KB figure availability
     if kb_figure_count > 0:
@@ -429,6 +522,66 @@ def _match_scene_to_figure(scene, kb_figure_paths: dict, knowledge_graph) -> Opt
     return None
 
 
+def distribute_figures_to_scenes(
+    scenes: list,
+    visual_plans: list,
+    kb_figure_paths: dict,
+    allocation: dict = None
+) -> int:
+    """
+    Distribute KB figures to scenes when keyword matching fails.
+
+    Assigns figures to high-importance primary scenes in order.
+    Returns count of figures assigned.
+    """
+    if not kb_figure_paths:
+        return 0
+
+    # Sort figures by their index for consistent ordering
+    sorted_figures = sorted(kb_figure_paths.items(), key=lambda x: x[0])
+
+    # Find primary scenes (scenes that will generate DALL-E) and score them
+    from core.video_production import score_scene_importance
+
+    scene_scores = []
+    for i, (scene, plan) in enumerate(zip(scenes, visual_plans)):
+        # Skip scenes that already have a figure
+        if getattr(plan, 'kb_figure_path', None):
+            continue
+
+        # Skip non-primary scenes if budget allocation exists
+        if allocation:
+            budget_mode = getattr(plan, 'budget_mode', None)
+            if budget_mode in ['text_only', 'shared']:
+                continue
+
+        # Skip scenes with empty DALL-E prompt (won't be rendered)
+        if not plan.dalle_prompt:
+            continue
+
+        score = score_scene_importance(scene)
+        scene_scores.append((i, scene, plan, score))
+
+    # Sort by importance score (highest first)
+    scene_scores.sort(key=lambda x: x[3], reverse=True)
+
+    # Assign figures to top scenes
+    figures_assigned = 0
+    figure_idx = 0
+
+    for scene_idx, scene, plan, score in scene_scores:
+        if figure_idx >= len(sorted_figures):
+            break
+
+        # Assign figure to this scene
+        fig_id, fig_path = sorted_figures[figure_idx]
+        plan.kb_figure_path = fig_path
+        figure_idx += 1
+        figures_assigned += 1
+
+    return figures_assigned
+
+
 async def generate_mock_assets(visual_plans: list, output_dir: Path) -> list:
     """Generate mock assets (placeholder files)"""
     from core.models.video_production import SceneAssets
@@ -448,6 +601,139 @@ async def generate_mock_assets(visual_plans: list, output_dir: Path) -> list:
             video_path=str(video_path) if video_path else None,
             display_start=plan.ken_burns.get("display_start", 0.0) if plan.ken_burns else 0.0,
             display_end=plan.ken_burns.get("display_end", 5.0) if plan.ken_burns else 5.0,
+            visual_plan=plan
+        ))
+
+    return assets
+
+
+async def generate_live_assets(visual_plans: list, output_dir: Path, console) -> list:
+    """Generate real assets using DALL-E for images"""
+    from core.models.video_production import SceneAssets
+    from core.providers.image.dalle import DalleProvider
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    import shutil
+
+    t = get_theme()
+    assets = []
+
+    # Initialize DALL-E provider
+    try:
+        dalle = DalleProvider()
+    except ValueError as e:
+        console.print(f"[{t.error}]Failed to initialize DALL-E: {e}[/]")
+        console.print(f"[{t.dimmed}]Run 'claude-studio secrets set OPENAI_API_KEY' to configure[/]")
+        return []
+
+    # Count scenes needing DALL-E generation
+    scenes_needing_dalle = []
+    scenes_with_kb_figures = []
+    scenes_shared = []
+
+    for plan in visual_plans:
+        budget_mode = getattr(plan, 'budget_mode', None)
+        kb_figure = getattr(plan, 'kb_figure_path', None)
+
+        if budget_mode == 'shared' or budget_mode == 'text_only':
+            scenes_shared.append(plan)
+        elif kb_figure:
+            scenes_with_kb_figures.append(plan)
+        elif plan.dalle_prompt:
+            scenes_needing_dalle.append(plan)
+        else:
+            scenes_shared.append(plan)
+
+    console.print(f"\n[{t.label}]Asset generation plan:[/]")
+    console.print(f"  [green]KB figures to copy:[/] {len(scenes_with_kb_figures)}")
+    console.print(f"  [yellow]DALL-E images to generate:[/] {len(scenes_needing_dalle)}")
+    console.print(f"  [dim]Shared/text-only (no generation):[/] {len(scenes_shared)}")
+    console.print()
+
+    # Create images subdirectory
+    images_dir = output_dir / "images"
+    images_dir.mkdir(exist_ok=True)
+
+    total_cost = 0.0
+
+    # Copy KB figures
+    if scenes_with_kb_figures:
+        console.print(f"[{t.label}]Copying KB figures...[/]")
+        for plan in scenes_with_kb_figures:
+            src = Path(plan.kb_figure_path)
+            dst = images_dir / f"{plan.scene_id}.png"
+            if src.exists():
+                shutil.copy2(src, dst)
+                assets.append(SceneAssets(
+                    scene_id=plan.scene_id,
+                    image_path=str(dst),
+                    video_path=None,
+                    visual_plan=plan
+                ))
+        console.print(f"[{t.success}]Copied {len(scenes_with_kb_figures)} KB figures[/]")
+
+    # Generate DALL-E images
+    if scenes_needing_dalle:
+        console.print(f"\n[{t.label}]Generating DALL-E images...[/]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Generating...", total=len(scenes_needing_dalle))
+
+            for plan in scenes_needing_dalle:
+                progress.update(task, description=f"Generating {plan.scene_id[:20]}...")
+
+                # Generate image
+                result = await dalle.generate_image(
+                    prompt=plan.dalle_prompt,
+                    size="1792x1024",  # Landscape HD
+                    quality="hd",
+                    style=plan.dalle_style or "natural",
+                    download=True
+                )
+
+                if result.success:
+                    # Move to output directory
+                    if result.image_path:
+                        src = Path(result.image_path)
+                        dst = images_dir / f"{plan.scene_id}.png"
+                        shutil.move(str(src), str(dst))
+                        image_path = str(dst)
+                    else:
+                        # Download from URL if not already downloaded
+                        import aiohttp
+                        dst = images_dir / f"{plan.scene_id}.png"
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(result.image_url) as resp:
+                                if resp.status == 200:
+                                    dst.write_bytes(await resp.read())
+                        image_path = str(dst)
+
+                    total_cost += result.cost or 0.08
+                    assets.append(SceneAssets(
+                        scene_id=plan.scene_id,
+                        image_path=image_path,
+                        video_path=None,
+                        visual_plan=plan
+                    ))
+                else:
+                    console.print(f"[{t.error}]Failed to generate {plan.scene_id}: {result.error_message}[/]")
+
+                progress.advance(task)
+
+        console.print(f"[{t.success}]Generated {len(scenes_needing_dalle)} DALL-E images[/]")
+        console.print(f"[{t.dimmed}]Total DALL-E cost: ${total_cost:.2f}[/]")
+
+    # Add placeholder entries for shared scenes (they'll use primary's image)
+    for plan in scenes_shared:
+        assets.append(SceneAssets(
+            scene_id=plan.scene_id,
+            image_path=None,  # Will be resolved at render time
+            video_path=None,
             visual_plan=plan
         ))
 
@@ -490,7 +776,11 @@ async def _produce_video_async(
     output_path: str,
     live: bool,
     style: str,
-    kb_project: Optional[str] = None
+    kb_project: Optional[str] = None,
+    budget_tier: Optional[str] = None,
+    show_tiers_only: bool = False,
+    scene_limit: Optional[int] = None,
+    scene_start: int = 0
 ):
     """Main async production function"""
     t = get_theme()
@@ -540,10 +830,44 @@ async def _produce_video_async(
     from core.video_production import SEGMENT_VISUAL_MAPPING
 
     console.print(f"\n[{t.label}]Converting segments to video scenes...[/]")
-    scenes = segments_to_scenes(aligned_segments, SEGMENT_VISUAL_MAPPING)
-    console.print(f"[{t.success}]Created {len(scenes)} video scenes[/]\n")
+    all_scenes = segments_to_scenes(aligned_segments, SEGMENT_VISUAL_MAPPING)
+    console.print(f"[{t.success}]Created {len(all_scenes)} video scenes[/]\n")
+
+    # Apply scene range if specified (for incremental production)
+    if scene_start > 0 or scene_limit:
+        end_idx = scene_start + scene_limit if scene_limit else len(all_scenes)
+        scenes = all_scenes[scene_start:end_idx]
+        console.print(f"[{t.label}]Processing scenes {scene_start+1}-{min(end_idx, len(all_scenes))} of {len(all_scenes)}[/]\n")
+    else:
+        scenes = all_scenes
 
     print_scene_table(scenes)
+
+    # Show budget tier comparison (for full set, not slice)
+    print_budget_tiers(all_scenes)
+
+    # If --show-tiers flag is set, exit here
+    if show_tiers_only:
+        console.print(f"[{t.dimmed}]Use --budget <tier> to produce video with selected budget[/]")
+        return
+
+    # Get budget allocation if tier specified
+    allocation = None
+    if budget_tier:
+        from core.video_production import estimate_tier_costs, select_scenes_for_generation
+        estimates = estimate_tier_costs(scenes)
+        est = estimates[budget_tier]
+        console.print(f"[{t.label}]Selected budget tier:[/] [bold]{budget_tier.upper()}[/]")
+        console.print(f"[{t.dimmed}]  {est['dalle_images']} images, {est['luma_animations']} animations, est. ${est['total_cost']:.2f}[/]\n")
+
+        # Get scene allocation for this tier
+        allocation = select_scenes_for_generation(scenes, budget_tier)
+        console.print(f"[{t.label}]Scene allocation:[/]")
+        console.print(f"[{t.dimmed}]  Image groups: {allocation['group_count']} (shared across {len(scenes)} scenes)[/]")
+        console.print(f"[{t.dimmed}]  Luma animations: {len(allocation['luma'])}[/]")
+        console.print(f"[{t.dimmed}]  Ken Burns effects: {len(allocation['ken_burns'])}[/]")
+        console.print(f"[{t.dimmed}]  Text-only scenes: {len(allocation['text_only'])}[/]")
+        console.print()
 
     # Create visual plans
     console.print(f"[{t.label}]Creating visual plans...[/]")
@@ -555,6 +879,22 @@ async def _produce_video_async(
 
     # Get KB figure paths if available
     kb_figure_paths = kb_data["figure_paths"] if kb_data else {}
+
+    # Build lookup sets for budget-aware planning
+    text_only_ids = set(allocation["text_only"]) if allocation else set()
+    luma_ids = set(allocation["luma"]) if allocation else set()
+    ken_burns_ids = set(allocation["ken_burns"]) if allocation else set()
+
+    # Build group membership: scene_id -> group_index (for image sharing)
+    scene_to_group = {}
+    group_primary_scene = {}  # group_index -> primary scene_id (gets DALL-E generation)
+    if allocation and allocation.get("generate"):
+        for group_idx, group in enumerate(allocation["generate"]):
+            # First scene in group is primary (gets DALL-E generation)
+            primary_id = group[0].scene_id
+            group_primary_scene[group_idx] = primary_id
+            for scene in group:
+                scene_to_group[scene.scene_id] = group_idx
 
     visual_plans = []
     figures_matched = 0
@@ -569,6 +909,42 @@ async def _produce_video_async(
 
         for scene in scenes:
             plan = create_visual_plan(scene, knowledge_graph, style_consistency)
+
+            # Apply budget tier constraints
+            if allocation:
+                if scene.scene_id in text_only_ids:
+                    # Text-only: no DALL-E, no animation
+                    plan.dalle_prompt = ""
+                    plan.animate_with_luma = False
+                    plan.luma_prompt = None
+                    plan.ken_burns = None
+                    plan.budget_mode = "text_only"
+                elif scene.scene_id in scene_to_group:
+                    group_idx = scene_to_group[scene.scene_id]
+                    primary_id = group_primary_scene[group_idx]
+
+                    if scene.scene_id == primary_id:
+                        # Primary scene: generates the DALL-E image for the group
+                        plan.budget_mode = "primary"
+                        plan.group_id = group_idx
+                    else:
+                        # Secondary scene: shares image with primary
+                        plan.dalle_prompt = ""  # Don't generate, reuse primary's image
+                        plan.budget_mode = "shared"
+                        plan.group_id = group_idx
+                        plan.shares_image_with = primary_id
+
+                    # Apply Luma/Ken Burns based on allocation
+                    if scene.scene_id in luma_ids:
+                        plan.animate_with_luma = True
+                    else:
+                        plan.animate_with_luma = False
+                        plan.luma_prompt = None
+
+                    if scene.scene_id in ken_burns_ids and not plan.animate_with_luma:
+                        plan.ken_burns = {"enabled": True, "direction": "slow_zoom_in", "duration_match": "scene_duration"}
+                    elif scene.scene_id not in luma_ids:
+                        plan.ken_burns = None
 
             # Try to match scene to KB figures by keyword
             matched_figure = None
@@ -585,8 +961,15 @@ async def _produce_video_async(
 
     console.print()
 
-    # Print comprehensive asset summary
+    # If keyword matching found few figures, use fallback distribution
     kb_figure_count = len(kb_data["figure_paths"]) if kb_data else 0
+    if kb_figure_paths and figures_matched < min(5, kb_figure_count):
+        console.print(f"[{t.dimmed}]Keyword matching found only {figures_matched} figures, using fallback distribution...[/]")
+        fallback_assigned = distribute_figures_to_scenes(scenes, visual_plans, kb_figure_paths, allocation)
+        figures_matched += fallback_assigned
+        console.print(f"[{t.success}]Assigned {fallback_assigned} figures to high-importance scenes[/]\n")
+
+    # Print comprehensive asset summary
     print_asset_summary(visual_plans, kb_figure_count)
 
     # Print full scene list with asset sources
@@ -623,34 +1006,36 @@ async def _produce_video_async(
 
     # Generate assets (mock or live)
     if live:
-        console.print(f"\n[{t.warning}]Live mode: Would generate DALL-E images and Luma animations[/]")
-        console.print(f"[{t.dimmed}](Not implemented yet - use --mock for now)[/]")
+        console.print(f"\n[{t.label}]Live mode: Generating real assets...[/]")
+        assets = await generate_live_assets(visual_plans, output_dir, console)
+        console.print(f"[{t.success}]Generated {len(assets)} assets[/]")
     else:
         console.print(f"\n[{t.label}]Mock mode: Generating placeholder assets...[/]")
         assets = await generate_mock_assets(visual_plans, output_dir)
         console.print(f"[{t.success}]Created {len(assets)} mock asset entries[/]")
 
-        # Save asset manifest
-        manifest_path = output_dir / "asset_manifest.json"
-        manifest_data = {
-            "run_id": run_id,
-            "total_scenes": len(assets),
-            "animated_scenes": sum(1 for a in assets if a.video_path),
-            "assets": [
-                {
-                    "scene_id": a.scene_id,
-                    "image_path": a.image_path,
-                    "video_path": a.video_path,
-                    "display_start": a.display_start,
-                    "display_end": a.display_end
-                }
-                for a in assets
-            ]
-        }
-        with open(manifest_path, 'w', encoding='utf-8') as f:
-            json.dump(manifest_data, f, indent=2)
+    # Save asset manifest (for both live and mock)
+    manifest_path = output_dir / "asset_manifest.json"
+    manifest_data = {
+        "run_id": run_id,
+        "mode": "live" if live else "mock",
+        "total_scenes": len(assets),
+        "animated_scenes": sum(1 for a in assets if a.video_path),
+        "assets": [
+            {
+                "scene_id": a.scene_id,
+                "image_path": a.image_path,
+                "video_path": a.video_path,
+                "display_start": getattr(a, 'display_start', 0.0),
+                "display_end": getattr(a, 'display_end', 5.0)
+            }
+            for a in assets
+        ]
+    }
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        json.dump(manifest_data, f, indent=2)
 
-        console.print(f"[{t.success}]Saved asset manifest to:[/] {manifest_path}")
+    console.print(f"[{t.success}]Saved asset manifest to:[/] {manifest_path}")
 
     # Final summary
     console.print()
@@ -701,7 +1086,30 @@ async def _produce_video_async(
     type=str,
     help="Knowledge base project name (for figure access)"
 )
-def produce_video_cmd(from_training, script, output, live, style, kb):
+@click.option(
+    "--budget", "-b",
+    type=click.Choice(["micro", "low", "medium", "high", "full"]),
+    default=None,
+    help="Budget tier (controls image/animation count). Use --show-tiers to see costs."
+)
+@click.option(
+    "--show-tiers",
+    is_flag=True,
+    help="Show cost comparison for all budget tiers, then exit"
+)
+@click.option(
+    "--limit", "-l",
+    type=int,
+    default=None,
+    help="Limit to N scenes (for incremental production)"
+)
+@click.option(
+    "--start",
+    type=int,
+    default=0,
+    help="Start from scene index (0-based, for incremental production)"
+)
+def produce_video_cmd(from_training, script, output, live, style, kb, budget, show_tiers, limit, start):
     """Produce an explainer video from a podcast script.
 
     \b
@@ -710,9 +1118,18 @@ def produce_video_cmd(from_training, script, output, live, style, kb):
       --script         Use an existing script file (coming soon)
 
     \b
+    Budget tiers (use --show-tiers to see detailed costs):
+      micro   Text overlays only, no image generation ($0)
+      low     ~15 hero images for key moments ($1-2)
+      medium  ~40 consolidated images with Ken Burns ($3-5)
+      high    ~80 images with selective Luma animation ($8-12)
+      full    All scenes get unique visuals ($15+)
+
+    \b
     Examples:
-      claude-studio produce-video --from-training trial_000_20260201_192220 --mock
-      claude-studio produce-video -t trial_000 --kb uav-positioning --live
+      claude-studio produce-video -t trial_000 --show-tiers
+      claude-studio produce-video -t trial_000 --budget low --mock
+      claude-studio produce-video -t trial_000 --budget medium --kb uav-positioning --live
     """
     if not from_training and not script:
         raise click.UsageError("Provide --from-training or --script")
@@ -723,5 +1140,9 @@ def produce_video_cmd(from_training, script, output, live, style, kb):
         output_path=output,
         live=live,
         style=style,
-        kb_project=kb
+        kb_project=kb,
+        budget_tier=budget,
+        show_tiers_only=show_tiers,
+        scene_limit=limit,
+        scene_start=start
     ))

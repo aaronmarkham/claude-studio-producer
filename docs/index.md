@@ -18,8 +18,10 @@ To a production-ready platform with:
 - 🔌 **Pluggable providers** (Luma, Runway, DALL-E, ElevenLabs, OpenAI, Google TTS)
 - 🧠 **Learning system** that improves prompts over time
 - 📚 **Knowledge base** for document/research-based video production
-- 💰 **Budget-aware** competitive pilot system
+- 💰 **Budget-aware** competitive pilot system with tiered image allocation
 - 🔒 **Secure** API key management with OS keychain
+- 🎓 **Training pipeline** for ML-style podcast quality improvement
+- 📽️ **Transcript-led video production** with scene importance scoring
 
 ## Example Videos
 
@@ -86,6 +88,8 @@ To a production-ready platform with:
 - [Multi-Tenant Memory](specs/MULTI_TENANT_MEMORY_ARCHITECTURE.html) - Enterprise namespace hierarchy
 - [Knowledge Base System](specs/KNOWLEDGE_TO_VIDEO.html) - Document/research to video pipeline
 - [Document Ingestion](specs/DOCUMENT_TO_VIDEO.html) - PDF atomization and semantic chunking
+- [Podcast Training Pipeline](specs/PODCAST_TRAINING_PIPELINE.html) - ML-style iterative quality improvement
+- [Transcript-Led Video Production](specs/TRANSCRIPT_LED_VIDEO_PRODUCTION.html) - Budget-aware visual generation
 
 ---
 
@@ -106,6 +110,16 @@ claude-studio produce "concept" --mode video-led --budget 5 --live
 claude-studio kb create "Research" -d "AI papers"
 claude-studio kb add "Research" --paper paper.pdf
 claude-studio kb produce "Research" -p "Explain transformers" --style educational
+
+# Training pipeline (ML-style podcast quality improvement)
+claude-studio training run my-kb-project --reference-audio podcast.mp3
+claude-studio training list
+claude-studio training show trial_000_20260205
+
+# Video production from training (budget-aware)
+claude-studio produce-video -t trial_000 --show-tiers          # See cost breakdown
+claude-studio produce-video -t trial_000 --budget low --mock   # Hero images only
+claude-studio produce-video -t trial_000 --budget medium --kb my-project --live
 
 # Test providers
 claude-studio provider test luma -p "coffee steam rising" -d 5 --live

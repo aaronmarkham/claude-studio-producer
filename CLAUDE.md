@@ -39,17 +39,19 @@ User Request → Producer → ScriptWriter → VideoGenerator → QAVerifier →
 
 ```
 agents/           # Agent implementations
-cli/              # CLI commands (produce, kb, luma, memory, provider)
+cli/              # CLI commands (produce, produce-video, training, kb, memory, provider)
 core/
   ├── providers/  # Video/audio/image/music/storage providers
   │   ├── video/  # luma.py, runway.py, pika.py (stub), etc.
   │   └── audio/  # elevenlabs.py, openai_tts.py, etc.
   ├── memory/     # MemoryManager, bootstrap
-  ├── models/     # Data models (memory.py, knowledge.py, document.py)
-  └── *.py        # claude_client, budget, renderer, orchestrator
+  ├── models/     # Data models (memory.py, knowledge.py, document.py, video_production.py)
+  ├── training/   # Podcast training pipeline (transcription, classification, profiles)
+  └── *.py        # claude_client, budget, renderer, orchestrator, video_production
 server/           # FastAPI dashboard
 docs/specs/       # Design specs (read these for feature details)
-artifacts/        # Run outputs, memory.json
+artifacts/        # Run outputs, memory.json, training_output/
+.claude/          # Claude Code skills and agent configs
 ```
 
 ## Common Commands
@@ -68,6 +70,16 @@ python -m cli.produce "concept" --style podcast  # or: educational, documentary,
 claude-studio kb create "Project" -d "Description"
 claude-studio kb add "Project" --paper doc.pdf
 claude-studio kb produce "Project" -p "prompt" --style podcast
+
+# Training pipeline (ML-style podcast improvement)
+claude-studio training run my-project --reference-audio podcast.mp3
+claude-studio training list
+claude-studio training show trial_000_20260205
+
+# Video production from training (budget-aware)
+claude-studio produce-video -t trial_000 --show-tiers          # Show costs per tier
+claude-studio produce-video -t trial_000 --budget low --mock   # Hero images only
+claude-studio produce-video -t trial_000 --budget medium --kb my-project --live
 
 # Memory/learnings
 claude-studio memory list luma
@@ -116,9 +128,10 @@ Storage: `artifacts/memory.json` (local) or Bedrock AgentCore (production)
 
 ## Active Specs (read before implementing)
 
-- [AUDIO_VIDEO_ORCHESTRATION_PATCH.md](docs/specs/AUDIO_VIDEO_ORCHESTRATION_PATCH.md) — Wire audio into EDL + mixing
 - [PODCAST_TRAINING_PIPELINE.md](docs/specs/PODCAST_TRAINING_PIPELINE.md) — ML-style podcast quality training
+- [TRANSCRIPT_LED_VIDEO_PRODUCTION.md](docs/specs/TRANSCRIPT_LED_VIDEO_PRODUCTION.md) — Budget-aware visual generation from scripts
 - [MULTI_PROVIDER_ORCHESTRATION.md](docs/specs/MULTI_PROVIDER_ORCHESTRATION.md) — Provider system architecture
+- [AUDIO_VIDEO_ORCHESTRATION_PATCH.md](docs/specs/AUDIO_VIDEO_ORCHESTRATION_PATCH.md) — Wire audio into EDL + mixing
 
 ## Working Style
 
@@ -128,7 +141,7 @@ Storage: `artifacts/memory.json` (local) or Bedrock AgentCore (production)
 - Do not read entire files when Grep can find the relevant lines
 - After implementing, always run: `python -m py_compile <file>` then `pytest`
 
-## Current State (Jan 2026)
+## Current State (Feb 2026)
 
 Working:
 - Full agent pipeline with Luma + ElevenLabs
@@ -141,10 +154,15 @@ Working:
 - Google Cloud TTS (Neural2, WaveNet, Studio voices)
 - Runway ML video (image-to-video)
 - Multi-provider pipeline (DALL-E → Runway chaining)
+- Audio-video synchronization and mixing
+- Podcast training pipeline (ML-style iterative improvement)
+- Transcript-led video production with budget tiers
+- Scene importance scoring for image allocation
+- KB figure integration in video production
+- Claude Code skills (`/produce`, `/train`)
 
 In progress:
 - Additional video providers (Pika, Kling stubbed)
-- Audio-video synchronization
 - Multi-pilot competitive generation
 
 ## Useful Files to Read

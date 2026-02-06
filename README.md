@@ -306,6 +306,60 @@ claude-studio produce -c "History of the internet" --style documentary
 | `educational` | ~80-120 | Tutorials, lectures, learning content |
 | `documentary` | ~60-100 | Narratives, historical content, storytelling |
 
+### Podcast Training Pipeline
+
+Train the system to generate high-quality podcast scripts from research papers using an ML-style iterative approach:
+
+```bash
+# Run a training trial on a knowledge base project
+claude-studio training run uav-positioning \
+  --reference-audio ref_podcast.mp3 \
+  --reference-transcript ref_transcript.txt
+
+# View training results
+claude-studio training show trial_000_20260205
+
+# List all training trials
+claude-studio training list
+```
+
+The training pipeline:
+1. **Transcribes** reference podcasts using Whisper
+2. **Classifies segments** (INTRO, BACKGROUND, METHODOLOGY, KEY_FINDING, etc.)
+3. **Extracts style profiles** (vocabulary, pacing, conversation dynamics)
+4. **Synthesizes learnings** for improved script generation
+5. **Runs iterative trials** to optimize quality
+
+### Video Production from Training
+
+Create explainer videos from training outputs with budget-aware visual generation:
+
+```bash
+# Show budget tier costs for a training trial
+claude-studio produce-video -t trial_000_20260205 --show-tiers
+
+# Produce with low budget (hero images only)
+claude-studio produce-video -t trial_000_20260205 --budget low --mock
+
+# Produce with KB figures and live generation
+claude-studio produce-video -t trial_000_20260205 --budget medium --kb uav-research --live
+
+# Incremental production (first 5 scenes)
+claude-studio produce-video -t trial_000_20260205 --budget medium --limit 5 --live
+```
+
+**Budget Tiers:**
+
+| Tier | DALL-E Images | Luma Animations | Estimated Cost |
+|------|---------------|-----------------|----------------|
+| `micro` | 0 (text only) | 0 | $0 |
+| `low` | ~15 hero images | 0 | $1-2 |
+| `medium` | ~40 consolidated | 0 | $3-5 |
+| `high` | ~80 images | 5 selective | $8-12 |
+| `full` | All scenes | All candidates | $15+ |
+
+The system uses **scene importance scoring** to allocate limited image budgets to the most impactful moments (KEY_FINDING, METHODOLOGY, FIGURE_DISCUSSION).
+
 ### Production Modes
 
 Claude Studio Producer supports two production workflows that determine which asset drives the timeline:
@@ -485,6 +539,8 @@ claude-studio-producer/
 │
 ├── cli/
 │   ├── produce.py          # Main CLI with --live mode and --style
+│   ├── produce_video.py    # Transcript-led video production with budget tiers
+│   ├── training.py         # Podcast training pipeline CLI
 │   ├── kb.py               # Knowledge base management CLI
 │   └── luma.py             # Luma testing CLI
 │
@@ -568,6 +624,11 @@ uvicorn server.main:app --reload
 - [x] Multi-provider pipeline (e.g., DALL-E image → Runway video)
 - [x] Audio-video synchronization and mixing (Audio-led and video-led modes with automatic pipeline)
 - [x] Video/audio mixing and rendering with volume control
+- [x] Podcast training pipeline (ML-style iterative improvement with reference podcasts)
+- [x] Transcript-led video production (`produce-video` CLI with budget tiers)
+- [x] Scene importance scoring for budget-aware image allocation
+- [x] KB figure integration (use extracted PDF figures in videos)
+- [x] Claude Code skills integration (progressive disclosure with `/produce`, `/train`)
 
 ### In Progress
 - [ ] Additional video providers (Pika, Kling)

@@ -8,6 +8,31 @@
 - **Web dashboard** to view runs, preview videos, and see QA scores
 - **CLI tool** with live progress and detailed feedback
 - **Multi-tenant memory** using Strands and Bedrock AgentCore
+- **Podcast training pipeline** - ML-style iterative improvement for podcast generation quality
+- **Transcript-led video production** - Budget-aware visual generation from training outputs
+- **Budget tier system** - micro/low/medium/high/full tiers for controlling image generation costs
+
+### Feb 6, 2026
+
+Big milestone: the podcast training pipeline and video production workflow are now fully integrated!
+
+**Training Pipeline** (`claude-studio training run`):
+- Transcribes reference podcasts using Whisper
+- Classifies segments into types (INTRO, BACKGROUND, METHODOLOGY, KEY_FINDING, etc.)
+- Extracts style profiles (vocabulary, pacing, conversation dynamics)
+- Synthesizes learnings for improved script generation
+- Runs iterative trials with checkpointing for expensive operations
+
+**Video Production** (`claude-studio produce-video`):
+- Takes training trial output and produces explainer videos
+- Budget tier system controls image generation costs (micro=$0 to full=$15+)
+- Scene importance scoring allocates limited images to high-impact moments
+- Integrates KB figures - extracted PDF figures from knowledge base appear in videos
+- Visual style presets (technical, educational, documentary)
+
+The budget tier system is particularly useful - you can preview costs with `--show-tiers` before committing to generation. Scene importance scoring means even at low budgets, the KEY_FINDING and METHODOLOGY segments get proper visuals while TRANSITION segments just get text overlays.
+
+Tested the full pipeline with a UAV positioning research paper: PDF → KB ingestion → training → video production. The charts and flowcharts from the paper now appear in the video synced to the narration. Ken Burns effects work well for static content, but we disabled zoompan for technical diagrams since they looked better static.
 
 ### Jan 30, 2026
 
