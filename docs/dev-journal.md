@@ -11,6 +11,26 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### Feb 6, 2026 - Training Pipeline & Video Production Integration
+
+Big milestone: the podcast training pipeline and video production workflow are fully integrated!
+
+**Training Pipeline** (`claude-studio training run`):
+- Transcribes reference podcasts using Whisper
+- Classifies segments (INTRO, BACKGROUND, METHODOLOGY, KEY_FINDING, etc.)
+- Extracts style profiles for improved script generation
+
+**Video Production** (`claude-studio produce-video`):
+- Takes training output and produces explainer videos
+- Budget tier system (micro=$0 to full=$15+)
+- Scene importance scoring allocates images to high-impact moments
+- KB figures from PDFs appear in videos synced to narration
+
+```bash
+claude-studio produce-video -t trial_000 --show-tiers
+claude-studio produce-video -t trial_000 --budget medium --kb my-project --live
+```
+
 ### Jan 30, 2026 - Security Hardening
 
 Read some alarming posts about Clawdbot, so did a quick security check. Added `__repr__` to Config classes to prevent API key leaks in debug outputs.
