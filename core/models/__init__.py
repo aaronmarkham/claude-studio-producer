@@ -63,6 +63,14 @@ from .knowledge import (
     KnowledgeProject,
     generate_id,
 )
+from .video_production import (
+    VideoScene,
+    VisualPlan,
+    SceneAssets,
+    AudioPatch,
+    AssetManifest,
+    CleanupDecision,
+)
 
 __all__ = [
     # Seed assets
@@ -122,4 +130,11 @@ __all__ = [
     "KnowledgeGraph",
     "KnowledgeProject",
     "generate_id",
+    # Video production models
+    "VideoScene",
+    "VisualPlan",
+    "SceneAssets",
+    "AudioPatch",
+    "AssetManifest",
+    "CleanupDecision",
 ]

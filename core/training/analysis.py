@@ -69,24 +69,41 @@ async def classify_segments(
 
     Analyzes each segment to determine its type, what paper content it discusses,
     and extracts key concepts, analogies, questions, etc.
+
+    Processes segments in batches to handle transcripts of any length.
     """
     # Build context about the paper from KnowledgeGraph
     title = getattr(document_graph, 'project_id', 'Unknown')
     abstract = getattr(document_graph, 'unified_summary', 'N/A')[:500]
     themes = getattr(document_graph, 'key_themes', [])
 
-    # Build segment list for JSON (avoid nested f-strings)
-    segments_data = [
-        {
-            'id': s.segment_id,
-            'text': s.text,
-            'time': f'{s.start_time:.1f}-{s.end_time:.1f}s'
-        }
-        for s in transcription.segments[:50]
-    ]
-    segments_json = json.dumps(segments_data, indent=2)
+    # Process segments in batches of 40 to stay within token limits
+    BATCH_SIZE = 40
+    all_segments_data = []
+    total_usage = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
 
-    prompt = f"""Analyze this podcast transcript segment by segment and classify each one.
+    total_segments = len(transcription.segments)
+    num_batches = (total_segments + BATCH_SIZE - 1) // BATCH_SIZE
+
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * BATCH_SIZE
+        end_idx = min(start_idx + BATCH_SIZE, total_segments)
+        batch_segments = transcription.segments[start_idx:end_idx]
+
+        print(f"  Classifying batch {batch_idx + 1}/{num_batches} (segments {start_idx}-{end_idx - 1})...")
+
+        # Build segment list for JSON
+        segments_for_prompt = [
+            {
+                'id': s.segment_id,
+                'text': s.text,
+                'time': f'{s.start_time:.1f}-{s.end_time:.1f}s'
+            }
+            for s in batch_segments
+        ]
+        segments_json = json.dumps(segments_for_prompt, indent=2)
+
+        prompt = f"""Analyze this podcast transcript segment by segment and classify each one.
 
 PAPER BEING DISCUSSED:
 Title: {title}
@@ -121,24 +138,30 @@ Return as JSON array with one entry per segment:
 }}
 """
 
-    response, usage = await claude_client.query(prompt, return_usage=True)
+        response, usage = await claude_client.query(prompt, return_usage=True)
 
-    # Log usage if available
-    if usage:
-        print(f"  API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
+        # Accumulate usage
+        if usage:
+            total_usage['input_tokens'] += usage.get('input_tokens', 0)
+            total_usage['output_tokens'] += usage.get('output_tokens', 0)
+            total_usage['total_tokens'] += usage.get('total_tokens', 0)
 
-    # Parse response using JSONExtractor to handle markdown code fences
-    try:
-        from core.claude_client import JSONExtractor
-        data = JSONExtractor.extract(response)
-        segments_data = data.get("segments", [])
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"  WARNING: Failed to parse classification response: {e}")
-        # Fallback: create basic aligned segments
-        segments_data = []
+        # Parse response using JSONExtractor to handle markdown code fences
+        try:
+            from core.claude_client import JSONExtractor
+            data = JSONExtractor.extract(response)
+            batch_data = data.get("segments", [])
+            all_segments_data.extend(batch_data)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"  WARNING: Failed to parse batch {batch_idx + 1} response: {e}")
+
+    # Log total usage
+    if total_usage['total_tokens'] > 0:
+        print(f"  Total API usage: {total_usage['input_tokens']} in + {total_usage['output_tokens']} out = {total_usage['total_tokens']} tokens")
 
     # Create AlignedSegment objects
     aligned_segments = []
+    segments_data = all_segments_data  # Use combined data from all batches
     for i, trans_seg in enumerate(transcription.segments):
         # Find matching data
         seg_data = next((s for s in segments_data if s.get("segment_id") == trans_seg.segment_id), {})
@@ -169,7 +192,7 @@ Return as JSON array with one entry per segment:
         )
         aligned_segments.append(aligned_seg)
 
-    return aligned_segments, usage
+    return aligned_segments, total_usage
 
 
 async def extract_structure_profile(

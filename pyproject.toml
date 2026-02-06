@@ -44,7 +44,11 @@ dependencies = [
     "lumaai>=0.1.0",
     "keyring>=25.0.0",
     "openai>=1.0.0",
+    "elevenlabs>=1.0.0",
     "rouge-score>=0.1.2",
+    "textstat>=0.7.0",
+    "numpy>=1.24.0",
+    "pymupdf>=1.24.0",
 ]
 
 [project.optional-dependencies]

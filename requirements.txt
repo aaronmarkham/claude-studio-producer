@@ -18,6 +18,15 @@ rich>=13.0.0
 
 # Video providers
 lumaai>=0.1.0
+openai>=1.0.0
+
+# Audio providers
+elevenlabs>=1.0.0
+
+# Text analysis (vocabulary complexity for training pipeline)
+textstat>=0.7.0
+rouge-score>=0.1.2
+numpy>=1.24.0
 
 # Document ingestion
 pymupdf>=1.24.0

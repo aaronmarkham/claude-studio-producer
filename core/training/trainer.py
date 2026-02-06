@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 from rich.console import Console
@@ -34,7 +34,7 @@ async def run_training_loop(
     output_dir: Path,
     style_profile,  # Can be StyleProfile or AggregatedProfile
     skip_audio: bool = False,
-) -> List[TrialResult]:
+) -> tuple[List[TrialResult], Dict[str, int]]:
     """
     Main training loop.
 
@@ -46,9 +46,10 @@ async def run_training_loop(
        e. Check convergence
        f. Refine prompts if not converged
 
-    2. Return all trial results for analysis
+    2. Return all trial results and total API usage
     """
     results: List[TrialResult] = []
+    loop_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
     # Extract StyleProfile from AggregatedProfile if needed
     from core.training.models import AggregatedProfile
@@ -84,12 +85,17 @@ async def run_training_loop(
             try:
                 # 1. Generate podcast script using Claude with learned style profile
                 console.print("  Generating podcast script...")
-                script_text = await generate_podcast_script(
+                script_text, script_usage = await generate_podcast_script(
                     pair=pair,
                     style_profile=style_profile_to_use,
                     claude_client=claude_client,
                     trial_num=trial_num,
                 )
+                # Track usage
+                if script_usage:
+                    loop_usage["input_tokens"] += script_usage.get("input_tokens", 0)
+                    loop_usage["output_tokens"] += script_usage.get("output_tokens", 0)
+                    loop_usage["total_tokens"] += script_usage.get("total_tokens", 0)
                 script_path = output_dir / trial_id / f"{pair.pair_id}_script.txt"
                 script_path.parent.mkdir(parents=True, exist_ok=True)
                 script_path.write_text(script_text, encoding='utf-8')
@@ -207,10 +213,10 @@ async def run_training_loop(
         if trial_num < config.max_trials - 1:
             console.print(f"\n[yellow]→ Prompt refinement for next trial (TODO: implement adaptive refinement)[/yellow]")
 
-    # Final report
-    await generate_training_report(results, config, output_dir)
+    # Final report (include usage from training loop)
+    await generate_training_report(results, config, output_dir, usage=loop_usage)
 
-    return results
+    return results, loop_usage
 
 
 async def generate_podcast_script(
@@ -218,7 +224,7 @@ async def generate_podcast_script(
     style_profile: StyleProfile,
     claude_client: ClaudeClient,
     trial_num: int,
-) -> str:
+) -> tuple[str, Optional[Dict[str, int]]]:
     """
     Generate a podcast script from the document using the learned style profile.
 
@@ -229,7 +235,7 @@ async def generate_podcast_script(
         trial_num: Current trial number (for prompt refinement)
 
     Returns:
-        Generated podcast transcript text
+        Tuple of (generated script text, token usage dict)
     """
     doc_graph = pair.document_graph
 
@@ -315,7 +321,7 @@ Generate the complete podcast script now:"""
     if usage:
         console.print(f"  Script generation API usage: {usage['input_tokens']} in + {usage['output_tokens']} out = {usage['total_tokens']} tokens")
 
-    return response.strip()
+    return response.strip(), usage
 
 
 async def store_trial_results(
@@ -396,6 +402,7 @@ async def generate_training_report(
     results: List[TrialResult],
     config: TrainingConfig,
     output_dir: Path,
+    usage: Optional[Dict[str, int]] = None,
 ):
     """Generate final training report."""
     console.print(f"\n{'='*60}")
@@ -431,6 +438,7 @@ async def generate_training_report(
             "best_loss": best_trial.avg_total_loss if results else None,
             "loss_progression": [r.avg_total_loss for r in results],
         },
+        "usage": usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         "timestamp": datetime.now().isoformat(),
     }
     report_file.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')

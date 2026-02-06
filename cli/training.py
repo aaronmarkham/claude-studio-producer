@@ -232,9 +232,10 @@ def training():
 @click.option('--pairs-dir', default='artifacts/training_data', help='Directory containing training pairs')
 @click.option('--output-dir', default='artifacts/training_output', help='Output directory for results')
 @click.option('--max-trials', default=5, help='Maximum number of training trials')
-@click.option('--skip-audio', is_flag=True, help='Skip TTS audio generation (use reference audio for metrics)')
-def run(pairs_dir, output_dir, max_trials, skip_audio):
+@click.option('--with-audio', is_flag=True, help='Generate TTS audio (disabled by default, uses reference audio)')
+def run(pairs_dir, output_dir, max_trials, with_audio):
     """Run the complete training pipeline"""
+    skip_audio = not with_audio
     asyncio.run(run_training_pipeline(pairs_dir, output_dir, max_trials, skip_audio))
 
 
@@ -578,7 +579,7 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
     )
 
     try:
-        results = await run_training_loop(
+        results, loop_usage = await run_training_loop(
             training_pairs=training_pairs,
             config=config,
             memory_manager=memory_manager,
@@ -587,6 +588,11 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
             style_profile=aggregated_profile,
             skip_audio=skip_audio,
         )
+
+        # Add training loop usage to total
+        total_usage["input_tokens"] += loop_usage.get("input_tokens", 0)
+        total_usage["output_tokens"] += loop_usage.get("output_tokens", 0)
+        total_usage["total_tokens"] += loop_usage.get("total_tokens", 0)
 
         logger.info(f"Training complete! Generated {len(results)} trials")
         logger.info(f"Results saved to: {output_path}")
@@ -606,6 +612,19 @@ async def run_training_pipeline(pairs_dir: str, output_dir: str, max_trials: int
         total_cost = cost_input + cost_output
         logger.info(f"Estimated cost: ${total_cost:.2f} (${cost_input:.2f} input + ${cost_output:.2f} output)")
         console.print(f"  Estimated cost: [bold]${total_cost:.2f}[/bold] (${cost_input:.2f} input + ${cost_output:.2f} output)")
+
+        # Update report with complete usage (including segment analysis + style extraction)
+        report_file = output_path / "training_report.json"
+        if report_file.exists():
+            import json
+            report_data = json.loads(report_file.read_text(encoding='utf-8'))
+            report_data["usage"] = total_usage
+            report_data["cost"] = {
+                "input_cost": round(cost_input, 4),
+                "output_cost": round(cost_output, 4),
+                "total_cost": round(total_cost, 4),
+            }
+            report_file.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
 
     except Exception as e:
         logger.error(f"Training loop failed: {e}", exc_info=True)
