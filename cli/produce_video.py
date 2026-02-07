@@ -22,6 +22,12 @@ if sys.platform == "win32":
 
 from cli.theme import get_theme
 
+# Unified Production Architecture imports
+from core.models.structured_script import StructuredScript
+from core.models.content_library import ContentLibrary, AssetType, AssetStatus
+from core.content_librarian import ContentLibrarian
+from core.dop import assign_visuals, get_visual_plan_summary
+
 console = Console()
 
 
@@ -407,6 +413,16 @@ async def load_training_trial(trial_id: str) -> dict:
         with open(kg_path, 'r', encoding='utf-8') as f:
             knowledge_graph = json.load(f)
 
+    # Load structured script if available (new Unified Production Architecture)
+    structured_script = None
+    structured_script_files = list(trial_dir.glob("*_structured_script.json"))
+    if structured_script_files:
+        try:
+            structured_script = StructuredScript.load(structured_script_files[0])
+        except Exception as e:
+            # Fall back to legacy mode if structured script can't be loaded
+            pass
+
     return {
         "trial_dir": trial_dir,
         "script_text": script_text,
@@ -414,7 +430,8 @@ async def load_training_trial(trial_id: str) -> dict:
         "aligned_segments": analysis_data.get("aligned_segments", []),
         "structure_profile": analysis_data.get("structure_profile"),
         "style_profile": analysis_data.get("style_profile"),
-        "knowledge_graph": knowledge_graph
+        "knowledge_graph": knowledge_graph,
+        "structured_script": structured_script,  # New: StructuredScript if available
     }
 
 
@@ -964,6 +981,13 @@ async def _produce_video_async(
         console.print(f"[{t.dimmed}]Use --budget <tier> to produce video with selected budget[/]")
         return
 
+    # Check if we have a structured script (Unified Production Architecture)
+    structured_script = trial_data.get("structured_script") if from_training else None
+    use_dop = structured_script is not None
+
+    if use_dop:
+        console.print(f"[{t.success}]Using Unified Production Architecture (DoP)[/]\n")
+
     # Get budget allocation if tier specified
     allocation = None
     if budget_tier:
@@ -973,14 +997,38 @@ async def _produce_video_async(
         console.print(f"[{t.label}]Selected budget tier:[/] [bold]{budget_tier.upper()}[/]")
         console.print(f"[{t.dimmed}]  {est['dalle_images']} images, {est['luma_animations']} animations, est. ${est['total_cost']:.2f}[/]\n")
 
-        # Get scene allocation for this tier
-        allocation = select_scenes_for_generation(scenes, budget_tier)
-        console.print(f"[{t.label}]Scene allocation:[/]")
-        console.print(f"[{t.dimmed}]  Image groups: {allocation['group_count']} (shared across {len(scenes)} scenes)[/]")
-        console.print(f"[{t.dimmed}]  Luma animations: {len(allocation['luma'])}[/]")
-        console.print(f"[{t.dimmed}]  Ken Burns effects: {len(allocation['ken_burns'])}[/]")
-        console.print(f"[{t.dimmed}]  Text-only scenes: {len(allocation['text_only'])}[/]")
-        console.print()
+        # If using DoP, assign visuals through the DoP module
+        if use_dop:
+            # Create content library for this run
+            content_library = ContentLibrary(project_id=run_id)
+
+            # Register KB figures if available
+            if kb_data and kb_data.get("project_dir"):
+                librarian = ContentLibrarian(content_library)
+                kb_path = kb_data["project_dir"]
+                registered_figures = librarian.register_kb_figures(str(kb_path), structured_script)
+                if registered_figures:
+                    console.print(f"[{t.success}]Registered {len(registered_figures)} KB figures in content library[/]")
+
+            # Use DoP to assign visual modes based on budget tier
+            structured_script = assign_visuals(structured_script, content_library, budget_tier)
+            dop_summary = get_visual_plan_summary(structured_script)
+
+            console.print(f"[{t.label}]DoP visual assignment:[/]")
+            console.print(f"[{t.dimmed}]  Figure sync: {dop_summary['figure_sync']} (KB figures)[/]")
+            console.print(f"[{t.dimmed}]  DALL-E: {dop_summary['dall_e']}[/]")
+            console.print(f"[{t.dimmed}]  Carry forward: {dop_summary['carry_forward']}[/]")
+            console.print(f"[{t.dimmed}]  Text only: {dop_summary['text_only']}[/]")
+            console.print()
+        else:
+            # Legacy: Get scene allocation for this tier
+            allocation = select_scenes_for_generation(scenes, budget_tier)
+            console.print(f"[{t.label}]Scene allocation:[/]")
+            console.print(f"[{t.dimmed}]  Image groups: {allocation['group_count']} (shared across {len(scenes)} scenes)[/]")
+            console.print(f"[{t.dimmed}]  Luma animations: {len(allocation['luma'])}[/]")
+            console.print(f"[{t.dimmed}]  Ken Burns effects: {len(allocation['ken_burns'])}[/]")
+            console.print(f"[{t.dimmed}]  Text-only scenes: {len(allocation['text_only'])}[/]")
+            console.print()
 
     # Create visual plans
     console.print(f"[{t.label}]Creating visual plans...[/]")
@@ -993,86 +1041,163 @@ async def _produce_video_async(
     # Get KB figure paths if available
     kb_figure_paths = kb_data["figure_paths"] if kb_data else {}
 
-    # Build lookup sets for budget-aware planning
-    text_only_ids = set(allocation["text_only"]) if allocation else set()
-    luma_ids = set(allocation["luma"]) if allocation else set()
-    ken_burns_ids = set(allocation["ken_burns"]) if allocation else set()
-
-    # Build group membership: scene_id -> group_index (for image sharing)
-    scene_to_group = {}
-    group_primary_scene = {}  # group_index -> primary scene_id (gets DALL-E generation)
-    if allocation and allocation.get("generate"):
-        for group_idx, group in enumerate(allocation["generate"]):
-            # First scene in group is primary (gets DALL-E generation)
-            primary_id = group[0].scene_id
-            group_primary_scene[group_idx] = primary_id
-            for scene in group:
-                scene_to_group[scene.scene_id] = group_idx
-
     visual_plans = []
     figures_matched = 0
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        console=console
-    ) as progress:
-        task = progress.add_task("Planning visuals...", total=len(scenes))
 
-        for scene in scenes:
-            plan = create_visual_plan(scene, knowledge_graph, style_consistency)
+    # Use DoP-based visual planning if structured script is available
+    if use_dop and structured_script:
+        console.print(f"[{t.dimmed}]Using DoP visual assignments from structured script[/]")
 
-            # Apply budget tier constraints
-            if allocation:
-                if scene.scene_id in text_only_ids:
-                    # Text-only: no DALL-E, no animation
-                    plan.dalle_prompt = ""
-                    plan.animate_with_luma = False
-                    plan.luma_prompt = None
-                    plan.ken_burns = None
-                    plan.budget_mode = "text_only"
-                elif scene.scene_id in scene_to_group:
-                    group_idx = scene_to_group[scene.scene_id]
-                    primary_id = group_primary_scene[group_idx]
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Planning visuals...", total=len(structured_script.segments))
 
-                    if scene.scene_id == primary_id:
-                        # Primary scene: generates the DALL-E image for the group
-                        plan.budget_mode = "primary"
-                        plan.group_id = group_idx
-                    else:
-                        # Secondary scene: shares image with primary
-                        plan.dalle_prompt = ""  # Don't generate, reuse primary's image
-                        plan.budget_mode = "shared"
-                        plan.group_id = group_idx
-                        plan.shares_image_with = primary_id
+            for seg in structured_script.segments:
+                # Create visual plan from segment's DoP assignment
+                from core.models.video_production import SceneVisualPlan
 
-                    # Apply Luma/Ken Burns based on allocation
-                    if scene.scene_id in luma_ids:
-                        plan.animate_with_luma = True
-                    else:
+                # Map display_mode to visual plan settings
+                display_mode = seg.display_mode or "carry_forward"
+                dalle_prompt = ""
+                animate_with_luma = False
+                ken_burns = None
+                kb_figure_path = None
+
+                if display_mode == "dall_e":
+                    # Generate DALL-E prompt from visual direction
+                    dalle_prompt = f"{seg.visual_direction} {style_consistency['style_suffix']}"
+                elif display_mode == "figure_sync":
+                    # Use KB figure
+                    figures_matched += 1
+                    # Find figure path from asset
+                    if seg.visual_asset_id and 'content_library' in dir():
+                        asset = content_library.get(seg.visual_asset_id)
+                        if asset and asset.path:
+                            kb_figure_path = asset.path
+                    # Also check kb_figure_paths by figure number
+                    if not kb_figure_path and seg.figure_refs and kb_figure_paths:
+                        for fig_num in seg.figure_refs:
+                            # KB figures use fig_{N-1} naming (0-indexed)
+                            fig_idx = fig_num - 1
+                            fig_key = f"fig_{fig_idx:03d}"
+                            for kb_id, kb_path in kb_figure_paths.items():
+                                if fig_key in kb_id:
+                                    kb_figure_path = kb_path
+                                    break
+                            if kb_figure_path:
+                                break
+
+                # Ken Burns for non-animated scenes with images
+                if display_mode in ["dall_e", "figure_sync"]:
+                    ken_burns = {"enabled": True, "direction": "slow_zoom_in", "duration_match": "scene_duration"}
+
+                plan = SceneVisualPlan(
+                    scene_id=f"scene_{seg.idx:03d}",
+                    dalle_prompt=dalle_prompt,
+                    dalle_style=style_consistency.get("dalle_style", "natural"),
+                    dalle_settings={},
+                    animate_with_luma=animate_with_luma,
+                    luma_prompt=None,
+                    luma_settings={},
+                    transition_in="fade",
+                    transition_out="fade",
+                    ken_burns=ken_burns,
+                    on_screen_text=None,
+                    text_position="lower_third"
+                )
+                plan.budget_mode = display_mode
+                plan.kb_figure_path = kb_figure_path
+
+                visual_plans.append(plan)
+                progress.advance(task)
+
+        console.print()
+
+    else:
+        # Legacy visual planning (without DoP)
+        # Build lookup sets for budget-aware planning
+        text_only_ids = set(allocation["text_only"]) if allocation else set()
+        luma_ids = set(allocation["luma"]) if allocation else set()
+        ken_burns_ids = set(allocation["ken_burns"]) if allocation else set()
+
+        # Build group membership: scene_id -> group_index (for image sharing)
+        scene_to_group = {}
+        group_primary_scene = {}  # group_index -> primary scene_id (gets DALL-E generation)
+        if allocation and allocation.get("generate"):
+            for group_idx, group in enumerate(allocation["generate"]):
+                # First scene in group is primary (gets DALL-E generation)
+                primary_id = group[0].scene_id
+                group_primary_scene[group_idx] = primary_id
+                for scene in group:
+                    scene_to_group[scene.scene_id] = group_idx
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Planning visuals...", total=len(scenes))
+
+            for scene in scenes:
+                plan = create_visual_plan(scene, knowledge_graph, style_consistency)
+
+                # Apply budget tier constraints
+                if allocation:
+                    if scene.scene_id in text_only_ids:
+                        # Text-only: no DALL-E, no animation
+                        plan.dalle_prompt = ""
                         plan.animate_with_luma = False
                         plan.luma_prompt = None
-
-                    if scene.scene_id in ken_burns_ids and not plan.animate_with_luma:
-                        plan.ken_burns = {"enabled": True, "direction": "slow_zoom_in", "duration_match": "scene_duration"}
-                    elif scene.scene_id not in luma_ids:
                         plan.ken_burns = None
+                        plan.budget_mode = "text_only"
+                    elif scene.scene_id in scene_to_group:
+                        group_idx = scene_to_group[scene.scene_id]
+                        primary_id = group_primary_scene[group_idx]
 
-            # Try to match scene to KB figures by keyword
-            matched_figure = None
-            if kb_figure_paths:
-                matched_figure = _match_scene_to_figure(scene, kb_figure_paths, knowledge_graph)
-                if matched_figure:
-                    figures_matched += 1
+                        if scene.scene_id == primary_id:
+                            # Primary scene: generates the DALL-E image for the group
+                            plan.budget_mode = "primary"
+                            plan.group_id = group_idx
+                        else:
+                            # Secondary scene: shares image with primary
+                            plan.dalle_prompt = ""  # Don't generate, reuse primary's image
+                            plan.budget_mode = "shared"
+                            plan.group_id = group_idx
+                            plan.shares_image_with = primary_id
 
-            # Store the matched figure path
-            plan.kb_figure_path = matched_figure
+                        # Apply Luma/Ken Burns based on allocation
+                        if scene.scene_id in luma_ids:
+                            plan.animate_with_luma = True
+                        else:
+                            plan.animate_with_luma = False
+                            plan.luma_prompt = None
 
-            visual_plans.append(plan)
-            progress.advance(task)
+                        if scene.scene_id in ken_burns_ids and not plan.animate_with_luma:
+                            plan.ken_burns = {"enabled": True, "direction": "slow_zoom_in", "duration_match": "scene_duration"}
+                        elif scene.scene_id not in luma_ids:
+                            plan.ken_burns = None
 
-    console.print()
+                # Try to match scene to KB figures by keyword
+                matched_figure = None
+                if kb_figure_paths:
+                    matched_figure = _match_scene_to_figure(scene, kb_figure_paths, knowledge_graph)
+                    if matched_figure:
+                        figures_matched += 1
+
+                # Store the matched figure path
+                plan.kb_figure_path = matched_figure
+
+                visual_plans.append(plan)
+                progress.advance(task)
+
+        console.print()
 
     # If keyword matching found few figures, use fallback distribution
     kb_figure_count = len(kb_data["figure_paths"]) if kb_data else 0
@@ -1181,6 +1306,30 @@ async def _produce_video_async(
         json.dump(manifest_data, f, indent=2)
 
     console.print(f"[{t.success}]Saved asset manifest to:[/] {manifest_path}")
+
+    # Register assets in content library (Unified Production Architecture)
+    if use_dop and structured_script:
+        from core.models.content_library import AssetRecord, AssetSource
+
+        # Ensure we have a librarian instance
+        if 'content_library' not in dir() or content_library is None:
+            content_library = ContentLibrary(project_id=run_id)
+        librarian = ContentLibrarian(content_library)
+
+        # Register generated images
+        registered_images = librarian.register_images_from_run(str(output_dir), structured_script)
+        if registered_images:
+            console.print(f"[{t.success}]Registered {len(registered_images)} images in content library[/]")
+
+        # Register generated audio
+        registered_audio = librarian.register_audio_from_run(str(output_dir), structured_script)
+        if registered_audio:
+            console.print(f"[{t.success}]Registered {len(registered_audio)} audio clips in content library[/]")
+
+        # Save content library for future reuse
+        library_path = output_dir / "content_library.json"
+        librarian.save(library_path)
+        console.print(f"[{t.success}]Saved content library to:[/] {library_path}")
 
     # Final summary
     console.print()
