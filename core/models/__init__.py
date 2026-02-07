@@ -71,6 +71,19 @@ from .video_production import (
     AssetManifest,
     CleanupDecision,
 )
+from .structured_script import (
+    SegmentIntent,
+    FigureInventory,
+    ScriptSegment,
+    StructuredScript,
+)
+from .content_library import (
+    AssetType,
+    AssetStatus,
+    AssetSource,
+    AssetRecord,
+    ContentLibrary,
+)
 
 __all__ = [
     # Seed assets
@@ -137,4 +150,15 @@ __all__ = [
     "AudioPatch",
     "AssetManifest",
     "CleanupDecision",
+    # Structured script models
+    "SegmentIntent",
+    "FigureInventory",
+    "ScriptSegment",
+    "StructuredScript",
+    # Content library models
+    "AssetType",
+    "AssetStatus",
+    "AssetSource",
+    "AssetRecord",
+    "ContentLibrary",
 ]

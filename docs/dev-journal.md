@@ -13,6 +13,16 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Unified Production Architecture (Phase 1)
+
+Implemented Phase 1 of the UNIFIED_PRODUCTION_ARCHITECTURE.md spec, establishing new data models as the foundation for the unified pipeline.
+
+**StructuredScript Model**: Single source of truth replacing flat `_script.txt` files. The `from_script_text()` parser extracts Figure N references and section boundaries from existing scripts, enabling structured access to script content.
+
+**ContentLibrary Model**: Persistent asset registry with approval tracking. Includes `from_asset_manifest_v1()` for migrating existing asset manifests to the new format. Tracks image/audio assets with generation status and approval state.
+
+All 55 unit tests passing.
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Proportional Budgets & Audio Source Fix
 
 Fixed architectural issues in the video production pipeline:

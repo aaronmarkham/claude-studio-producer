@@ -207,6 +207,7 @@ Working:
 - Proportional budget tiers (consistent quality across different scene counts)
 - Audio from generated script (not original transcription)
 - Claude Code skills (`/produce`, `/train`)
+- StructuredScript and ContentLibrary data models (Phase 1 of UNIFIED_PRODUCTION_ARCHITECTURE.md)
 
 In progress:
 - Additional video providers (Pika, Kling stubbed)
