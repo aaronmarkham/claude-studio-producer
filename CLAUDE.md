@@ -212,7 +212,9 @@ Working:
 - Training outputs StructuredScript JSON with enriched figure inventory (Phase 3)
 - DoP (Director of Photography) module for visual assignment (Phase 4)
 - DoP integrated into produce-video CLI with ContentLibrarian asset tracking (Phase 4)
-- Comprehensive test suite: 116 tests (81 unit + 35 integration) covering unified architecture
+- Timed assembly CLI with figure sync points (Phase 5)
+- Asset tracking CLI for review/approve/reject workflow (Phase 6)
+- Comprehensive test suite: 180+ tests covering unified architecture
 
 In progress:
 - Additional video providers (Pika, Kling stubbed)
