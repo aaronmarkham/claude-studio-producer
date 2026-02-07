@@ -12,6 +12,26 @@
 - **Transcript-led video production** - Budget-aware visual generation from training outputs
 - **Budget tier system** - micro/low/medium/high/full tiers for controlling image generation costs
 
+### Feb 6, 2026 (evening) - Figure-Aware Script Generation
+
+Fixed a fundamental design flaw in the training → video production pipeline. Previously:
+- Training generated scripts without knowing what figures existed in the PDF
+- `produce-video` tried to retrofit figures via keyword matching ("methodology" → Figure 3?)
+
+Now:
+- Training extracts figures from the KB/document graph
+- Figures are passed to Claude in the script generation prompt
+- Claude writes explicit figure references ("As shown in Figure 6...")
+- `produce-video` does exact matching on "Figure 6" instead of guessing
+
+Also discovered and documented the `kb inspect` command with quality reports:
+```bash
+claude-studio kb inspect my-project --quality
+# Shows atom type distribution, topic/entity coverage, key themes
+```
+
+The output is beautifully formatted with bar charts showing distribution of equations (26%), paragraphs (23%), citations (20%), figures (16%), etc. Great for understanding what was extracted from a PDF.
+
 ### Feb 6, 2026
 
 Big milestone: the podcast training pipeline and video production workflow are now fully integrated!

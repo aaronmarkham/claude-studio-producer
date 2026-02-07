@@ -11,6 +11,29 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### Feb 6, 2026 (evening) - Figure-Aware Script Generation
+
+Fixed a key architectural issue: training now knows about figures before generating scripts.
+
+**The Problem**: Scripts were generated without knowing what figures existed, then we tried to match figures afterward via keyword guessing.
+
+**The Solution**:
+- Training extracts figures from the document graph
+- Figure captions/descriptions are passed to Claude in the prompt
+- Scripts now explicitly reference figures: "As shown in Figure 6..."
+- Video production does exact matching instead of guessing
+
+Also documented the `kb inspect` command - shows beautiful quality reports:
+
+```bash
+claude-studio kb inspect my-project --quality
+
+# Output shows atom distribution with bar charts:
+# equation    █████░░░░░   44 (26%)
+# paragraph   ████░░░░░░   38 (23%)
+# figure      ███░░░░░░░   26 (16%)
+```
+
 ### Feb 6, 2026 - Training Pipeline & Video Production Integration
 
 Big milestone: the podcast training pipeline and video production workflow are fully integrated!

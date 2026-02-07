@@ -70,6 +70,8 @@ python -m cli.produce "concept" --style podcast  # or: educational, documentary,
 claude-studio kb create "Project" -d "Description"
 claude-studio kb add "Project" --paper doc.pdf
 claude-studio kb produce "Project" -p "prompt" --style podcast
+claude-studio kb inspect "Project" --quality          # Show atom/topic/entity distribution
+claude-studio kb inspect --file path/to/kg.json --topics  # Inspect any KG file
 
 # Training pipeline (ML-style podcast improvement)
 claude-studio training run my-project --reference-audio podcast.mp3
@@ -193,6 +195,8 @@ Working:
 - Transcript-led video production with budget tiers
 - Scene importance scoring for image allocation
 - KB figure integration in video production
+- Figure-aware script generation (scripts reference figures explicitly)
+- KB inspect command with quality reports (atom/topic/entity distribution)
 - Claude Code skills (`/produce`, `/train`)
 
 In progress:
