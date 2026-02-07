@@ -316,9 +316,18 @@ def print_full_scene_list(visual_plans: list, scenes: list = None):
             # Get segment type (e.g., intro, background, methodology)
             seg_type = scene.segment_type.value if hasattr(scene.segment_type, 'value') else str(scene.segment_type)
 
-        # Determine visual source
+        # Determine visual source based on budget allocation
+        budget_mode = getattr(plan, 'budget_mode', None)
         if getattr(plan, 'kb_figure_path', None):
             source = "[green]PDF Figure[/]"
+        elif budget_mode == "text_only":
+            source = "[dim]text only[/]"
+        elif budget_mode == "shared":
+            # Show which primary scene this shares with
+            shares_with = getattr(plan, 'shares_image_with', '?')
+            source = f"[dim]shared[/]"
+        elif budget_mode == "primary":
+            source = "[yellow]DALL-E[/]"
         else:
             source = "[yellow]DALL-E[/]"
 
@@ -582,6 +591,108 @@ def distribute_figures_to_scenes(
     return figures_assigned
 
 
+async def generate_scene_audio(
+    scenes: list,
+    output_dir: Path,
+    console,
+    voice_id: str = "pFZP5JQG7iQjIQuC4Bku",  # Lily voice
+    live: bool = False,
+    script_text: str = None
+) -> dict:
+    """
+    Generate audio for each scene using ElevenLabs (scene-by-scene to avoid length limits).
+
+    If script_text is provided, uses paragraphs from the generated script instead of
+    the original transcript segments. This is the correct behavior - audio should
+    come from the new script, not the original transcription.
+
+    Returns dict mapping scene_id -> audio_path
+    """
+    from core.providers.audio.elevenlabs import ElevenLabsProvider
+    from core.secrets import get_api_key
+
+    t = get_theme()
+    audio_paths = {}
+
+    if not live:
+        console.print(f"[{t.dimmed}]Mock mode: Skipping audio generation[/]")
+        return audio_paths
+
+    # Check API key
+    api_key = get_api_key("ELEVENLABS_API_KEY")
+    if not api_key:
+        console.print(f"[{t.error}]ELEVENLABS_API_KEY not set - skipping audio[/]")
+        return audio_paths
+
+    try:
+        audio_provider = ElevenLabsProvider()
+    except Exception as e:
+        console.print(f"[{t.error}]Failed to initialize ElevenLabs: {e}[/]")
+        return audio_paths
+
+    # Create audio directory
+    audio_dir = output_dir / "audio"
+    audio_dir.mkdir(exist_ok=True)
+
+    # Use generated script paragraphs if available (preferred - new content)
+    # Otherwise fall back to scene transcript segments (original transcription)
+    if script_text:
+        # Split script into paragraphs (double newlines are natural breaks)
+        paragraphs = [p.strip() for p in script_text.split('\n\n') if p.strip()]
+        console.print(f"\n[{t.label}]Generating audio from generated script ({len(paragraphs)} paragraphs)...[/]")
+        audio_items = [(f"audio_{i:03d}", para) for i, para in enumerate(paragraphs)]
+    else:
+        console.print(f"\n[{t.label}]Generating scene-by-scene audio...[/]")
+        audio_items = []
+        for scene in scenes:
+            text = scene.transcript_segment if isinstance(scene.transcript_segment, str) else ""
+            if hasattr(scene.transcript_segment, 'text'):
+                text = scene.transcript_segment.text
+            if text and len(text.strip()) >= 5:
+                audio_items.append((scene.scene_id, text))
+
+    total_chars = 0
+    total_cost = 0.0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        console=console
+    ) as progress:
+        task = progress.add_task("Generating audio...", total=len(audio_items))
+
+        for audio_id, text in audio_items:
+            if not text or len(text.strip()) < 5:
+                progress.advance(task)
+                continue
+
+            progress.update(task, description=f"Audio: {audio_id[:15]}...")
+
+            try:
+                result = await audio_provider.generate_speech(
+                    text=text,
+                    voice_id=voice_id
+                )
+
+                if result.success and result.audio_data:
+                    audio_path = audio_dir / f"{audio_id}.mp3"
+                    audio_path.write_bytes(result.audio_data)
+                    audio_paths[audio_id] = str(audio_path)
+                    total_chars += len(text)
+                    total_cost += audio_provider.estimate_cost(text)
+            except Exception as e:
+                console.print(f"[{t.warning}]Audio failed for {audio_id}: {e}[/]")
+
+            progress.advance(task)
+
+    console.print(f"[{t.success}]Generated {len(audio_paths)} audio clips[/]")
+    console.print(f"[{t.dimmed}]Total characters: {total_chars} | Est. cost: ${total_cost:.3f}[/]")
+
+    return audio_paths
+
+
 async def generate_mock_assets(visual_plans: list, output_dir: Path) -> list:
     """Generate mock assets (placeholder files)"""
     from core.models.video_production import SceneAssets
@@ -780,7 +891,9 @@ async def _produce_video_async(
     budget_tier: Optional[str] = None,
     show_tiers_only: bool = False,
     scene_limit: Optional[int] = None,
-    scene_start: int = 0
+    scene_start: int = 0,
+    generate_audio: bool = True,
+    voice_id: str = "pFZP5JQG7iQjIQuC4Bku"
 ):
     """Main async production function"""
     t = get_theme()
@@ -1014,6 +1127,36 @@ async def _produce_video_async(
         assets = await generate_mock_assets(visual_plans, output_dir)
         console.print(f"[{t.success}]Created {len(assets)} mock asset entries[/]")
 
+    # Generate audio from generated script (not original transcription)
+    # The script_text contains the NEW content, aligned_segments has the original
+    # Note: We slice script paragraphs to match scene range for --limit/--start
+    audio_paths = {}
+    script_text = trial_data.get("script_text") if from_training else None
+
+    # If using scene limits, slice the script paragraphs proportionally
+    if script_text and (scene_start > 0 or scene_limit):
+        paragraphs = [p.strip() for p in script_text.split('\n\n') if p.strip()]
+        total_scenes = len(all_scenes)
+        total_paragraphs = len(paragraphs)
+
+        # Map scene range to paragraph range (proportionally)
+        para_start = int(scene_start * total_paragraphs / total_scenes) if total_scenes > 0 else 0
+        para_end = para_start + len(scenes)  # Match scene count
+        para_end = min(para_end, total_paragraphs)
+
+        script_text = '\n\n'.join(paragraphs[para_start:para_end])
+        console.print(f"[{t.dimmed}]Audio: paragraphs {para_start+1}-{para_end} of {total_paragraphs} (matching scene range)[/]")
+
+    if generate_audio:
+        audio_paths = await generate_scene_audio(
+            scenes=scenes,
+            output_dir=output_dir,
+            console=console,
+            voice_id=voice_id,
+            live=live,
+            script_text=script_text
+        )
+
     # Save asset manifest (for both live and mock)
     manifest_path = output_dir / "asset_manifest.json"
     manifest_data = {
@@ -1021,11 +1164,13 @@ async def _produce_video_async(
         "mode": "live" if live else "mock",
         "total_scenes": len(assets),
         "animated_scenes": sum(1 for a in assets if a.video_path),
+        "audio_clips": len(audio_paths),
         "assets": [
             {
                 "scene_id": a.scene_id,
                 "image_path": a.image_path,
                 "video_path": a.video_path,
+                "audio_path": audio_paths.get(a.scene_id),
                 "display_start": getattr(a, 'display_start', 0.0),
                 "display_end": getattr(a, 'display_end', 5.0)
             }
@@ -1045,6 +1190,7 @@ async def _produce_video_async(
             f"Output directory: [cyan]{output_dir}[/]\n"
             f"Visual plans: [green]{len(visual_plans)}[/]\n"
             f"Animated scenes: [yellow]{sum(1 for p in visual_plans if p.animate_with_luma)}[/]\n"
+            f"Audio clips: [cyan]{len(audio_paths)}[/]\n"
             f"Mode: [{'green' if not live else 'yellow'}]{'Mock' if not live else 'Live'}[/]"
         ),
         title="Summary",
@@ -1109,7 +1255,18 @@ async def _produce_video_async(
     default=0,
     help="Start from scene index (0-based, for incremental production)"
 )
-def produce_video_cmd(from_training, script, output, live, style, kb, budget, show_tiers, limit, start):
+@click.option(
+    "--audio/--no-audio",
+    default=True,
+    help="Generate audio narration for each scene (default: enabled)"
+)
+@click.option(
+    "--voice",
+    type=str,
+    default="lily",
+    help="ElevenLabs voice (lily, rachel, adam, or voice_id)"
+)
+def produce_video_cmd(from_training, script, output, live, style, kb, budget, show_tiers, limit, start, audio, voice):
     """Produce an explainer video from a podcast script.
 
     \b
@@ -1134,6 +1291,14 @@ def produce_video_cmd(from_training, script, output, live, style, kb, budget, sh
     if not from_training and not script:
         raise click.UsageError("Provide --from-training or --script")
 
+    # Map voice names to IDs
+    voice_map = {
+        "lily": "pFZP5JQG7iQjIQuC4Bku",
+        "rachel": "21m00Tcm4TlvDq8ikWAM",
+        "adam": "pNInz6obpgDQGcFmaJgB"
+    }
+    voice_id = voice_map.get(voice.lower(), voice) if voice else voice_map["lily"]
+
     asyncio.run(_produce_video_async(
         from_training=from_training,
         script_path=script,
@@ -1144,5 +1309,7 @@ def produce_video_cmd(from_training, script, output, live, style, kb, budget, sh
         budget_tier=budget,
         show_tiers_only=show_tiers,
         scene_limit=limit,
-        scene_start=start
+        scene_start=start,
+        generate_audio=audio,
+        voice_id=voice_id
     ))

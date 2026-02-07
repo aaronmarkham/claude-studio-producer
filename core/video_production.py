@@ -519,39 +519,41 @@ DALLE_COST_PER_IMAGE = 0.08  # DALL-E 3 HD 1792x1024
 LUMA_COST_PER_ANIMATION = 0.25  # Luma Dream Machine
 
 # Budget tier definitions
+# image_ratio: proportion of scenes that get DALL-E images (0.0-1.0)
+# This ensures consistent quality regardless of scene count
 BUDGET_TIERS = {
     "micro": {
         "description": "Text overlays only - no image generation",
-        "max_dalle_images": 0,
-        "max_luma_animations": 0,
+        "image_ratio": 0.0,
+        "luma_ratio": 0.0,
         "use_ken_burns": False,
         "text_overlay_all": True,
     },
     "low": {
-        "description": "Hero images for key moments only",
-        "max_dalle_images": 15,
-        "max_luma_animations": 0,
+        "description": "Hero images for key moments only (~10%)",
+        "image_ratio": 0.10,
+        "luma_ratio": 0.0,
         "use_ken_burns": True,
         "text_overlay_all": False,
     },
     "medium": {
-        "description": "Consolidated images with Ken Burns motion",
-        "max_dalle_images": 40,
-        "max_luma_animations": 0,
+        "description": "Consolidated images with Ken Burns motion (~27%)",
+        "image_ratio": 0.27,
+        "luma_ratio": 0.0,
         "use_ken_burns": True,
         "text_overlay_all": False,
     },
     "high": {
-        "description": "Full images, selective Luma animation",
-        "max_dalle_images": 80,
-        "max_luma_animations": 5,
+        "description": "Full images, selective Luma animation (~55%)",
+        "image_ratio": 0.55,
+        "luma_ratio": 0.03,
         "use_ken_burns": True,
         "text_overlay_all": False,
     },
     "full": {
-        "description": "All scenes get unique visuals",
-        "max_dalle_images": 999,
-        "max_luma_animations": 999,
+        "description": "All scenes get unique visuals (100%)",
+        "image_ratio": 1.0,
+        "luma_ratio": 1.0,
         "use_ken_burns": True,
         "text_overlay_all": False,
     },
@@ -709,8 +711,11 @@ def estimate_tier_costs(
     estimates = {}
 
     for tier_name, tier_config in BUDGET_TIERS.items():
-        max_images = tier_config["max_dalle_images"]
-        max_luma = tier_config["max_luma_animations"]
+        # Calculate max counts from ratios (consistent quality across scene counts)
+        image_ratio = tier_config["image_ratio"]
+        luma_ratio = tier_config["luma_ratio"]
+        max_images = max(1, int(total_scenes * image_ratio)) if image_ratio > 0 else 0
+        max_luma = max(1, int(total_scenes * luma_ratio)) if luma_ratio > 0 else 0
 
         # Calculate actual counts for this tier
         if tier_config["text_overlay_all"]:
@@ -796,8 +801,13 @@ def select_scenes_for_generation(
             "text_only": [s.scene_id for s in scenes],
         }
 
+    # Calculate max images from ratio (ensures consistent quality across different scene counts)
+    total_scenes = len(scenes)
+    image_ratio = tier_config["image_ratio"]
+    max_images = max(1, int(total_scenes * image_ratio)) if image_ratio > 0 else 0
+
     # Consolidate scenes into groups
-    groups = consolidate_scenes(scenes, tier_config["max_dalle_images"])
+    groups = consolidate_scenes(scenes, max_images)
 
     # Score groups for Luma selection
     group_data = []
@@ -818,9 +828,13 @@ def select_scenes_for_generation(
     luma_eligible = [g for g in group_data if g["luma_candidate"]]
     luma_eligible.sort(key=lambda x: x["score"], reverse=True)
 
+    # Calculate max Luma from ratio
+    luma_ratio = tier_config["luma_ratio"]
+    max_luma = max(1, int(total_scenes * luma_ratio)) if luma_ratio > 0 else 0
+
     # Allocate Luma to top N
     luma_ids = []
-    for g in luma_eligible[:tier_config["max_luma_animations"]]:
+    for g in luma_eligible[:max_luma]:
         luma_ids.extend(g["scene_ids"])
 
     # Ken Burns for DALL-E scenes without Luma

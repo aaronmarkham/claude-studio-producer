@@ -9,9 +9,85 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 [View full developer notes →](https://github.com/aaronmarkham/claude-studio-producer/blob/main/docs/dev_notes.md)
 
+<img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> = Aaron &nbsp;&nbsp; <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> = Claude
+
 ## Recent Updates
 
-### Feb 6, 2026 (evening) - Figure-Aware Script Generation
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Proportional Budgets & Audio Source Fix
+
+Fixed architectural issues in the video production pipeline:
+
+**1. Proportional Budget Tiers**
+
+Previously, budget tiers used absolute image counts (e.g., "medium = 40 images"). This caused inconsistent quality when testing with scene subsets.
+
+Now tiers use **ratios**:
+- `low`: 10% of scenes get images
+- `medium`: 27% of scenes get images
+- `high`: 55% of scenes get images
+- `full`: 100% of scenes get images
+
+This ensures consistent quality across runs. Testing 5 scenes with medium tier now produces ~1 image (not 5), matching what would happen proportionally in a full production.
+
+**2. Audio Uses Generated Script**
+
+Audio was incorrectly generated from the original Whisper transcription ("Welcome to Journal Club...") instead of the new script ("Welcome back to another deep dive...").
+
+Fixed: Audio now comes from `_script.txt` paragraphs, not `aligned_segments` from the original transcription.
+
+**3. Audio Respects --limit Parameter**
+
+Audio was generating all 45 paragraphs even with `--limit 5`. Now slices paragraphs proportionally to match scene range.
+
+**4. Clear Visual Source Display**
+
+Scene list now distinguishes between:
+- `DALL-E` - gets unique generated image
+- `shared` - shares image with primary scene
+- `text only` - no image generated
+
+```bash
+# Output now shows which scene gets the image:
+#  UAV positioning       intro  DALL-E     Ken Burns
+#  multi-sensor info     intro  shared     Ken Burns
+#  Kalman filter         intro  shared     Ken Burns
+```
+
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 6, 2026 (late evening) - Scene-by-Scene Audio Generation
+
+Added audio generation directly to `produce-video`, fixing a key architectural issue.
+
+**The Problem**: Training was generating a full script, then trying to send it all to ElevenLabs at once. This hit character limits and was wasteful - training doesn't need audio, only production does.
+
+**The Solution**:
+- Training generates scripts only (no audio)
+- `produce-video` generates audio scene-by-scene during production
+- Each scene gets its own `.mp3` file
+- Avoids ElevenLabs character limits by chunking naturally
+- Asset manifest tracks `image_path` + `audio_path` per scene
+
+```bash
+# Produce video with scene-by-scene audio (default: enabled)
+claude-studio produce-video -t trial_000 --budget medium --live --voice lily
+
+# Or specify a different voice
+claude-studio produce-video -t trial_000 --budget medium --live --voice rachel
+```
+
+Output structure:
+```
+artifacts/video_production/20260206_204449/
+├── images/
+│   ├── scene_000.png
+│   └── scene_001.png
+├── audio/
+│   ├── scene_000.mp3
+│   └── scene_001.mp3
+├── visual_plans.json
+└── asset_manifest.json  # Links images + audio per scene
+```
+
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 6, 2026 (evening) - Figure-Aware Script Generation
 
 Fixed a key architectural issue: training now knows about figures before generating scripts.
 
@@ -34,7 +110,7 @@ claude-studio kb inspect my-project --quality
 # figure      ███░░░░░░░   26 (16%)
 ```
 
-### Feb 6, 2026 - Training Pipeline & Video Production Integration
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 6, 2026 - Training Pipeline & Video Production Integration
 
 Big milestone: the podcast training pipeline and video production workflow are fully integrated!
 
@@ -54,7 +130,7 @@ claude-studio produce-video -t trial_000 --show-tiers
 claude-studio produce-video -t trial_000 --budget medium --kb my-project --live
 ```
 
-### Jan 30, 2026 - Security Hardening
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 30, 2026 - Security Hardening
 
 Read some alarming posts about Clawdbot, so did a quick security check. Added `__repr__` to Config classes to prevent API key leaks in debug outputs.
 
@@ -66,7 +142,7 @@ claude-studio secrets import .env
 
 This imports all API keys from `.env` into your OS keychain, allowing secure storage without environment variables.
 
-### Jan 28, 2026 - DALL-E Provider
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 28, 2026 - DALL-E Provider
 
 Stayed focused on core mission instead of getting distracted by Remotion graphics (saving that for later).
 
@@ -82,7 +158,7 @@ The system now supports:
 
 This enables the **DALL-E → Runway** pipeline for image-to-video generation.
 
-### Jan 26, 2026 - Multi-Provider Pipelines
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 26, 2026 - Multi-Provider Pipelines
 
 Completed the pipeline capability to chain providers:
 1. DALL-E generates seed image from text
@@ -90,7 +166,7 @@ Completed the pipeline capability to chain providers:
 
 This is a key architectural milestone - providers can now feed into each other.
 
-### Jan 23, 2026 - Knowledge Base System
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 23, 2026 - Knowledge Base System
 
 Major feature: Document-to-Video pipeline
 
@@ -106,7 +182,7 @@ claude-studio kb add "AI Research" --paper paper.pdf
 claude-studio kb produce "AI Research" -p "Explain transformer architecture" --style educational
 ```
 
-### Jan 20, 2026 - Multi-Tenant Memory
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 20, 2026 - Multi-Tenant Memory
 
 Upgraded memory system to support multi-tenant hierarchy:
 - SESSION → USER → ORG → PLATFORM
@@ -114,13 +190,13 @@ Upgraded memory system to support multi-tenant hierarchy:
 - Learning promotion/demotion based on validation
 - Production-ready with Bedrock AgentCore
 
-### Jan 8, 2026 - Memory & Dashboard
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 8, 2026 - Memory & Dashboard
 
 - Provider learning system (tips, gotchas, preferences)
 - Memory namespace per provider
 - Web dashboard for viewing runs and QA scores
 
-### Jan 7-8, 2026 - Luma Provider Implementation
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 7-8, 2026 - Luma Provider Implementation
 
 First real video provider integration:
 - Comprehensive Luma API spec
@@ -130,7 +206,7 @@ First real video provider integration:
 - Aspect ratio mapping
 - Full error handling
 
-### Jan 7, 2026 - Foundation Sprint
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 7, 2026 - Foundation Sprint
 
 Late night/early morning sprint creating all foundation specs:
 - All 7 agent specifications
@@ -141,7 +217,7 @@ Late night/early morning sprint creating all foundation specs:
 - Testing philosophy
 - Docker dev environment
 
-### Jan 6, 2026 - Agent Architecture
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 6, 2026 - Agent Architecture
 
 Initial agent system design:
 - ScriptWriter, VideoGenerator, QAVerifier
@@ -150,7 +226,7 @@ Initial agent system design:
 
 ---
 
-## Jan 9, 2026 - What Is This Even For?
+## <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Jan 9, 2026 - What Is This Even For?
 
 **The Vision**
 

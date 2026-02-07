@@ -12,6 +12,39 @@
 - **Transcript-led video production** - Budget-aware visual generation from training outputs
 - **Budget tier system** - micro/low/medium/high/full tiers for controlling image generation costs
 
+### Feb 6, 2026 (late evening) - Scene-by-Scene Audio Generation
+
+Another architectural fix: moved audio generation from training to production, with scene-by-scene chunking.
+
+**Previous approach (broken)**:
+- Training generated a full script and tried to send it all to ElevenLabs
+- Hit character limits on long scripts (~5000 chars)
+- Generated audio during training, which is wasteful for iteration
+
+**New approach**:
+- Training generates scripts only (no audio calls)
+- `produce-video` generates audio during production
+- Each scene gets its own `.mp3` file via `generate_scene_audio()`
+- Natural chunking avoids ElevenLabs limits
+- Asset manifest tracks both `image_path` and `audio_path` per scene
+
+CLI options:
+```bash
+claude-studio produce-video -t trial_000 --budget medium --live --voice lily
+claude-studio produce-video -t trial_000 --live --no-audio  # Skip audio if needed
+```
+
+Voice mapping is handled automatically (lily → pFZP5JQG7iQjIQuC4Bku). Cost is ~$0.08 for 5 scenes with ~263 total characters.
+
+Output manifest now includes:
+```json
+{
+  "scene_id": "scene_000",
+  "image_path": "images/scene_000.png",
+  "audio_path": "audio/scene_000.mp3"
+}
+```
+
 ### Feb 6, 2026 (evening) - Figure-Aware Script Generation
 
 Fixed a fundamental design flaw in the training → video production pipeline. Previously:

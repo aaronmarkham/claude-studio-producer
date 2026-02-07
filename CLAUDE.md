@@ -78,10 +78,11 @@ claude-studio training run my-project --reference-audio podcast.mp3
 claude-studio training list
 claude-studio training show trial_000_20260205
 
-# Video production from training (budget-aware)
+# Video production from training (budget-aware, scene-by-scene audio)
 claude-studio produce-video -t trial_000 --show-tiers          # Show costs per tier
 claude-studio produce-video -t trial_000 --budget low --mock   # Hero images only
 claude-studio produce-video -t trial_000 --budget medium --kb my-project --live
+claude-studio produce-video -t trial_000 --budget medium --live --voice lily  # With audio
 
 # Memory/learnings
 claude-studio memory list luma
@@ -118,13 +119,18 @@ Common voice name → ID mappings (used in `cli/test_provider.py`):
 
 ### Budget Tiers (Video Production)
 
-| Tier | DALL-E Images | Luma Animations | Est. Cost |
-|------|---------------|-----------------|-----------|
-| `micro` | 0 (text only) | 0 | $0 |
-| `low` | ~15 hero | 0 | $1-2 |
-| `medium` | ~40 consolidated | 0 | $3-5 |
-| `high` | ~80 images | 5 selective | $8-12 |
-| `full` | All scenes | All candidates | $15+ |
+Tiers use **proportional ratios** to ensure consistent quality across different scene counts:
+
+| Tier | Image Ratio | Luma Ratio | Description |
+|------|-------------|------------|-------------|
+| `micro` | 0% | 0% | Text overlays only |
+| `low` | 10% | 0% | Hero images for key moments |
+| `medium` | 27% | 0% | Consolidated images with Ken Burns |
+| `high` | 55% | 3% | Full images, selective animation |
+| `full` | 100% | 100% | All scenes get unique visuals |
+
+Example: For 100 scenes, medium tier produces ~27 images shared across all scenes.
+For 10 scenes, medium tier produces ~3 images.
 
 ## Memory/Learning System
 
@@ -197,6 +203,9 @@ Working:
 - KB figure integration in video production
 - Figure-aware script generation (scripts reference figures explicitly)
 - KB inspect command with quality reports (atom/topic/entity distribution)
+- Scene-by-scene audio generation (avoids ElevenLabs limits, per-scene .mp3)
+- Proportional budget tiers (consistent quality across different scene counts)
+- Audio from generated script (not original transcription)
 - Claude Code skills (`/produce`, `/train`)
 
 In progress:
