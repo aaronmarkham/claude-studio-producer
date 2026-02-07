@@ -12,6 +12,33 @@
 - **Transcript-led video production** - Budget-aware visual generation from training outputs
 - **Budget tier system** - micro/low/medium/high/full tiers for controlling image generation costs
 
+### Feb 7, 2026 - Unified Production Architecture (Phase 1 & 2)
+
+Implemented the first two phases of the Unified Production Architecture spec, which unifies the original agent pipeline and the transcript-led video production pipeline.
+
+**Phase 1: Data Models**
+
+Created `core/models/structured_script.py` and `core/models/content_library.py`:
+
+- `StructuredScript` — single source of truth for scripts with segments, figure refs, and visual direction
+- `StructuredScript.from_script_text()` parses "Figure N" references from flat `_script.txt` files
+- `ScriptSegment` has intent classification (INTRO, KEY_FINDING, METHODOLOGY, etc.)
+- `ContentLibrary` tracks all generated assets with approval status (DRAFT, APPROVED, REJECTED)
+- `AssetRecord` stores metadata for audio, images, figures, and videos
+
+**Phase 2: ContentLibrarian Module**
+
+Created `core/content_librarian.py`:
+
+- `ContentLibrarian.build_assembly_manifest()` creates figure sync points from structured scripts
+- `get_generation_plan()` identifies which segments need new assets (skips approved ones)
+- Asset registration methods for audio, images, and KB figures
+- Enables asset reuse across runs — no more regenerating approved content
+
+**Test coverage**: 78 unit tests covering serialization, parsing, asset registration, and manifest building.
+
+The key insight: both pipelines now share the same data layer. The original `produce` command (ScriptWriter → VideoGenerator → QA → Editor) and the `produce-video` command (Training → DoP → Audio/Visual Producer → Assembler) can read/write the same StructuredScript and ContentLibrary formats. This unblocks figure sync in video assembly and enables incremental regeneration.
+
 ### Feb 6, 2026 (late evening) - Scene-by-Scene Audio Generation
 
 Another architectural fix: moved audio generation from training to production, with scene-by-scene chunking.

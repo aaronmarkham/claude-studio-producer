@@ -23,7 +23,91 @@ from .models import (
 )
 from .transcription import get_audio_duration
 
+from core.models.structured_script import (
+    FigureInventory,
+    StructuredScript,
+)
+
 console = Console()
+
+
+def _enrich_figure_inventory(
+    script: StructuredScript,
+    document_graph,
+) -> StructuredScript:
+    """
+    Enrich the StructuredScript's figure inventory with info from the document graph.
+
+    Adds captions and descriptions from the source document to figures
+    that were detected in the script via "Figure N" parsing.
+    """
+    if document_graph is None:
+        return script
+
+    # Extract figure info from document graph
+    doc_figures = {}
+
+    if hasattr(document_graph, 'get_figures'):
+        for fig in document_graph.get_figures():
+            fig_num = fig.figure_number
+            # Parse "Figure N" to get the number
+            if isinstance(fig_num, str) and fig_num.lower().startswith('figure'):
+                try:
+                    fig_num = int(fig_num.split()[-1])
+                except (ValueError, IndexError):
+                    continue
+            elif isinstance(fig_num, int):
+                pass
+            else:
+                continue
+
+            doc_figures[fig_num] = {
+                'caption': fig.caption or '',
+                'description': fig.data_summary or '',
+            }
+    elif hasattr(document_graph, 'atoms'):
+        for atom_id, atom in document_graph.atoms.items():
+            # Check if this is a figure atom
+            if isinstance(atom, dict):
+                atom_type = atom.get('atom_type')
+            else:
+                atom_type = getattr(atom, 'atom_type', None)
+                if atom_type is not None:
+                    atom_type = atom_type.value if hasattr(atom_type, 'value') else str(atom_type)
+
+            if atom_type == 'figure':
+                if isinstance(atom, dict):
+                    fig_num = atom.get('figure_number', '')
+                    caption = atom.get('caption', '')
+                    description = atom.get('data_summary', '')
+                else:
+                    fig_num = getattr(atom, 'figure_number', '')
+                    caption = getattr(atom, 'caption', '')
+                    description = getattr(atom, 'data_summary', '')
+
+                # Parse "Figure N" to get the number
+                if isinstance(fig_num, str) and fig_num.lower().startswith('figure'):
+                    try:
+                        fig_num = int(fig_num.split()[-1])
+                    except (ValueError, IndexError):
+                        continue
+                elif isinstance(fig_num, int):
+                    pass
+                else:
+                    continue
+
+                doc_figures[fig_num] = {
+                    'caption': caption,
+                    'description': description,
+                }
+
+    # Enrich the script's figure inventory with document info
+    for fig_num, fig_inv in script.figure_inventory.items():
+        if fig_num in doc_figures:
+            fig_inv.caption = doc_figures[fig_num]['caption']
+            fig_inv.description = doc_figures[fig_num]['description']
+
+    return script
 
 
 async def run_training_loop(
@@ -100,11 +184,34 @@ async def run_training_loop(
                 script_path.parent.mkdir(parents=True, exist_ok=True)
                 script_path.write_text(script_text, encoding='utf-8')
 
+                # Create StructuredScript from generated text
+                structured_script = StructuredScript.from_script_text(
+                    script_text,
+                    trial_id=trial_id,
+                )
+
+                # Enrich figure inventory with info from document graph
+                structured_script = _enrich_figure_inventory(
+                    structured_script,
+                    pair.document_graph,
+                )
+
+                # Save structured script JSON
+                structured_script_path = output_dir / trial_id / f"{pair.pair_id}_structured_script.json"
+                structured_script.save(structured_script_path)
+
                 console.print(f"  [green]Script saved to: {script_path}[/green]")
+                console.print(f"  [green]Structured script: {structured_script_path}[/green]")
                 console.print(f"  [yellow]Script preview:[/yellow]")
                 preview = script_text[:500] + "..." if len(script_text) > 500 else script_text
                 console.print(f"  {preview}\n")
                 console.print(f"  [cyan]Word count: {len(script_text.split())} words[/cyan]")
+
+                # Log figure references found
+                figure_segs = structured_script.get_figure_segments()
+                if figure_segs:
+                    fig_refs = [f"Figure {fig}" for seg in figure_segs for fig in seg.figure_refs]
+                    console.print(f"  [cyan]Figure references: {', '.join(set(fig_refs))}[/cyan]")
 
                 # 2. Generate TTS audio using real audio provider
                 if skip_audio:
