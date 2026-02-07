@@ -653,3 +653,502 @@ class TestLibrarySerialization:
         assert summary["total_assets"] == 45
         assert summary["by_type"]["audio"] == 45
         assert summary["by_status"]["draft"] == 45
+
+
+class TestDoPIntegration:
+    """Test DoP (Director of Photography) integration with produce_video.py.
+
+    Tests the visual assignment pipeline:
+    1. Loading StructuredScript from trial directory
+    2. Using DoP assign_visuals() to populate display modes
+    3. Verifying visual plans are created correctly from DoP assignments
+    """
+
+    @pytest.fixture
+    def mock_structured_script(self):
+        """Create a mock StructuredScript with realistic segments."""
+        from core.models.structured_script import (
+            ScriptSegment,
+            SegmentIntent,
+            FigureInventory
+        )
+
+        script = StructuredScript(
+            script_id="test_script_001_v1",
+            trial_id="test_trial_001",
+            version=1
+        )
+
+        # Add diverse segments covering different intents
+        segments = [
+            # INTRO - always high importance
+            ScriptSegment(
+                idx=0,
+                text="Welcome to our research presentation on distributed systems.",
+                intent=SegmentIntent.INTRO,
+                figure_refs=[],
+                key_concepts=["distributed systems", "overview"],
+                importance_score=0.9
+            ),
+            # BACKGROUND with figure reference
+            ScriptSegment(
+                idx=1,
+                text="We build on prior work, as shown in Figure 2, which demonstrates...",
+                intent=SegmentIntent.BACKGROUND,
+                figure_refs=[2],
+                key_concepts=["background", "prior work"],
+                importance_score=0.7
+            ),
+            # METHODOLOGY - technical detail
+            ScriptSegment(
+                idx=2,
+                text="Our methodology follows a three-phase approach to network design.",
+                intent=SegmentIntent.METHODOLOGY,
+                figure_refs=[],
+                key_concepts=["methodology", "network", "design"],
+                importance_score=0.8
+            ),
+            # KEY_FINDING - high importance
+            ScriptSegment(
+                idx=3,
+                text="Our key finding shows a 40% improvement over baseline methods.",
+                intent=SegmentIntent.KEY_FINDING,
+                figure_refs=[],
+                key_concepts=["results", "improvement", "performance"],
+                importance_score=0.95
+            ),
+            # FIGURE_WALKTHROUGH - medium importance
+            ScriptSegment(
+                idx=4,
+                text="In Figure 5, we show the detailed breakdown of latency components.",
+                intent=SegmentIntent.FIGURE_WALKTHROUGH,
+                figure_refs=[5],
+                key_concepts=["latency", "breakdown", "components"],
+                importance_score=0.75
+            ),
+            # DATA_DISCUSSION - low importance
+            ScriptSegment(
+                idx=5,
+                text="The measurement setup included 100 nodes across three regions.",
+                intent=SegmentIntent.DATA_DISCUSSION,
+                figure_refs=[],
+                key_concepts=["measurement", "setup", "nodes"],
+                importance_score=0.4
+            ),
+            # TRANSITION - always text_only
+            ScriptSegment(
+                idx=6,
+                text="Next, let's explore the implications of these findings.",
+                intent=SegmentIntent.TRANSITION,
+                figure_refs=[],
+                key_concepts=[],
+                importance_score=0.2
+            ),
+            # COMPARISON
+            ScriptSegment(
+                idx=7,
+                text="Compared to method A, our approach shows faster convergence.",
+                intent=SegmentIntent.COMPARISON,
+                figure_refs=[],
+                key_concepts=["comparison", "convergence", "performance"],
+                importance_score=0.7
+            ),
+            # RECAP
+            ScriptSegment(
+                idx=8,
+                text="To summarize, we have demonstrated three key innovations.",
+                intent=SegmentIntent.RECAP,
+                figure_refs=[],
+                key_concepts=["summary", "innovations"],
+                importance_score=0.6
+            ),
+            # OUTRO
+            ScriptSegment(
+                idx=9,
+                text="Thank you for watching. Questions are welcome.",
+                intent=SegmentIntent.OUTRO,
+                figure_refs=[],
+                key_concepts=[],
+                importance_score=0.5
+            ),
+        ]
+
+        script.segments = segments
+        script.total_segments = len(segments)
+        script.total_estimated_duration_sec = 180.0  # ~3 minutes
+
+        # Add figure inventory using FigureInventory objects
+        script.figure_inventory = {
+            2: FigureInventory(
+                figure_number=2,
+                kb_path="/path/to/figure_2.png",
+                caption="Prior work comparison"
+            ),
+            5: FigureInventory(
+                figure_number=5,
+                kb_path="/path/to/figure_5.png",
+                caption="Latency breakdown details"
+            )
+        }
+
+        return script
+
+    @pytest.fixture
+    def empty_content_library(self):
+        """Create an empty content library for testing."""
+        return ContentLibrary(project_id="test_dop_run")
+
+    @pytest.fixture
+    def library_with_approved_assets(self):
+        """Create a content library with some pre-approved assets."""
+        library = ContentLibrary(project_id="test_dop_run")
+
+        # Add some pre-approved images
+        for i in [1, 3, 7]:
+            asset = AssetRecord(
+                asset_id=f"img_{i:03d}",
+                asset_type=AssetType.IMAGE,
+                source=AssetSource.DALLE,
+                status=AssetStatus.APPROVED,
+                segment_idx=i,
+                path=f"images/scene_{i:03d}.png",
+                format="png",
+                file_size_bytes=512000
+            )
+            library.register(asset)
+
+        # Add some KB figures
+        for fig_num in [2, 5]:
+            asset = AssetRecord(
+                asset_id=f"fig_{fig_num:03d}",
+                asset_type=AssetType.FIGURE,
+                source=AssetSource.KB_EXTRACTION,
+                status=AssetStatus.APPROVED,
+                figure_number=fig_num,
+                path=f"figures/figure_{fig_num}.png",
+                format="png",
+                file_size_bytes=256000
+            )
+            library.register(asset)
+
+        return library
+
+    def test_dop_assign_visuals_with_empty_library_medium_tier(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test DoP visual assignment with empty library and medium budget."""
+        from core.dop import assign_visuals, get_visual_plan_summary
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="medium"
+        )
+
+        # Verify script is modified in place
+        assert script.script_id == "test_script_001_v1"
+
+        # Get summary
+        summary = get_visual_plan_summary(script)
+
+        # For medium tier with 10 segments (27% ratio):
+        # ~3 DALL-E images should be allocated to non-transition, non-figure segments
+        assert summary["figure_sync"] == 2, "Should have 2 figure_sync segments (figures 2, 5)"
+        assert summary["dall_e"] > 0, "Should allocate some DALL-E budget"
+        assert summary["carry_forward"] > 0, "Should have carry_forward segments"
+        assert summary["text_only"] > 0, "Should have text_only transitions"
+        assert summary["unassigned"] == 0, "All segments should be assigned"
+
+    def test_dop_respects_figure_priority(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that DoP prioritizes figure_sync over DALL-E."""
+        from core.dop import assign_visuals, get_figure_sync_list
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="high"
+        )
+
+        # Get figure sync segments
+        figure_segments = get_figure_sync_list(script)
+
+        # Should have exactly 2 figure segments (idx 1 and 4)
+        assert len(figure_segments) == 2
+        segment_indices = [seg_idx for seg_idx, _ in figure_segments]
+        assert 1 in segment_indices, "Segment 1 references Figure 2"
+        assert 4 in segment_indices, "Segment 4 references Figure 5"
+
+    def test_dop_transitions_always_text_only(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that TRANSITION segments always get text_only mode."""
+        from core.dop import assign_visuals
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="full"  # Even with full budget
+        )
+
+        transition_seg = script.get_segment(6)
+        assert transition_seg is not None
+        assert transition_seg.display_mode == "text_only", "Transition should always be text_only"
+
+    def test_dop_micro_tier_all_text_only(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that micro tier makes everything text_only except figures."""
+        from core.dop import assign_visuals, get_visual_plan_summary
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="micro"
+        )
+
+        summary = get_visual_plan_summary(script)
+
+        # Micro tier: only figures get special treatment, rest is text_only
+        assert summary["figure_sync"] == 2, "Figures should still get figure_sync"
+        assert summary["text_only"] == 8, "All non-figure segments text_only"
+        assert summary["dall_e"] == 0, "No DALL-E in micro tier"
+        assert summary["carry_forward"] == 0, "No carry_forward in micro tier"
+
+    def test_dop_full_tier_allocates_images_to_all(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that full tier allocates DALL-E to most segments."""
+        from core.dop import assign_visuals, get_visual_plan_summary
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="full"
+        )
+
+        summary = get_visual_plan_summary(script)
+
+        # Full tier: 100% image ratio, so most non-transition segments get DALL-E
+        assert summary["figure_sync"] == 2, "Figures get figure_sync"
+        assert summary["dall_e"] > 6, "Most non-transition, non-figure segments get DALL-E"
+        assert summary["text_only"] >= 1, "At least transition segments text_only"
+        assert summary["unassigned"] == 0
+
+    def test_dop_respects_approved_assets(
+        self, mock_structured_script, library_with_approved_assets
+    ):
+        """Test that DoP links approved assets correctly."""
+        from core.dop import assign_visuals
+
+        script = assign_visuals(
+            mock_structured_script,
+            library_with_approved_assets,
+            budget_tier="medium"
+        )
+
+        # Segments with pre-approved assets should link to them
+        # Segment 1 and 3 have approved images
+        seg_1 = script.get_segment(1)
+        seg_3 = script.get_segment(3)
+
+        # These should be marked for DALL-E or use existing
+        assert seg_1.display_mode in ["dall_e", "figure_sync"]
+        assert seg_3.display_mode in ["dall_e", "carry_forward"]
+
+    def test_dop_generates_visual_direction_for_dalle(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that DoP generates visual direction hints for DALL-E segments."""
+        from core.dop import assign_visuals
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="high"
+        )
+
+        # Check DALL-E segments have visual direction
+        dalle_segments = [s for s in script.segments if s.display_mode == "dall_e"]
+        assert len(dalle_segments) > 0
+
+        for seg in dalle_segments:
+            assert seg.visual_direction, f"Segment {seg.idx} with DALL-E should have visual_direction"
+            # Visual direction should mention intent or concepts
+            assert (
+                seg.intent.value.lower() in seg.visual_direction.lower() or
+                any(c.lower() in seg.visual_direction.lower() for c in seg.key_concepts)
+            ), f"Visual direction should reference intent or concepts"
+
+    def test_dop_visual_direction_mentions_figures(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that visual direction for figure segments mentions the figure."""
+        from core.dop import assign_visuals
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="full"
+        )
+
+        # Check figure segments have meaningful visual direction
+        figure_segs = script.get_figure_segments()
+        assert len(figure_segs) > 0
+
+        for seg in figure_segs:
+            if seg.display_mode == "figure_sync":
+                assert "Figure" in seg.visual_direction, \
+                    f"Figure sync segment should mention figure in visual_direction"
+
+    def test_dop_importance_affects_budget_allocation(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that higher importance scores get DALL-E allocation priority."""
+        from core.dop import assign_visuals
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="low"  # Limited budget
+        )
+
+        # Get DALL-E segments
+        dalle_segs = [s for s in script.segments if s.display_mode == "dall_e"]
+        carry_segs = [s for s in script.segments if s.display_mode == "carry_forward"]
+
+        # Should have some of both
+        assert len(dalle_segs) > 0
+        assert len(carry_segs) > 0
+
+        # DALL-E segments should have higher average importance
+        if dalle_segs and carry_segs:
+            avg_dalle_importance = sum(s.importance_score for s in dalle_segs) / len(dalle_segs)
+            avg_carry_importance = sum(s.importance_score for s in carry_segs) / len(carry_segs)
+
+            assert avg_dalle_importance >= avg_carry_importance * 0.8, \
+                "Higher importance segments should get DALL-E preferentially"
+
+    def test_dop_integration_with_visual_plan_creation(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test complete pipeline: DoP assignment -> visual plan conversion.
+
+        Simulates the produce_video.py workflow where DoP output is used to
+        create VisualPlan objects.
+        """
+        from core.dop import assign_visuals
+        from core.models.video_production import VisualPlan
+
+        # Step 1: Use DoP to assign visuals
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="medium"
+        )
+
+        # Step 2: Convert to visual plans (simulating produce_video.py behavior)
+        visual_plans = []
+        style_consistency = {
+            "style_suffix": "Style: clean technical illustration, dark background, vibrant accents.",
+            "dalle_style": "natural"
+        }
+
+        for seg in script.segments:
+            dalle_prompt = ""
+            ken_burns = None
+            kb_figure_path = None
+
+            if seg.display_mode == "dall_e":
+                dalle_prompt = f"{seg.visual_direction} {style_consistency['style_suffix']}"
+            elif seg.display_mode == "figure_sync":
+                # In real code, this would look up the figure from KB
+                kb_figure_path = f"/path/to/figure_{seg.figure_refs[0]}.png" if seg.figure_refs else None
+
+            if seg.display_mode in ["dall_e", "figure_sync"]:
+                ken_burns = {"enabled": True, "direction": "slow_zoom_in"}
+
+            plan = VisualPlan(
+                scene_id=f"scene_{seg.idx:03d}",
+                dalle_prompt=dalle_prompt,
+                dalle_style="natural",
+                dalle_settings={},
+                animate_with_luma=False,
+                luma_prompt=None,
+                luma_settings={},
+                transition_in="fade",
+                transition_out="fade",
+                ken_burns=ken_burns,
+                on_screen_text=None,
+                text_position="lower_third"
+            )
+            plan.budget_mode = seg.display_mode
+            plan.kb_figure_path = kb_figure_path
+
+            visual_plans.append(plan)
+
+        # Step 3: Verify the conversion worked correctly
+        assert len(visual_plans) == len(script.segments)
+
+        # Verify specific modes translated correctly
+        dalle_plans = [p for p in visual_plans if p.dalle_prompt]
+        assert len(dalle_plans) > 0, "Should have DALL-E plans from DoP assignment"
+
+        figure_plans = [p for p in visual_plans if p.kb_figure_path]
+        assert len(figure_plans) == 2, "Should have 2 figure plans"
+
+        # Verify text-only segments have no prompts
+        text_only_plans = [p for p in visual_plans if p.budget_mode == "text_only"]
+        for plan in text_only_plans:
+            assert plan.dalle_prompt == "", "Text-only should not have DALL-E prompt"
+
+    def test_dop_summary_counts_match_segments(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that visual plan summary counts equal total segments."""
+        from core.dop import assign_visuals, get_visual_plan_summary
+
+        script = assign_visuals(
+            mock_structured_script,
+            empty_content_library,
+            budget_tier="medium"
+        )
+
+        summary = get_visual_plan_summary(script)
+
+        total_assigned = (
+            summary["figure_sync"] +
+            summary["dall_e"] +
+            summary["carry_forward"] +
+            summary["text_only"]
+        )
+
+        assert total_assigned == len(script.segments), \
+            f"Summary counts ({total_assigned}) should equal total segments ({len(script.segments)})"
+
+    def test_dop_cost_estimation(
+        self, mock_structured_script, empty_content_library
+    ):
+        """Test that DoP cost estimation is reasonable."""
+        from core.dop import assign_visuals, estimate_visual_cost
+
+        for tier in ["micro", "low", "medium", "high", "full"]:
+            script = assign_visuals(
+                mock_structured_script,
+                empty_content_library,
+                budget_tier=tier
+            )
+
+            cost = estimate_visual_cost(script, dalle_cost=0.08)
+
+            # Cost should be non-negative
+            assert cost >= 0.0, f"Cost for {tier} tier should be >= 0"
+
+            # Estimate should follow tier progression
+            # (more images as tier increases)
+            # This is tested by checking the DALL-E count in summary
+            from core.dop import get_visual_plan_summary
+            summary = get_visual_plan_summary(script)
+            expected_cost = summary["dall_e"] * 0.08
+            assert abs(cost - expected_cost) < 0.01

@@ -13,6 +13,38 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - DoP and Unified Production (Phase 4)
+
+Implemented Phase 4 of the Unified Production Architecture: the Director of Photography (DoP) module and ContentLibrarian integration.
+
+**DoP Module** (`core/dop.py`):
+- Assigns visual display modes to script segments (figure_sync, dall_e, carry_forward, text_only)
+- Respects budget tier ratios for proportional image allocation
+- Prioritizes segments by importance score for DALL-E generation
+- Links to existing approved assets in ContentLibrary
+- Generates visual direction hints for image prompts
+- 100% deterministic - no LLM calls needed
+
+**Integration** (`cli/produce_video.py`):
+- ContentLibrarian now wired into video production pipeline
+- StructuredScript is the source of truth when available
+- DoP replaces manual budget allocation logic
+- Visual planning now shows figure_sync, dall_e, carry_forward, and text_only modes
+- Asset reuse across runs - approved images aren't regenerated
+
+**Example Output**:
+```
+DoP visual assignment:
+  figure_sync: 3 segments (KB figures)
+  dall_e: 5 segments (new generation needed)
+  carry_forward: 7 segments (reuse previous)
+  text_only: 2 segments (transitions)
+
+Estimated cost: $0.40 (5 DALL-E images)
+```
+
+The pipeline is now unified - both `produce` and `produce-video` commands share the same StructuredScript and ContentLibrary data layer. This enables incremental regeneration and asset reuse across runs.
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Training Outputs StructuredScript (Phase 3)
 
 Training pipeline now outputs structured scripts alongside flat text files.

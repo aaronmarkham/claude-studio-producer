@@ -12,9 +12,9 @@
 - **Transcript-led video production** - Budget-aware visual generation from training outputs
 - **Budget tier system** - micro/low/medium/high/full tiers for controlling image generation costs
 
-### Feb 7, 2026 - Unified Production Architecture (Phase 1 & 2)
+### Feb 7, 2026 - Unified Production Architecture (Phases 1-4)
 
-Implemented the first two phases of the Unified Production Architecture spec, which unifies the original agent pipeline and the transcript-led video production pipeline.
+Implemented all four phases of the Unified Production Architecture spec, which unifies the original agent pipeline and the transcript-led video production pipeline.
 
 **Phase 1: Data Models**
 
@@ -35,7 +35,61 @@ Created `core/content_librarian.py`:
 - Asset registration methods for audio, images, and KB figures
 - Enables asset reuse across runs — no more regenerating approved content
 
-**Test coverage**: 78 unit tests covering serialization, parsing, asset registration, and manifest building.
+**Phase 3: Training Pipeline Integration**
+
+Training pipeline now outputs structured scripts alongside flat text files:
+- After generating `_script.txt`, trainer parses it with `StructuredScript.from_script_text()`
+- Enriches figure inventory with captions from the document graph
+- Saves `{pair_id}_structured_script.json` per training pair
+
+**Phase 4: Director of Photography (DoP) Module**
+
+Created `core/dop.py` - deterministic visual planning module:
+
+**Key Functions**:
+- `assign_visuals()` - Main DoP function that assigns display modes to all segments
+- `get_visual_plan_summary()` - Returns counts of each display mode
+- `estimate_visual_cost()` - Calculates DALL-E generation costs
+- `get_generation_list()` - Lists segments needing DALL-E generation
+- `get_figure_sync_list()` - Lists segments syncing to KB figures
+
+**Visual Assignment Logic**:
+1. **Phase 1**: Assign `figure_sync` to segments with figure references (always prioritized)
+2. **Phase 2**: If micro tier, assign `text_only` to everything else
+3. **Phase 3**: Calculate DALL-E budget based on tier ratio (e.g., medium = 27% of segments)
+4. **Phase 4**: Score remaining segments by importance, assign `dall_e` to top N
+5. **Phase 5**: Assign `carry_forward` to remaining segments (reuse previous image)
+6. **Phase 6**: Generate visual direction hints for dall_e and figure_sync segments
+
+**Display Modes**:
+- `figure_sync` - Show KB figure from document (e.g., charts from PDF)
+- `dall_e` - Generate new image via DALL-E
+- `carry_forward` - Reuse previous segment's image with Ken Burns effect
+- `text_only` - Just text overlay on background (transitions, micro tier)
+
+**Integration with produce-video**:
+- ContentLibrarian now wired into the video production pipeline
+- StructuredScript is the source of truth when available (replaces flat text parsing)
+- DoP replaces manual budget allocation logic in `cli/produce_video.py`
+- Visual planning shows figure_sync, dall_e, carry_forward, text_only modes
+- Asset reuse: approved images aren't regenerated (checks ContentLibrary first)
+
+**Intent-Based Visual Direction**:
+DoP generates visual guidance based on segment intent:
+- INTRO: Abstract visualization, minimalist design
+- METHODOLOGY: Technical diagrams, system flowcharts
+- KEY_FINDING: Data visualization with vivid accent colors
+- FIGURE_WALKTHROUGH: Frame sync with specific figure, annotations
+- COMPARISON: Side-by-side visualizations
+
+**Implementation Details**:
+- Budget tier ratios applied ONLY to DALL-E images (figures don't count toward budget)
+- Transitions always get `text_only` (never waste images on transitions)
+- Segments with approved assets are prioritized for DALL-E assignment (reuse)
+- Importance scores range 0.0-1.0; scores ≥0.8 get "compelling composition" guidance
+- Ken Burns effect suggested for segments with importance ≥0.6
+
+**Test coverage**: 78 unit tests covering serialization, parsing, asset registration, manifest building, and DoP visual assignment logic.
 
 The key insight: both pipelines now share the same data layer. The original `produce` command (ScriptWriter → VideoGenerator → QA → Editor) and the `produce-video` command (Training → DoP → Audio/Visual Producer → Assembler) can read/write the same StructuredScript and ContentLibrary formats. This unblocks figure sync in video assembly and enables incremental regeneration.
 

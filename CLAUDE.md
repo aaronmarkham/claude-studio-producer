@@ -210,6 +210,8 @@ Working:
 - StructuredScript and ContentLibrary data models (Phase 1 of UNIFIED_PRODUCTION_ARCHITECTURE.md)
 - ContentLibrarian module with assembly manifest builder (Phase 2 of UNIFIED_PRODUCTION_ARCHITECTURE.md)
 - Training outputs StructuredScript JSON with enriched figure inventory (Phase 3)
+- DoP (Director of Photography) module for visual assignment (Phase 4)
+- DoP integrated into produce-video CLI with ContentLibrarian asset tracking (Phase 4)
 
 In progress:
 - Additional video providers (Pika, Kling stubbed)
