@@ -13,6 +13,17 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Training Outputs StructuredScript (Phase 3)
+
+Training pipeline now outputs structured scripts alongside flat text files.
+
+**What Changed**:
+- After generating `_script.txt`, trainer parses it with `StructuredScript.from_script_text()`
+- Enriches figure inventory with captions from the document graph
+- Saves `{pair_id}_structured_script.json` per training pair
+
+This bridges training and production: video production can now load structured scripts directly instead of re-parsing flat text. Figure references in scripts are pre-resolved with full metadata.
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Unified Production Architecture (Phase 1)
 
 Implemented Phase 1 of the UNIFIED_PRODUCTION_ARCHITECTURE.md spec, establishing new data models as the foundation for the unified pipeline.
