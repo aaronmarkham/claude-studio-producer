@@ -460,7 +460,10 @@ def check_convergence(
 
     console.print(f"\nConvergence check: improvement = {improvement:.4f} (threshold = {config.convergence_threshold})")
 
-    return improvement < config.convergence_threshold
+    # Converge only when improvement is strictly less than threshold.
+    # Add small epsilon to account for floating point precision near boundary.
+    epsilon = 1e-9
+    return bool(improvement < config.convergence_threshold - epsilon)
 
 
 async def generate_training_report(
