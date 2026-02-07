@@ -331,6 +331,25 @@ class ContentLibrary:
         """Serialize to JSON string."""
         return json.dumps(self.to_dict(), indent=indent)
 
+    def get_summary(self) -> dict:
+        """Get a summary of assets by type and status."""
+        by_type = {}
+        by_status = {}
+
+        for asset in self.assets.values():
+            type_name = asset.asset_type.value
+            status_name = asset.status.value
+
+            by_type[type_name] = by_type.get(type_name, 0) + 1
+            by_status[status_name] = by_status.get(status_name, 0) + 1
+
+        return {
+            "total": len(self.assets),
+            "by_type": by_type,
+            "by_status": by_status,
+            "project_id": self.project_id,
+        }
+
     def save(self, path: Optional[Path] = None) -> Path:
         """
         Save to JSON file.
