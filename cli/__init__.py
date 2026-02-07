@@ -20,6 +20,7 @@ from .secrets import secrets_cli
 from .resume import resume_cmd
 from .training import training
 from .produce_video import produce_video_cmd
+from .assemble import assemble_cmd
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -39,6 +40,7 @@ def main():
     Commands:
       produce        Run full video production pipeline
       produce-video  Generate explainer video from podcast script
+      assemble       Assemble rough cut video from production run
       resume         Resume a production from where it stopped
       render         Render commands (edl, mix video+audio)
       test-provider  Test a single provider (quick validation)
@@ -62,6 +64,7 @@ def main():
 # Main production commands
 main.add_command(produce_cmd, name="produce")
 main.add_command(produce_video_cmd, name="produce-video")
+main.add_command(assemble_cmd, name="assemble")
 main.add_command(resume_cmd, name="resume")
 main.add_command(render_cmd, name="render")
 main.add_command(test_provider_cmd, name="test-provider")

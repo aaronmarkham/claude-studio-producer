@@ -45,6 +45,8 @@ Estimated cost: $0.40 (5 DALL-E images)
 
 The pipeline is now unified - both `produce` and `produce-video` commands share the same StructuredScript and ContentLibrary data layer. This enables incremental regeneration and asset reuse across runs.
 
+**Test Coverage**: 116 tests passing (81 unit + 35 integration) covering all phases of the unified architecture, provider integrations, and end-to-end workflows.
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Training Outputs StructuredScript (Phase 3)
 
 Training pipeline now outputs structured scripts alongside flat text files.

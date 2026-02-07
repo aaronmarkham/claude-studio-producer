@@ -89,7 +89,7 @@ DoP generates visual guidance based on segment intent:
 - Importance scores range 0.0-1.0; scores ≥0.8 get "compelling composition" guidance
 - Ken Burns effect suggested for segments with importance ≥0.6
 
-**Test coverage**: 78 unit tests covering serialization, parsing, asset registration, manifest building, and DoP visual assignment logic.
+**Test coverage**: 116 tests passing (81 unit + 35 integration) covering serialization, parsing, asset registration, manifest building, DoP visual assignment logic, provider integrations, and end-to-end production workflows.
 
 The key insight: both pipelines now share the same data layer. The original `produce` command (ScriptWriter → VideoGenerator → QA → Editor) and the `produce-video` command (Training → DoP → Audio/Visual Producer → Assembler) can read/write the same StructuredScript and ContentLibrary formats. This unblocks figure sync in video assembly and enables incremental regeneration.
 
