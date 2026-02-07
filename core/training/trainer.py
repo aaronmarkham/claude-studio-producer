@@ -244,6 +244,61 @@ async def generate_podcast_script(
     summary = getattr(doc_graph, 'unified_summary', '')[:1000]
     themes = getattr(doc_graph, 'key_themes', [])[:5]
 
+    # Extract figures from document (for script to reference explicitly)
+    figures = []
+    if hasattr(doc_graph, 'get_figures'):
+        # DocumentGraph has get_figures() method
+        for fig in doc_graph.get_figures():
+            fig_info = {
+                'number': fig.figure_number or f"Figure {len(figures) + 1}",
+                'caption': fig.caption or '',
+                'description': fig.data_summary or '',
+                'importance': fig.importance_score
+            }
+            figures.append(fig_info)
+    elif hasattr(doc_graph, 'atoms'):
+        # KnowledgeGraph stores atoms as dict or DocumentAtom - extract figures directly
+        for atom_id, atom in doc_graph.atoms.items():
+            if isinstance(atom, dict):
+                atom_type = atom.get('atom_type')
+            else:
+                # DocumentAtom - atom_type is an enum, get its string value
+                atom_type = getattr(atom, 'atom_type', None)
+                if atom_type is not None:
+                    atom_type = atom_type.value if hasattr(atom_type, 'value') else str(atom_type)
+            if atom_type == 'figure':
+                if isinstance(atom, dict):
+                    fig_info = {
+                        'number': atom.get('figure_number') or f"Figure {len(figures) + 1}",
+                        'caption': atom.get('caption', ''),
+                        'description': atom.get('data_summary', ''),
+                        'importance': atom.get('importance_score', 0.5)
+                    }
+                else:
+                    fig_info = {
+                        'number': getattr(atom, 'figure_number', None) or f"Figure {len(figures) + 1}",
+                        'caption': getattr(atom, 'caption', ''),
+                        'description': getattr(atom, 'data_summary', ''),
+                        'importance': getattr(atom, 'importance_score', 0.5)
+                    }
+                figures.append(fig_info)
+    # Sort by importance so most important figures are listed first
+    figures.sort(key=lambda f: f['importance'], reverse=True)
+
+    # Log figure count for debugging
+    if figures:
+        console.print(f"  [dim]Found {len(figures)} figures in document[/dim]")
+
+    # Build figure context for prompt
+    if figures:
+        figure_lines = []
+        for fig in figures[:10]:  # Limit to top 10 most important
+            desc = fig['description'][:150] + '...' if len(fig['description']) > 150 else fig['description']
+            figure_lines.append(f"- {fig['number']}: {fig['caption']}" + (f" ({desc})" if desc else ""))
+        figure_context = "\n".join(figure_lines)
+    else:
+        figure_context = "(No figures extracted from document)"
+
     # Get target duration and word count from reference
     target_duration_sec = pair.transcription.total_duration if pair.transcription else 660  # ~11 min default
     target_duration_min = target_duration_sec / 60
@@ -273,6 +328,9 @@ Title: {title}
 Summary: {summary}
 Key Themes: {', '.join(themes)}
 
+FIGURES IN THIS PAPER (reference these explicitly by number when discussing their content):
+{figure_context}
+
 IMPORTANT: All factual content, author names, figures, and findings must come from THIS paper above.
 
 === YOUR STYLE REFERENCE (adopt conversational style from here) ===
@@ -293,21 +351,28 @@ CRITICAL INSTRUCTIONS:
    - Reference specific figures, tables, and results from THIS paper
    - All facts must come from the paper content, not the style examples
 
-2. STYLE SOURCE: Match the conversational style shown in the examples
+2. FIGURE REFERENCES: When discussing visualizations, DATA, or results:
+   - Reference figures by their exact number (e.g., "As shown in Figure 3...")
+   - The figures listed above are the actual visuals from the paper
+   - When you reference a figure, briefly describe what it shows
+   - Figures are high-value anchor points - they visualize key findings
+
+3. STYLE SOURCE: Match the conversational style shown in the examples
    - Adopt similar sentence length, complexity, and question frequency
    - Use analogies and explanations at a similar pace
    - Match the enthusiasm and engagement level
    - But create ORIGINAL phrases appropriate to YOUR paper's content
 
-3. DO NOT:
+4. DO NOT:
    - Copy show names (like "Journal Club") from the style examples
    - Copy specific phrases verbatim from the style examples
    - Reference content from the style examples' paper
    - Use the style examples' host names or branding
 
-4. DO:
+5. DO:
    - Create your own intro appropriate to THIS paper's topic
    - Use the actual findings and data from THIS paper
+   - Explicitly reference figures by number when discussing their content
    - Write in a conversational style similar to the examples
    - Aim for ~{target_word_count} words to match duration
 

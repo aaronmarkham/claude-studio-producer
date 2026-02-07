@@ -84,37 +84,52 @@ COST_MODELS = {
 
 
 # Audio production cost models (per minute of final audio)
-AUDIO_COST_MODELS = {
-    AudioTier.NONE: {
-        "cost_per_minute": 0,
-        "description": "No audio production",
-        "includes": []
-    },
-    AudioTier.MUSIC_ONLY: {
-        "cost_per_minute": 0.50,
-        "description": "Background music track",
-        "includes": ["Music licensing or AI generation"]
-    },
-    AudioTier.SIMPLE_OVERLAY: {
-        "cost_per_minute": 2.00,
-        "description": "AI voiceover, loose sync",
-        "includes": ["TTS generation", "Basic mixing"]
-    },
-    AudioTier.TIME_SYNCED: {
-        "cost_per_minute": 5.00,
-        "description": "Synced voiceover with music",
-        "includes": ["TTS generation", "Sync point alignment", "Music ducking", "Mixing"]
-    },
-    AudioTier.FULL_PRODUCTION: {
-        "cost_per_minute": 15.00,
-        "description": "VO + music + SFX + mixing",
-        "includes": ["Premium TTS", "Music", "Sound effects", "Multi-track mixing", "Mastering"]
-    }
-}
+# Lazy-initialized to avoid circular imports
+_AUDIO_COST_MODELS = None
+
+def _get_audio_cost_models():
+    """Lazily initialize and return audio cost models with proper AudioTier enum"""
+    global _AUDIO_COST_MODELS
+    if _AUDIO_COST_MODELS is None:
+        # Import here to avoid circular imports
+        try:
+            from core.models.audio import AudioTier as ModelAudioTier
+            _AudioTier = ModelAudioTier
+        except ImportError:
+            _AudioTier = AudioTier
+
+        _AUDIO_COST_MODELS = {
+            _AudioTier.NONE: {
+                "cost_per_minute": 0,
+                "description": "No audio production",
+                "includes": []
+            },
+            _AudioTier.MUSIC_ONLY: {
+                "cost_per_minute": 0.50,
+                "description": "Background music track",
+                "includes": ["Music licensing or AI generation"]
+            },
+            _AudioTier.SIMPLE_OVERLAY: {
+                "cost_per_minute": 2.00,
+                "description": "AI voiceover, loose sync",
+                "includes": ["TTS generation", "Basic mixing"]
+            },
+            _AudioTier.TIME_SYNCED: {
+                "cost_per_minute": 5.00,
+                "description": "Synced voiceover with music",
+                "includes": ["TTS generation", "Sync point alignment", "Music ducking", "Mixing"]
+            },
+            _AudioTier.FULL_PRODUCTION: {
+                "cost_per_minute": 15.00,
+                "description": "VO + music + SFX + mixing",
+                "includes": ["Premium TTS", "Music", "Sound effects", "Multi-track mixing", "Mastering"]
+            }
+        }
+    return _AUDIO_COST_MODELS
 
 
 def estimate_audio_cost(
-    audio_tier: AudioTier,
+    audio_tier,
     duration_seconds: float,
     num_scenes: int
 ) -> float:
@@ -129,11 +144,16 @@ def estimate_audio_cost(
     Returns:
         Estimated cost in USD
     """
+    # Import here to get the correct AudioTier enum and cost models
+    from core.models.audio import AudioTier as ModelAudioTier
+
+    audio_cost_models = _get_audio_cost_models()
+
     minutes = duration_seconds / 60
-    base_cost = AUDIO_COST_MODELS[audio_tier]["cost_per_minute"] * minutes
+    base_cost = audio_cost_models[audio_tier]["cost_per_minute"] * minutes
 
     # Add per-scene overhead for sync work
-    if audio_tier in [AudioTier.TIME_SYNCED, AudioTier.FULL_PRODUCTION]:
+    if audio_tier in [ModelAudioTier.TIME_SYNCED, ModelAudioTier.FULL_PRODUCTION]:
         sync_overhead = num_scenes * 0.50  # $0.50 per scene for sync
         base_cost += sync_overhead
 

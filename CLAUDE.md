@@ -107,6 +107,23 @@ Providers implement a common interface. Status:
 
 Onboard new providers: `claude-studio provider onboard -n name -t type --docs-url URL`
 
+### ElevenLabs Voice IDs
+
+Common voice name → ID mappings (used in `cli/test_provider.py`):
+- `lily` → `pFZP5JQG7iQjIQuC4Bku`
+- `rachel` → `21m00Tcm4TlvDq8ikWAM`
+- `adam` → `pNInz6obpgDQGcFmaJgB`
+
+### Budget Tiers (Video Production)
+
+| Tier | DALL-E Images | Luma Animations | Est. Cost |
+|------|---------------|-----------------|-----------|
+| `micro` | 0 (text only) | 0 | $0 |
+| `low` | ~15 hero | 0 | $1-2 |
+| `medium` | ~40 consolidated | 0 | $3-5 |
+| `high` | ~80 images | 5 selective | $8-12 |
+| `full` | All scenes | All candidates | $15+ |
+
 ## Memory/Learning System
 
 Multi-tenant namespace hierarchy: `SESSION → USER → ORG → PLATFORM`
@@ -125,6 +142,23 @@ Storage: `artifacts/memory.json` (local) or Bedrock AgentCore (production)
 3. **Mock mode by default** - Use `--live` only when ready for real API calls
 4. **Checkpointing** - Provider onboarding has resume capability (`--resume`)
 5. **Parallelism consideration** - For narrative consistency, video scenes often need sequential generation with keyframe passing
+
+### FFmpeg Patterns
+
+```bash
+# Merge audio into video (copy video, encode audio)
+ffmpeg -i video.mp4 -i audio.mp3 -map 0:v -map 1:a -c:v copy -c:a aac -shortest output.mp4
+
+# Speed-match audio to video duration
+ffmpeg -i video.mp4 -i audio.mp3 -filter_complex "[1:a]atempo=1.2[a]" -map 0:v -map "[a]" output.mp4
+```
+
+### Documentation Structure
+
+- `docs/dev_notes.md` — Internal dev notes (excluded from Jekyll build)
+- `docs/dev-journal.md` — Public-facing journal (in `_config.yml` header_pages)
+- `docs/_config.yml` — Jekyll config, controls what appears on GitHub Pages
+- When adding dev entries, update **both** files (dev_notes for detail, dev-journal for public)
 
 ## Active Specs (read before implementing)
 
