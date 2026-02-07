@@ -14,9 +14,12 @@ from core.models.video_production import VideoScene, VisualPlan
 
 # Segment type to visual style mapping
 # Maps each SegmentType to its visual production parameters
+# Note: dalle_style must be "vivid" or "natural" (DALL-E API constraint)
+# prompt_style is the descriptive style added to the DALL-E prompt text
 SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     "INTRO": {
-        "dalle_style": "abstract visualization",
+        "dalle_style": "natural",  # API style param (vivid/natural only)
+        "prompt_style": "abstract visualization",  # Added to prompt text
         "animation_candidate": False,  # Usually static title card
         "visual_complexity": "low",
         "ken_burns": True,
@@ -24,7 +27,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "BACKGROUND": {
-        "dalle_style": "conceptual illustration",
+        "dalle_style": "natural",
+        "prompt_style": "conceptual illustration",
         "animation_candidate": False,
         "visual_complexity": "medium",
         "ken_burns": True,
@@ -32,7 +36,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "PROBLEM_STATEMENT": {
-        "dalle_style": "technical diagram",
+        "dalle_style": "natural",
+        "prompt_style": "technical diagram",
         "animation_candidate": True,  # Show problem emerging
         "visual_complexity": "medium",
         "ken_burns": False,
@@ -40,7 +45,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "METHODOLOGY": {
-        "dalle_style": "architectural diagram",
+        "dalle_style": "natural",
+        "prompt_style": "architectural diagram",
         "animation_candidate": True,  # Process flow
         "visual_complexity": "high",
         "ken_burns": False,
@@ -48,7 +54,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "KEY_FINDING": {
-        "dalle_style": "data visualization",
+        "dalle_style": "vivid",  # Vivid for impactful data reveals
+        "prompt_style": "data visualization",
         "animation_candidate": True,  # Data revealing itself
         "visual_complexity": "high",
         "ken_burns": False,
@@ -56,7 +63,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "FIGURE_DISCUSSION": {
-        "dalle_style": "technical diagram",
+        "dalle_style": "natural",
+        "prompt_style": "technical diagram",
         "animation_candidate": True,  # Annotate figure
         "visual_complexity": "high",
         "ken_burns": False,
@@ -64,7 +72,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "IMPLICATION": {
-        "dalle_style": "conceptual illustration",
+        "dalle_style": "vivid",  # Vivid for conceptual impact
+        "prompt_style": "conceptual illustration",
         "animation_candidate": True,  # Ripple effects
         "visual_complexity": "medium",
         "ken_burns": True,
@@ -72,7 +81,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "LIMITATION": {
-        "dalle_style": "abstract visualization",
+        "dalle_style": "natural",
+        "prompt_style": "abstract visualization",
         "animation_candidate": False,
         "visual_complexity": "low",
         "ken_burns": True,
@@ -80,7 +90,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "CONCLUSION": {
-        "dalle_style": "abstract visualization",
+        "dalle_style": "natural",
+        "prompt_style": "abstract visualization",
         "animation_candidate": False,
         "visual_complexity": "low",
         "ken_burns": True,
@@ -88,7 +99,8 @@ SEGMENT_VISUAL_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     "TANGENT": {
-        "dalle_style": "conceptual illustration",
+        "dalle_style": "natural",
+        "prompt_style": "conceptual illustration",
         "animation_candidate": False,
         "visual_complexity": "low",
         "ken_burns": True,
