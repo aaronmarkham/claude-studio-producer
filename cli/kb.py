@@ -600,6 +600,43 @@ def list_cmd():
     console.print(table)
 
 
+@kb_cmd.command("remove")
+@click.argument("project")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+def remove_cmd(project: str, force: bool):
+    """Remove a knowledge project.
+
+    PROJECT can be the project name, ID, or ID prefix.
+
+    Examples:
+        claude-studio kb remove uav-positioning
+        claude-studio kb remove kb_256dc --force
+    """
+    import shutil
+
+    project_dir = _resolve_project(project)
+    if not project_dir:
+        console.print(f"[red]Project not found:[/red] {project}")
+        console.print("[dim]Use 'kb list' to see available projects[/dim]")
+        return
+
+    proj = _load_project(project_dir)
+
+    if not force:
+        console.print(f"[bold]About to remove:[/bold] {proj.name}")
+        console.print(f"[dim]ID:[/dim] {proj.project_id}")
+        console.print(f"[dim]Sources:[/dim] {len(proj.sources)}")
+        console.print(f"[dim]Location:[/dim] {project_dir}")
+        console.print()
+
+        if not click.confirm("Are you sure you want to delete this project?"):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+    shutil.rmtree(project_dir)
+    console.print(f"[green]Removed project:[/green] {proj.name} ({proj.project_id})")
+
+
 def _build_concept_from_kb(
     proj: 'KnowledgeProject',
     kg: 'KnowledgeGraph',
@@ -1211,7 +1248,8 @@ def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: b
         if topic_quality["noise_topics"]:
             console.print(f"\n  [yellow]Top noise topics (should not be topics):[/yellow]")
             for t in topic_quality["noise_topics"][:5]:
-                console.print(f"    • \"{t['topic']}\" ({t['count']} atoms) - {t['reason']}")
+                topic_clean = t["topic"].replace("\n", " ").replace("\r", "")
+                console.print(f"    • \"{topic_clean}\" ({t['count']} atoms) - {t['reason']}")
 
         # Concept/Topic Distribution (visual, like atom type dist)
         if topic_quality["good_topics"]:
@@ -1220,8 +1258,10 @@ def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: b
             for t in topic_quality["good_topics"][:12]:
                 pct = t["count"] / max_count * 100
                 bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-                topic_display = t["topic"][:28] if len(t["topic"]) > 28 else t["topic"]
-                console.print(f"  {topic_display:28} {bar} {t['count']:3}")
+                # Strip newlines that can appear in extracted concepts
+                topic_clean = t["topic"].replace("\n", " ").replace("\r", "")
+                topic_display = topic_clean[:50] if len(topic_clean) > 50 else topic_clean
+                console.print(f"  {topic_display:50} {bar} {t['count']:3}")
 
         # Entity quality
         entity_quality = _calculate_entity_quality(filtered_entities)
@@ -1267,13 +1307,15 @@ def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: b
             table.add_column("Sources", justify="right")
 
             for t in topic_quality["good_topics"][:sample * 5]:
-                table.add_row(t["topic"], str(t["count"]), str(t.get("sources", 1)))
+                topic_clean = t["topic"].replace("\n", " ").replace("\r", "")
+                table.add_row(topic_clean, str(t["count"]), str(t.get("sources", 1)))
             console.print(table)
 
         if topic_quality["noise_topics"]:
             console.print("\n[yellow]Noise topics (likely misclassified):[/yellow]")
             for t in topic_quality["noise_topics"][:sample * 3]:
-                console.print(f"  • \"{t['topic']}\" - {t['reason']} ({t['count']} atoms)")
+                topic_clean = t["topic"].replace("\n", " ").replace("\r", "")
+                console.print(f"  • \"{topic_clean}\" - {t['reason']} ({t['count']} atoms)")
 
     # === ENTITIES VIEW ===
     if show_entities and not show_quality:

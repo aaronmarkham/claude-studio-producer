@@ -77,6 +77,7 @@ Documentation = "https://github.com/aaronmarkham/claude-studio-producer/tree/mai
 
 [project.scripts]
 claude-studio = "cli:main"
+cs = "cli:main"
 
 [tool.setuptools]
 packages = ["core", "agents", "cli", "server"]
