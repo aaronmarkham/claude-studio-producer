@@ -484,7 +484,7 @@ FILE:   core/training/trainer.py (modify generate_script step)
 
 ```
 READS:  StructuredScript, ContentLibrary (what assets exist), budget tier
-WRITES: StructuredScript.segments[].visual_direction, display_mode assignments
+WRITES: StructuredScript.segments[].visual_direction, display_mode, visual_asset_id
 FILE:   NEW — core/dop.py (or integrate into produce_video.py)
 ```
 
@@ -493,7 +493,8 @@ FILE:   NEW — core/dop.py (or integrate into produce_video.py)
 2. Checks the content library for existing approved visuals
 3. Assigns `display_mode` per segment: `figure_sync`, `dall_e`, `carry_forward`, `text_only`
 4. Writes `visual_direction` hints for DALL-E prompt generation
-5. Respects budget tier ratios (medium = 27% get DALL-E images)
+5. Links existing approved assets via `visual_asset_id` (reuse without regeneration)
+6. Respects budget tier ratios (medium = 27% get DALL-E images)
 
 This can start as a deterministic function (no LLM needed) and graduate to an agent later.
 
