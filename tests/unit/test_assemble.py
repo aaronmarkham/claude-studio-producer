@@ -451,13 +451,16 @@ class TestBuildVisualSegmentsFromLibrarian:
             }
 
             with patch('cli.assemble.get_media_duration', return_value=5.0):
-                segments = build_visual_segments_from_librarian(
+                segments, manifest = build_visual_segments_from_librarian(
                     sample_structured_script, librarian, audio_dir
                 )
 
         assert len(segments) == 2
         assert segments[0].display_mode == "dall_e"
         assert segments[1].display_mode == "carry_forward"
+        # Verify manifest is returned for debugging
+        assert manifest is not None
+        assert "segments" in manifest
 
     def test_librarian_figure_sync_mode(self, temp_run_dir, sample_structured_script, sample_content_library):
         """Test that figure_sync mode is properly set from librarian."""
@@ -483,13 +486,14 @@ class TestBuildVisualSegmentsFromLibrarian:
             }
 
             with patch('cli.assemble.get_media_duration', return_value=6.0):
-                segments = build_visual_segments_from_librarian(
+                segments, manifest = build_visual_segments_from_librarian(
                     sample_structured_script, librarian, audio_dir
                 )
 
         assert len(segments) == 1
         assert segments[0].display_mode == "figure_sync"
         assert segments[0].image_path == Path(str(figures_dir / "fig_005.png"))
+        assert manifest is not None
 
     def test_librarian_cumulative_timing(self, temp_run_dir, sample_structured_script, sample_content_library):
         """Test cumulative timing with librarian."""
@@ -521,7 +525,7 @@ class TestBuildVisualSegmentsFromLibrarian:
                 ]
             }
 
-            segments = build_visual_segments_from_librarian(
+            segments, manifest = build_visual_segments_from_librarian(
                 sample_structured_script, librarian, audio_dir
             )
 
@@ -533,6 +537,8 @@ class TestBuildVisualSegmentsFromLibrarian:
 
         assert segments[2].start_time == 7.0
         assert segments[2].end_time == 12.0
+
+        assert manifest is not None
 
     def test_librarian_carry_forward_logic(self, temp_run_dir, sample_structured_script, sample_content_library):
         """Test carry-forward logic with librarian."""
@@ -565,7 +571,7 @@ class TestBuildVisualSegmentsFromLibrarian:
                 ]
             }
 
-            segments = build_visual_segments_from_librarian(
+            segments, manifest = build_visual_segments_from_librarian(
                 sample_structured_script, librarian, audio_dir
             )
 
@@ -573,6 +579,7 @@ class TestBuildVisualSegmentsFromLibrarian:
         assert segments[0].image_path == Path("images/scene_000.png")
         assert segments[1].image_path == segments[0].image_path
         assert segments[2].image_path == segments[0].image_path
+        assert manifest is not None
 
     def test_librarian_missing_audio_info(self, temp_run_dir, sample_structured_script, sample_content_library):
         """Test handling when audio info is missing."""
@@ -592,12 +599,13 @@ class TestBuildVisualSegmentsFromLibrarian:
                 ]
             }
 
-            segments = build_visual_segments_from_librarian(
+            segments, manifest = build_visual_segments_from_librarian(
                 sample_structured_script, librarian, audio_dir
             )
 
         assert len(segments) == 1
         assert segments[0].audio_duration == 5.0  # Default value
+        assert manifest is not None
 
 
 # ============================================================

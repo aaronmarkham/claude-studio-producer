@@ -522,11 +522,11 @@ FILE:   cli/produce_video.py (generate_live_assets function)
 
 ```
 READS:  StructuredScript (with audio + visual assignments), ContentLibrary
-WRITES: Assembly manifest, rough_cut.mp4
-FILE:   scripts/assemble_rough_cut.py (or new cli/assemble.py)
+WRITES: Assembly manifest (saved to assembly/assembly_manifest.json), rough_cut.mp4
+FILE:   cli/assemble.py
 ```
 
-**Change required:** Use `librarian.build_assembly_manifest()` instead of even-distributing images. Respect figure sync points.
+**Implementation:** Uses `librarian.build_assembly_manifest()` to generate segment-by-segment audio/visual mappings. The assembly manifest is saved to `assembly/assembly_manifest.json` for debugging and inspection. Figure sync points are respected.
 
 ### Summary Table
 

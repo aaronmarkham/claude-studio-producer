@@ -271,8 +271,14 @@ def build_visual_segments_from_librarian(
     structured_script: StructuredScript,
     librarian: ContentLibrarian,
     audio_dir: Path,
-) -> List[VisualSegment]:
-    """Build visual segments from structured script and librarian manifest."""
+) -> Tuple[List[VisualSegment], dict]:
+    """
+    Build visual segments from structured script and librarian manifest.
+
+    Returns:
+        Tuple of (segments, manifest) where manifest is the raw assembly manifest
+        for debugging and inspection.
+    """
     manifest = librarian.build_assembly_manifest(structured_script)
     segments = []
     cumulative_time = 0.0
@@ -329,7 +335,7 @@ def build_visual_segments_from_librarian(
             end_time=end_time,
         ))
 
-    return segments
+    return segments, manifest
 
 
 def print_assembly_summary(segments: List[VisualSegment], t):
@@ -400,10 +406,12 @@ async def _assemble_async(
     audio_dir = run_path / "audio"
     images_dir = run_path / "images"
 
+    assembly_manifest = None  # Will be saved for debugging
+
     if structured_script and content_library:
         console.print(f"[{t.success}]Found structured script and content library (Unified Architecture)[/]")
         librarian = ContentLibrarian(content_library)
-        segments = build_visual_segments_from_librarian(
+        segments, assembly_manifest = build_visual_segments_from_librarian(
             structured_script, librarian, audio_dir
         )
     elif manifest:
@@ -422,6 +430,13 @@ async def _assemble_async(
     output_dir.mkdir(exist_ok=True)
     segments_dir = output_dir / "segments"
     segments_dir.mkdir(exist_ok=True)
+
+    # Save assembly manifest for debugging (if using Unified Architecture)
+    if assembly_manifest:
+        manifest_path = output_dir / "assembly_manifest.json"
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(assembly_manifest, f, indent=2, default=str)
+        console.print(f"[{t.dimmed}]Saved assembly manifest to:[/] {manifest_path}")
 
     # Collect audio clips
     audio_clips = []
