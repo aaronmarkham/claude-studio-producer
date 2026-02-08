@@ -509,7 +509,8 @@ def show_cmd(project: str, graph: bool):
                 console.print(f"    [dim]{', '.join(top)}[/dim]")
 
             if kg.key_themes:
-                console.print(f"  Key themes: {', '.join(kg.key_themes[:5])}")
+                themes_clean = [t.replace("\n", " ").replace("\r", "") for t in kg.key_themes[:5]]
+                console.print(f"  Key themes: {', '.join(themes_clean)}")
 
 
 @kb_cmd.command("sources")
@@ -674,7 +675,8 @@ def _build_concept_from_kb(
 
     # Key themes from the knowledge graph
     if kg.key_themes:
-        sections.append("KEY THEMES: " + ", ".join(kg.key_themes))
+        themes_clean = [t.replace("\n", " ").replace("\r", "") for t in kg.key_themes]
+        sections.append("KEY THEMES: " + ", ".join(themes_clean))
 
     # Collect atoms, filtering by source if needed
     atoms_to_use = []
@@ -1260,8 +1262,8 @@ def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: b
                 bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
                 # Strip newlines that can appear in extracted concepts
                 topic_clean = t["topic"].replace("\n", " ").replace("\r", "")
-                topic_display = topic_clean[:50] if len(topic_clean) > 50 else topic_clean
-                console.print(f"  {topic_display:50} {bar} {t['count']:3}")
+                topic_display = topic_clean[:35] if len(topic_clean) > 35 else topic_clean
+                console.print(f"  {topic_display:35} {bar} {t['count']:3}")
 
         # Entity quality
         entity_quality = _calculate_entity_quality(filtered_entities)
@@ -1284,11 +1286,13 @@ def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: b
         if kg.key_themes:
             console.print(f"\n[bold]Key Themes:[/bold]")
             for theme in kg.key_themes[:8]:
-                theme_lower = theme.lower()
+                # Strip newlines that can appear in extracted themes
+                theme_clean = theme.replace("\n", " ").replace("\r", "")
+                theme_lower = theme_clean.lower()
                 if theme_lower in STRUCTURAL_NOISE_TERMS:
-                    console.print(f"  [red]✗[/red] \"{theme}\" [dim](noise)[/dim]")
+                    console.print(f"  [red]✗[/red] \"{theme_clean}\" [dim](noise)[/dim]")
                 else:
-                    console.print(f"  [green]✓[/green] \"{theme}\"")
+                    console.print(f"  [green]✓[/green] \"{theme_clean}\"")
 
     # === TOPICS VIEW ===
     if show_topics and not show_quality:
