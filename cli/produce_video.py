@@ -794,8 +794,29 @@ async def generate_mock_assets(visual_plans: list, output_dir: Path) -> list:
     return assets
 
 
-async def generate_live_assets(visual_plans: list, output_dir: Path, console) -> list:
-    """Generate real assets using DALL-E for images"""
+async def generate_live_assets(
+    visual_plans: list,
+    output_dir: Path,
+    console,
+    structured_script: "StructuredScript" = None,
+    content_library: "ContentLibrary" = None,
+) -> list:
+    """
+    Generate real assets using DALL-E for images.
+
+    Contract (UNIFIED_PRODUCTION_ARCHITECTURE.md):
+    - READS: StructuredScript (with DoP annotations), ContentLibrary
+    - WRITES: Image/video files + registers them in ContentLibrary
+
+    When structured_script and content_library are provided (Unified Production Architecture):
+    - Calls get_visual_generation_plan() to skip segments with approved assets
+    - Registers assets immediately after generation
+    - Updates segment.visual_asset_id
+
+    Legacy mode (visual_plans only):
+    - Uses SceneVisualPlan objects directly
+    - No approved-asset skipping
+    """
     from core.models.video_production import SceneAssets
     from core.providers.image.dalle import DalleProvider
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
@@ -812,12 +833,40 @@ async def generate_live_assets(visual_plans: list, output_dir: Path, console) ->
         console.print(f"[{t.dimmed}]Run 'claude-studio secrets set OPENAI_API_KEY' to configure[/]")
         return []
 
+    # Prepare librarian for asset registration (Unified Production Architecture)
+    librarian = None
+    segments_to_skip = set()  # Segment indices with approved assets
+    if content_library is not None and structured_script is not None:
+        from core.content_librarian import ContentLibrarian
+        from core.dop import get_visual_generation_plan
+        librarian = ContentLibrarian(content_library)
+
+        # Check for approved assets to skip regeneration (contract requirement)
+        gen_plan = get_visual_generation_plan(structured_script, content_library)
+        reusable = gen_plan.get("can_reuse", {})
+        if reusable:
+            segments_to_skip = set(reusable.keys())
+            console.print(f"[{t.dimmed}]Skipping {len(segments_to_skip)} segments with approved assets[/]")
+
     # Count scenes needing DALL-E generation
     scenes_needing_dalle = []
     scenes_with_kb_figures = []
     scenes_shared = []
 
     for plan in visual_plans:
+        # Extract segment index from scene_id (format: scene_NNN)
+        seg_idx = None
+        if plan.scene_id.startswith("scene_"):
+            try:
+                seg_idx = int(plan.scene_id.split("_")[1])
+            except (IndexError, ValueError):
+                pass
+
+        # Skip if segment has approved asset
+        if seg_idx is not None and seg_idx in segments_to_skip:
+            scenes_shared.append(plan)
+            continue
+
         budget_mode = getattr(plan, 'budget_mode', None)
         kb_figure = getattr(plan, 'kb_figure_path', None)
 
@@ -856,6 +905,33 @@ async def generate_live_assets(visual_plans: list, output_dir: Path, console) ->
                     video_path=None,
                     visual_plan=plan
                 ))
+
+                # Register figure asset immediately (Unified Production Architecture)
+                if librarian is not None:
+                    seg_idx = None
+                    if plan.scene_id.startswith("scene_"):
+                        try:
+                            seg_idx = int(plan.scene_id.split("_")[1])
+                        except (IndexError, ValueError):
+                            pass
+                    if seg_idx is not None:
+                        from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
+                        asset = AssetRecord(
+                            asset_id=f"fig_{seg_idx:04d}",
+                            asset_type=AssetType.FIGURE,
+                            source=AssetSource.KB_EXTRACTION,
+                            status=AssetStatus.DRAFT,
+                            segment_idx=seg_idx,
+                            path=str(dst),
+                        )
+                        librarian.library.register(asset)
+
+                        # Update segment's visual_asset_id
+                        if structured_script is not None:
+                            seg = structured_script.get_segment(seg_idx)
+                            if seg:
+                                seg.visual_asset_id = asset.asset_id
+
         console.print(f"[{t.success}]Copied {len(scenes_with_kb_figures)} KB figures[/]")
 
     # Generate DALL-E images
@@ -907,6 +983,34 @@ async def generate_live_assets(visual_plans: list, output_dir: Path, console) ->
                         video_path=None,
                         visual_plan=plan
                     ))
+
+                    # Register image asset immediately (Unified Production Architecture)
+                    if librarian is not None:
+                        seg_idx = None
+                        if plan.scene_id.startswith("scene_"):
+                            try:
+                                seg_idx = int(plan.scene_id.split("_")[1])
+                            except (IndexError, ValueError):
+                                pass
+                        if seg_idx is not None:
+                            from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
+                            asset = AssetRecord(
+                                asset_id=f"img_{seg_idx:04d}",
+                                asset_type=AssetType.IMAGE,
+                                source=AssetSource.DALLE,
+                                status=AssetStatus.DRAFT,
+                                segment_idx=seg_idx,
+                                path=image_path,
+                                generation_prompt=plan.dalle_prompt,
+                            )
+                            librarian.library.register(asset)
+
+                            # Update segment's visual_asset_id
+                            if structured_script is not None:
+                                seg = structured_script.get_segment(seg_idx)
+                                if seg:
+                                    seg.visual_asset_id = asset.asset_id
+
                 else:
                     console.print(f"[{t.error}]Failed to generate {plan.scene_id}: {result.error_message}[/]")
 
@@ -1305,7 +1409,14 @@ async def _produce_video_async(
     # Generate assets (mock or live)
     if live:
         console.print(f"\n[{t.label}]Live mode: Generating real assets...[/]")
-        assets = await generate_live_assets(visual_plans, output_dir, console)
+        assets = await generate_live_assets(
+            visual_plans,
+            output_dir,
+            console,
+            # Pass StructuredScript and ContentLibrary for Unified Production Architecture
+            structured_script=structured_script if use_dop else None,
+            content_library=content_library if use_dop else None,
+        )
         console.print(f"[{t.success}]Generated {len(assets)} assets[/]")
     else:
         console.print(f"\n[{t.label}]Mock mode: Generating placeholder assets...[/]")
@@ -1370,33 +1481,25 @@ async def _produce_video_async(
 
     console.print(f"[{t.success}]Saved asset manifest to:[/] {manifest_path}")
 
-    # Register assets in content library (Unified Production Architecture)
+    # Save content library and updated script (Unified Production Architecture)
+    # Note: Assets are registered immediately during generation:
+    # - Audio assets: registered in generate_scene_audio()
+    # - Image/Figure assets: registered in generate_live_assets()
     if use_dop and structured_script:
-        from core.models.content_library import AssetRecord, AssetSource
-
         # Ensure we have a librarian instance
         if content_library is None:
             content_library = ContentLibrary(project_id=run_id)
         librarian = ContentLibrarian(content_library)
-
-        # Register generated images
-        registered_images = librarian.register_images_from_run(str(output_dir), structured_script)
-        if registered_images:
-            console.print(f"[{t.success}]Registered {len(registered_images)} images in content library[/]")
-
-        # Note: Audio assets are already registered in generate_scene_audio() when using DoP
-        # (contract: Audio Producer registers assets immediately, not deferred)
 
         # Save content library for future reuse
         library_path = output_dir / "content_library.json"
         librarian.save(library_path)
         console.print(f"[{t.success}]Saved content library to:[/] {library_path}")
 
-        # Save updated StructuredScript with actual_duration_sec values
-        if structured_script and generate_audio:
-            script_path = output_dir / f"{structured_script.script_id}_structured_script.json"
-            structured_script.save(script_path)
-            console.print(f"[{t.success}]Updated structured script with audio durations:[/] {script_path}")
+        # Save updated StructuredScript with asset IDs and durations
+        script_path = output_dir / f"{structured_script.script_id}_structured_script.json"
+        structured_script.save(script_path)
+        console.print(f"[{t.success}]Updated structured script:[/] {script_path}")
 
     # Final summary
     console.print()

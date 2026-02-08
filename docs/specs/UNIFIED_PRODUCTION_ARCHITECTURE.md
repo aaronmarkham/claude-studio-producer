@@ -512,11 +512,11 @@ FILE:   cli/produce_video.py (generate_scene_audio function)
 
 ```
 READS:  StructuredScript (with DoP annotations), ContentLibrary
-WRITES: Image/video files + registers them in ContentLibrary
-FILE:   cli/produce_video.py (existing image generation logic)
+WRITES: Image/video files, registers in ContentLibrary, segments[].visual_asset_id
+FILE:   cli/produce_video.py (generate_live_assets function)
 ```
 
-**Change required:** Before generating, call `librarian.get_generation_plan()` to skip segments with approved assets. After generating, register new assets.
+**Implementation:** When `structured_script` and `content_library` are provided, calls `get_visual_generation_plan()` to skip segments with approved assets. Registers each image asset immediately after generation and writes `visual_asset_id` back to the segment.
 
 ### Editor / Assembler
 
