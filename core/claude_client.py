@@ -404,8 +404,8 @@ class JSONExtractor:
         
         # Try markdown code blocks first (most common)
         json_match = re.search(
-            r'```(?:json)?\s*\n(.*?)\n```', 
-            response, 
+            r'```(?:json)?\s*\n(.*?)\n```',
+            response,
             re.DOTALL | re.IGNORECASE
         )
         if json_match:
@@ -425,7 +425,25 @@ class JSONExtractor:
                     return json.loads(json_str_fixed)
                 except json.JSONDecodeError:
                     pass
-        
+
+        # Try markdown code blocks without closing fence (truncated response)
+        # This handles cases like: ```json\n{...} without the closing ```
+        open_fence_match = re.search(
+            r'```(?:json)?\s*\n(\{.*)',
+            response,
+            re.DOTALL | re.IGNORECASE
+        )
+        if open_fence_match:
+            json_str = open_fence_match.group(1).strip()
+            # Remove trailing ``` if present (partial fence)
+            json_str = re.sub(r'```\s*$', '', json_str).strip()
+            if debug:
+                print(f"[JSON EXTRACT DEBUG] Found open code block, length: {len(json_str)}")
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+
         # Try to find JSON object anywhere in the text
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
