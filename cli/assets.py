@@ -328,7 +328,7 @@ def reject_assets(run_dir, audio, image, reason):
             if not segments or asset.segment_idx in segments:
                 asset.status = AssetStatus.REJECTED
                 if reason:
-                    asset.rejection_reason = reason
+                    asset.rejected_reason = reason
                 rejected_count += 1
 
     # Reject images
@@ -339,7 +339,7 @@ def reject_assets(run_dir, audio, image, reason):
             if not segments or asset.segment_idx in segments:
                 asset.status = AssetStatus.REJECTED
                 if reason:
-                    asset.rejection_reason = reason
+                    asset.rejected_reason = reason
                 rejected_count += 1
 
     if rejected_count > 0:

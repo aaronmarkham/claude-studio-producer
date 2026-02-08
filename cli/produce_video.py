@@ -990,6 +990,7 @@ async def _produce_video_async(
 
     # Get budget allocation if tier specified
     allocation = None
+    content_library = None  # Will be created if using DoP
     if budget_tier:
         from core.video_production import estimate_tier_costs, select_scenes_for_generation
         estimates = estimate_tier_costs(scenes)
@@ -1075,7 +1076,7 @@ async def _produce_video_async(
                     # Use KB figure
                     figures_matched += 1
                     # Find figure path from asset
-                    if seg.visual_asset_id and 'content_library' in dir():
+                    if seg.visual_asset_id and content_library is not None:
                         asset = content_library.get(seg.visual_asset_id)
                         if asset and asset.path:
                             kb_figure_path = asset.path
@@ -1312,7 +1313,7 @@ async def _produce_video_async(
         from core.models.content_library import AssetRecord, AssetSource
 
         # Ensure we have a librarian instance
-        if 'content_library' not in dir() or content_library is None:
+        if content_library is None:
             content_library = ContentLibrary(project_id=run_id)
         librarian = ContentLibrarian(content_library)
 
