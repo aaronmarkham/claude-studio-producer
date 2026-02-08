@@ -31,21 +31,18 @@ from core.models.structured_script import (
 console = Console()
 
 
-def _enrich_figure_inventory(
-    script: StructuredScript,
-    document_graph,
-) -> StructuredScript:
+def _extract_kb_figures(document_graph) -> dict:
     """
-    Enrich the StructuredScript's figure inventory with info from the document graph.
+    Extract figure metadata from a document graph for use in StructuredScript creation.
 
-    Adds captions and descriptions from the source document to figures
-    that were detected in the script via "Figure N" parsing.
+    Returns a Dict[int, dict] where each entry has: kb_path, caption, description.
+    This is passed to StructuredScript.from_script_text() so figure metadata
+    is included during script creation (not added afterward).
     """
     if document_graph is None:
-        return script
+        return {}
 
-    # Extract figure info from document graph
-    doc_figures = {}
+    kb_figures = {}
 
     if hasattr(document_graph, 'get_figures'):
         for fig in document_graph.get_figures():
@@ -61,7 +58,8 @@ def _enrich_figure_inventory(
             else:
                 continue
 
-            doc_figures[fig_num] = {
+            kb_figures[fig_num] = {
+                'kb_path': getattr(fig, 'image_path', '') or '',
                 'caption': fig.caption or '',
                 'description': fig.data_summary or '',
             }
@@ -78,10 +76,12 @@ def _enrich_figure_inventory(
             if atom_type == 'figure':
                 if isinstance(atom, dict):
                     fig_num = atom.get('figure_number', '')
+                    kb_path = atom.get('image_path', '')
                     caption = atom.get('caption', '')
                     description = atom.get('data_summary', '')
                 else:
                     fig_num = getattr(atom, 'figure_number', '')
+                    kb_path = getattr(atom, 'image_path', '')
                     caption = getattr(atom, 'caption', '')
                     description = getattr(atom, 'data_summary', '')
 
@@ -96,18 +96,13 @@ def _enrich_figure_inventory(
                 else:
                     continue
 
-                doc_figures[fig_num] = {
+                kb_figures[fig_num] = {
+                    'kb_path': kb_path or '',
                     'caption': caption,
                     'description': description,
                 }
 
-    # Enrich the script's figure inventory with document info
-    for fig_num, fig_inv in script.figure_inventory.items():
-        if fig_num in doc_figures:
-            fig_inv.caption = doc_figures[fig_num]['caption']
-            fig_inv.description = doc_figures[fig_num]['description']
-
-    return script
+    return kb_figures
 
 
 async def run_training_loop(
@@ -184,16 +179,14 @@ async def run_training_loop(
                 script_path.parent.mkdir(parents=True, exist_ok=True)
                 script_path.write_text(script_text, encoding='utf-8')
 
-                # Create StructuredScript from generated text
+                # Extract figure metadata from document graph (KB data stays in KB scope)
+                kb_figures = _extract_kb_figures(pair.document_graph)
+
+                # Create StructuredScript with complete figure metadata
                 structured_script = StructuredScript.from_script_text(
                     script_text,
                     trial_id=trial_id,
-                )
-
-                # Enrich figure inventory with info from document graph
-                structured_script = _enrich_figure_inventory(
-                    structured_script,
-                    pair.document_graph,
+                    kb_figures=kb_figures,
                 )
 
                 # Save structured script JSON

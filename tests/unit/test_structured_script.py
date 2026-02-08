@@ -361,6 +361,29 @@ Figure 6 shows the results."""
 
         assert result.figure_inventory[6].kb_path == "figures/fig_005.png"
 
+    def test_parse_with_rich_kb_figures(self):
+        """Test parsing with rich KB figure metadata (path + caption + description)"""
+        script_text = """Intro paragraph.
+
+Figure 6 shows the neural network architecture."""
+
+        # New format: Dict[int, dict] with full metadata
+        kb_figures = {
+            6: {
+                "kb_path": "figures/fig_005.png",
+                "caption": "Neural network architecture diagram",
+                "description": "Shows the encoder-decoder structure with attention layers",
+            },
+        }
+
+        result = StructuredScript.from_script_text(script_text, "trial_000", kb_figures)
+
+        fig = result.figure_inventory[6]
+        assert fig.kb_path == "figures/fig_005.png"
+        assert fig.caption == "Neural network architecture diagram"
+        assert fig.description == "Shows the encoder-decoder structure with attention layers"
+        assert 1 in fig.discussed_in_segments
+
     def test_duration_estimation(self):
         """Test that duration is estimated from word count"""
         # ~150 words per minute, so 150 words = 60 seconds

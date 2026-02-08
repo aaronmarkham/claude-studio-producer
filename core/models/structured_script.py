@@ -364,7 +364,7 @@ class StructuredScript:
         cls,
         script_text: str,
         trial_id: str,
-        kb_figures: Optional[Dict[int, str]] = None,
+        kb_figures: Optional[Dict[int, dict]] = None,
     ) -> "StructuredScript":
         """
         Parse a flat _script.txt into a StructuredScript.
@@ -379,7 +379,9 @@ class StructuredScript:
         Args:
             script_text: The flat script text
             trial_id: Trial identifier
-            kb_figures: Optional mapping of figure number -> kb_path
+            kb_figures: Optional mapping of figure number -> figure metadata dict.
+                Each dict can have: kb_path, caption, description.
+                Legacy: Also accepts Dict[int, str] for backward compatibility.
         """
         # Split into paragraphs
         paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
@@ -421,12 +423,24 @@ class StructuredScript:
         # Build figure inventory
         figure_inventory = {}
         if kb_figures:
-            for fig_num, kb_path in kb_figures.items():
-                figure_inventory[fig_num] = FigureInventory(
-                    figure_number=fig_num,
-                    kb_path=kb_path,
-                    discussed_in_segments=figure_mentions.get(fig_num, []),
-                )
+            for fig_num, fig_data in kb_figures.items():
+                # Support both legacy (str) and new (dict) formats
+                if isinstance(fig_data, str):
+                    # Legacy: kb_figures is Dict[int, str] (path only)
+                    figure_inventory[fig_num] = FigureInventory(
+                        figure_number=fig_num,
+                        kb_path=fig_data,
+                        discussed_in_segments=figure_mentions.get(fig_num, []),
+                    )
+                else:
+                    # New: kb_figures is Dict[int, dict] with full metadata
+                    figure_inventory[fig_num] = FigureInventory(
+                        figure_number=fig_num,
+                        kb_path=fig_data.get("kb_path", ""),
+                        caption=fig_data.get("caption", ""),
+                        description=fig_data.get("description", ""),
+                        discussed_in_segments=figure_mentions.get(fig_num, []),
+                    )
         else:
             # Just record what figures were mentioned
             for fig_num, seg_indices in figure_mentions.items():
