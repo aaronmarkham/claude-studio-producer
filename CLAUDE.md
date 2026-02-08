@@ -214,6 +214,10 @@ Working:
 - DoP integrated into produce-video CLI with ContentLibrarian asset tracking (Phase 4)
 - Timed assembly CLI with figure sync points (Phase 5)
 - Asset tracking CLI for review/approve/reject workflow (Phase 6)
+- Content Model Expansion with content-agnostic SegmentIntent vocabulary (17 intents)
+- Source attribution tracking (SourceType, SourceAttribution) for multi-source productions
+- Variant/perspective support for bias analysis workflows
+- Backward compatibility with intent mapping (METHODOLOGY → EXPLANATION, etc.)
 - Comprehensive test suite: 180+ tests covering unified architecture
 
 In progress:

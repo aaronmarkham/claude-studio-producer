@@ -13,6 +13,30 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Content Model Expansion
+
+Extended StructuredScript with content-agnostic vocabulary and source attribution for broader use cases beyond scientific podcasts.
+
+**Content-Agnostic Intent Vocabulary**: Replaced paper-specific intents (METHODOLOGY, KEY_FINDING, etc.) with 19 universal intents that work across content types:
+- Structural: INTRO, TRANSITION, RECAP, OUTRO
+- Exposition: CONTEXT, EXPLANATION, DEFINITION, NARRATIVE
+- Evidence: CLAIM, EVIDENCE, DATA_WALKTHROUGH, FIGURE_REFERENCE
+- Analysis: ANALYSIS, COMPARISON, COUNTERPOINT, SYNTHESIS
+- Editorial: COMMENTARY, QUESTION, SPECULATION
+
+**Source Attribution**: New `SourceType` (PAPER, NEWS, DATASET, GOVERNMENT, TRANSCRIPT, NOTE, ARTIFACT, URL) and `SourceAttribution` models track content provenance with confidence scores.
+
+**Variant/Perspective Support**: `perspective` field on segments and scripts enables bias analysis workflows (left/right news variants sharing same source attributions).
+
+**Backward Compatibility**: Intent mapping preserves existing scripts:
+- BACKGROUND → CONTEXT
+- METHODOLOGY → EXPLANATION
+- KEY_FINDING → CLAIM
+- FIGURE_WALKTHROUGH → FIGURE_REFERENCE
+- DATA_DISCUSSION → DATA_WALKTHROUGH
+
+This enables news comparison, multi-source synthesis, and policy analysis workflows while maintaining compatibility with the existing podcast training pipeline.
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - DoP and Unified Production (Phase 4)
 
 Implemented Phase 4 of the Unified Production Architecture: the Director of Photography (DoP) module and ContentLibrarian integration.

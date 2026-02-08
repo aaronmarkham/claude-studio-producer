@@ -15,17 +15,97 @@ from typing import Dict, List, Optional
 
 
 class SegmentIntent(str, Enum):
-    """What a script segment IS - drives visual and pacing decisions."""
-    INTRO = "intro"
-    BACKGROUND = "background"
-    METHODOLOGY = "methodology"
-    KEY_FINDING = "key_finding"
-    FIGURE_WALKTHROUGH = "figure_walkthrough"
-    DATA_DISCUSSION = "data_discussion"
-    COMPARISON = "comparison"
-    TRANSITION = "transition"
-    RECAP = "recap"
-    OUTRO = "outro"
+    """
+    What this segment DOES in the narrative.
+    Content-type agnostic — works for papers, news, datasets, mixed sources.
+    """
+
+    # === Structural ===
+    # These control pacing and flow, not content.
+    INTRO = "intro"                         # Opening hook, topic framing
+    TRANSITION = "transition"               # Bridge between topics or segments
+    RECAP = "recap"                         # Summary of what was covered
+    OUTRO = "outro"                         # Closing, call to action, sign-off
+
+    # === Exposition ===
+    # Segments that teach, explain, or set the scene.
+    CONTEXT = "context"                     # Background, history, setting the scene
+    EXPLANATION = "explanation"             # Breaking down a concept or process
+    DEFINITION = "definition"               # Defining terms, scope, or frameworks
+    NARRATIVE = "narrative"                 # Storytelling, anecdote, timeline of events
+
+    # === Evidence & Data ===
+    # Segments that present facts, numbers, or artifacts.
+    CLAIM = "claim"                         # Presenting an assertion or finding
+    EVIDENCE = "evidence"                   # Supporting a claim with data/quotes/citations
+    DATA_WALKTHROUGH = "data_walkthrough"   # Walking through numbers, charts, datasets
+    FIGURE_REFERENCE = "figure_reference"   # Discussing a specific visual artifact
+
+    # === Analysis & Perspective ===
+    # Segments that interpret, compare, or challenge.
+    ANALYSIS = "analysis"                   # Interpreting evidence, drawing conclusions
+    COMPARISON = "comparison"               # Contrasting sources, methods, viewpoints
+    COUNTERPOINT = "counterpoint"           # Presenting opposing view or challenge
+    SYNTHESIS = "synthesis"                 # Combining multiple sources into new insight
+
+    # === Editorial ===
+    # Segments with a point of view.
+    COMMENTARY = "commentary"               # Host/narrator opinion or editorial voice
+    QUESTION = "question"                   # Posing a question to the audience
+    SPECULATION = "speculation"             # Forward-looking, hypothetical, what-if
+
+
+# === Compatibility Aliases ===
+# These map old intent names to new vocabulary for backward compatibility.
+# Can be removed once all code uses the new vocabulary.
+SegmentIntent.BACKGROUND = SegmentIntent.CONTEXT
+SegmentIntent.METHODOLOGY = SegmentIntent.EXPLANATION
+SegmentIntent.KEY_FINDING = SegmentIntent.CLAIM
+SegmentIntent.FIGURE_WALKTHROUGH = SegmentIntent.FIGURE_REFERENCE
+SegmentIntent.DATA_DISCUSSION = SegmentIntent.DATA_WALKTHROUGH
+
+
+class SourceType(str, Enum):
+    """What kind of source this is."""
+    PAPER = "paper"
+    NEWS = "news"
+    DATASET = "dataset"
+    GOVERNMENT = "government"
+    TRANSCRIPT = "transcript"
+    NOTE = "note"               # User's own observations
+    ARTIFACT = "artifact"       # Previously generated content
+    URL = "url"                 # Generic web content
+
+
+@dataclass
+class SourceAttribution:
+    """Tracks which source(s) a segment draws from."""
+    source_id: str                          # KB source ID
+    source_type: SourceType
+    atoms_used: List[str] = field(default_factory=list)  # Specific atom IDs
+    confidence: float = 1.0                 # How directly this segment uses the source
+    label: Optional[str] = None             # Display label, e.g. "Smith et al. 2024"
+
+    def to_dict(self) -> dict:
+        """Serialize to dictionary."""
+        return {
+            "source_id": self.source_id,
+            "source_type": self.source_type.value,
+            "atoms_used": self.atoms_used,
+            "confidence": self.confidence,
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SourceAttribution":
+        """Deserialize from dictionary."""
+        return cls(
+            source_id=data["source_id"],
+            source_type=SourceType(data.get("source_type", "paper")),
+            atoms_used=data.get("atoms_used", []),
+            confidence=data.get("confidence", 1.0),
+            label=data.get("label"),
+        )
 
 
 @dataclass
@@ -43,22 +123,29 @@ class ScriptSegment:
     """A single segment of the structured script."""
     idx: int
     text: str                                       # Narration text
-    intent: SegmentIntent = SegmentIntent.BACKGROUND
-    figure_refs: List[int] = field(default_factory=list)  # "Figure N" mentions
-    key_concepts: List[str] = field(default_factory=list)
-    visual_direction: str = ""                      # DoP annotation
+    intent: SegmentIntent = SegmentIntent.CONTEXT   # Default to CONTEXT (was BACKGROUND)
 
-    # Estimated before TTS
-    estimated_duration_sec: Optional[float] = None
+    # Source tracking (replaces simple figure_refs for multi-source support)
+    source_attributions: List[SourceAttribution] = field(default_factory=list)
+    figure_refs: List[int] = field(default_factory=list)   # Kept for convenience — "Figure N" mentions
+    key_concepts: List[str] = field(default_factory=list)
+
+    # Production variant support
+    perspective: Optional[str] = None               # e.g., "neutral", "left_0.2", "right_0.8"
+    content_type_hint: Optional[str] = None         # e.g., "news", "research", "policy", "mixed"
+
+    # Visual direction (populated by DoP)
+    visual_direction: str = ""                      # Free-text hint for DALL-E prompt
+    display_mode: Optional[str] = None              # "figure_sync", "dall_e", "carry_forward", etc.
     importance_score: float = 0.5                   # For budget allocation
 
-    # Populated after audio generation
+    # Audio (populated by Audio Producer)
     audio_file: Optional[str] = None
+    estimated_duration_sec: Optional[float] = None
     actual_duration_sec: Optional[float] = None
 
-    # Populated after visual assignment (by DoP)
+    # Visual asset (populated by Visual Producer)
     visual_asset_id: Optional[str] = None
-    display_mode: Optional[str] = None              # "figure_sync", "dall_e", "carry_forward", "text_only"
 
     def to_dict(self) -> dict:
         """Serialize to dictionary."""
@@ -66,33 +153,54 @@ class ScriptSegment:
             "idx": self.idx,
             "text": self.text,
             "intent": self.intent.value,
+            "source_attributions": [sa.to_dict() for sa in self.source_attributions],
             "figure_refs": self.figure_refs,
             "key_concepts": self.key_concepts,
+            "perspective": self.perspective,
+            "content_type_hint": self.content_type_hint,
             "visual_direction": self.visual_direction,
-            "estimated_duration_sec": self.estimated_duration_sec,
+            "display_mode": self.display_mode,
             "importance_score": self.importance_score,
             "audio_file": self.audio_file,
+            "estimated_duration_sec": self.estimated_duration_sec,
             "actual_duration_sec": self.actual_duration_sec,
             "visual_asset_id": self.visual_asset_id,
-            "display_mode": self.display_mode,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "ScriptSegment":
         """Deserialize from dictionary."""
+        # Handle intent with backward compatibility for old values
+        intent_val = data.get("intent", "context")
+        # Map old intent values to new ones
+        intent_mapping = {
+            "background": "context",
+            "methodology": "explanation",
+            "key_finding": "claim",
+            "figure_walkthrough": "figure_reference",
+            "data_discussion": "data_walkthrough",
+        }
+        intent_val = intent_mapping.get(intent_val, intent_val)
+
         return cls(
             idx=data["idx"],
             text=data["text"],
-            intent=SegmentIntent(data.get("intent", "background")),
+            intent=SegmentIntent(intent_val),
+            source_attributions=[
+                SourceAttribution.from_dict(sa)
+                for sa in data.get("source_attributions", [])
+            ],
             figure_refs=data.get("figure_refs", []),
             key_concepts=data.get("key_concepts", []),
+            perspective=data.get("perspective"),
+            content_type_hint=data.get("content_type_hint"),
             visual_direction=data.get("visual_direction", ""),
-            estimated_duration_sec=data.get("estimated_duration_sec"),
+            display_mode=data.get("display_mode"),
             importance_score=data.get("importance_score", 0.5),
             audio_file=data.get("audio_file"),
+            estimated_duration_sec=data.get("estimated_duration_sec"),
             actual_duration_sec=data.get("actual_duration_sec"),
             visual_asset_id=data.get("visual_asset_id"),
-            display_mode=data.get("display_mode"),
         )
 
 
@@ -106,7 +214,16 @@ class StructuredScript:
     segments: List[ScriptSegment] = field(default_factory=list)
     figure_inventory: Dict[int, FigureInventory] = field(default_factory=dict)
 
-    # Metadata
+    # Multi-source metadata
+    sources_used: List[str] = field(default_factory=list)  # Source IDs from KB
+    content_type: str = "research"                  # Primary content type
+    production_style: str = "explainer"             # "explainer", "news_analysis", "debate", "narrative"
+
+    # Variant support
+    perspective: Optional[str] = None               # Production-level perspective
+    variant_of: Optional[str] = None                # script_id of the base version (for bias variants)
+
+    # Existing metadata
     total_segments: int = 0
     total_estimated_duration_sec: float = 0.0
     source_document: Optional[str] = None           # KB source
@@ -120,6 +237,21 @@ class StructuredScript:
     def get_segments_by_intent(self, intent: SegmentIntent) -> List[ScriptSegment]:
         """Return all segments with a specific intent."""
         return [s for s in self.segments if s.intent == intent]
+
+    def get_segments_by_source(self, source_id: str) -> List[ScriptSegment]:
+        """Return segments that draw from a specific source."""
+        return [
+            s for s in self.segments
+            if any(a.source_id == source_id for a in s.source_attributions)
+        ]
+
+    def get_sources_summary(self) -> Dict[str, int]:
+        """Return {source_id: segment_count} for all sources."""
+        counts: Dict[str, int] = {}
+        for seg in self.segments:
+            for attr in seg.source_attributions:
+                counts[attr.source_id] = counts.get(attr.source_id, 0) + 1
+        return counts
 
     def get_segment(self, idx: int) -> Optional[ScriptSegment]:
         """Get segment by index."""
@@ -155,6 +287,14 @@ class StructuredScript:
                 }
                 for k, v in self.figure_inventory.items()
             },
+            # Multi-source metadata
+            "sources_used": self.sources_used,
+            "content_type": self.content_type,
+            "production_style": self.production_style,
+            # Variant support
+            "perspective": self.perspective,
+            "variant_of": self.variant_of,
+            # Existing metadata
             "total_segments": self.total_segments,
             "total_estimated_duration_sec": self.total_estimated_duration_sec,
             "source_document": self.source_document,
@@ -194,6 +334,14 @@ class StructuredScript:
             version=data.get("version", 1),
             segments=[ScriptSegment.from_dict(s) for s in data.get("segments", [])],
             figure_inventory=figure_inv,
+            # Multi-source metadata
+            sources_used=data.get("sources_used", []),
+            content_type=data.get("content_type", "research"),
+            production_style=data.get("production_style", "explainer"),
+            # Variant support
+            perspective=data.get("perspective"),
+            variant_of=data.get("variant_of"),
+            # Existing metadata
             total_segments=data.get("total_segments", 0),
             total_estimated_duration_sec=data.get("total_estimated_duration_sec", 0.0),
             source_document=data.get("source_document"),
@@ -314,8 +462,8 @@ class StructuredScript:
         Priority order:
         1. First segment -> INTRO
         2. Last segment -> OUTRO
-        3. Has figure references -> FIGURE_WALKTHROUGH (content takes priority)
-        4. Keyword-based classification
+        3. Has figure references -> FIGURE_REFERENCE
+        4. Keyword-based classification (content-agnostic vocabulary)
         5. Second-to-last with no other match -> RECAP
 
         This can be upgraded to an LLM call for better accuracy.
@@ -330,27 +478,70 @@ class StructuredScript:
 
         # Content takes priority: figure references
         if figure_refs:
-            return SegmentIntent.FIGURE_WALKTHROUGH
+            return SegmentIntent.FIGURE_REFERENCE
 
-        # Keyword-based classification
-        if any(word in text_lower for word in ["methodology", "approach", "method", "algorithm", "technique"]):
-            return SegmentIntent.METHODOLOGY
-        if any(word in text_lower for word in ["compared", "versus", "comparison", "better than", "outperforms"]):
+        # === Evidence & Data ===
+        # Claims and findings
+        if any(word in text_lower for word in ["claim", "argue", "assert", "contend", "propose"]):
+            return SegmentIntent.CLAIM
+        if any(word in text_lower for word in ["results", "finding", "found", "shows", "demonstrates", "evidence"]):
+            return SegmentIntent.CLAIM
+        # Supporting evidence
+        if any(word in text_lower for word in ["according to", "study shows", "research indicates", "data from"]):
+            return SegmentIntent.EVIDENCE
+        # Data walkthrough
+        if any(word in text_lower for word in ["data", "dataset", "statistics", "metrics", "numbers", "percent"]):
+            return SegmentIntent.DATA_WALKTHROUGH
+
+        # === Analysis & Perspective ===
+        # Comparison
+        if any(word in text_lower for word in ["compared", "versus", "comparison", "better than", "outperforms", "contrast"]):
             return SegmentIntent.COMPARISON
-        if any(word in text_lower for word in ["results", "finding", "found", "shows", "demonstrates", "performance"]):
-            return SegmentIntent.KEY_FINDING
-        if any(word in text_lower for word in ["data", "dataset", "experiment", "evaluation", "metrics"]):
-            return SegmentIntent.DATA_DISCUSSION
-        if any(word in text_lower for word in ["let's", "now", "moving", "turning", "next"]):
+        # Counterpoint
+        if any(word in text_lower for word in ["however", "but", "on the other hand", "critics", "opposing", "challenge"]):
+            return SegmentIntent.COUNTERPOINT
+        # Analysis
+        if any(word in text_lower for word in ["suggests", "implies", "means", "indicates", "analysis"]):
+            return SegmentIntent.ANALYSIS
+        # Synthesis
+        if any(word in text_lower for word in ["together", "combining", "synthesis", "overall", "taken together"]):
+            return SegmentIntent.SYNTHESIS
+
+        # === Exposition ===
+        # Explanation (methodology, how things work)
+        if any(word in text_lower for word in ["methodology", "approach", "method", "algorithm", "technique", "works by", "process"]):
+            return SegmentIntent.EXPLANATION
+        # Definition
+        if any(word in text_lower for word in ["defined as", "means", "refers to", "is called", "known as"]):
+            return SegmentIntent.DEFINITION
+        # Narrative
+        if any(word in text_lower for word in ["story", "happened", "began", "started", "timeline", "history of"]):
+            return SegmentIntent.NARRATIVE
+        # Context (background)
+        if any(word in text_lower for word in ["context", "background", "traditionally", "historically", "previously"]):
+            return SegmentIntent.CONTEXT
+
+        # === Editorial ===
+        # Commentary
+        if any(word in text_lower for word in ["i think", "in my view", "importantly", "notably", "fascinating"]):
+            return SegmentIntent.COMMENTARY
+        # Question
+        if "?" in text and any(word in text_lower for word in ["what", "why", "how", "could", "should"]):
+            return SegmentIntent.QUESTION
+        # Speculation
+        if any(word in text_lower for word in ["might", "could", "future", "imagine", "what if", "potentially"]):
+            return SegmentIntent.SPECULATION
+
+        # === Structural ===
+        # Transition
+        if any(word in text_lower for word in ["let's", "now", "moving", "turning", "next", "shifting"]):
             return SegmentIntent.TRANSITION
-        if any(word in text_lower for word in ["context", "background", "history", "traditionally"]):
-            return SegmentIntent.BACKGROUND
 
         # Position-based fallback: second-to-last with no other match
         if idx == total - 2:
             return SegmentIntent.RECAP
 
-        return SegmentIntent.BACKGROUND
+        return SegmentIntent.CONTEXT
 
     @staticmethod
     def _calculate_importance(
@@ -365,18 +556,32 @@ class StructuredScript:
         """
         score = 0.5  # Base
 
-        # Intent-based scoring
+        # Intent-based scoring (content-agnostic vocabulary)
         intent_scores = {
+            # Structural
             SegmentIntent.INTRO: 0.8,
-            SegmentIntent.KEY_FINDING: 0.9,
-            SegmentIntent.FIGURE_WALKTHROUGH: 1.0,  # Highest - will use KB figure
-            SegmentIntent.METHODOLOGY: 0.7,
-            SegmentIntent.DATA_DISCUSSION: 0.6,
-            SegmentIntent.COMPARISON: 0.7,
-            SegmentIntent.BACKGROUND: 0.4,
             SegmentIntent.TRANSITION: 0.2,
             SegmentIntent.RECAP: 0.5,
             SegmentIntent.OUTRO: 0.6,
+            # Exposition
+            SegmentIntent.CONTEXT: 0.4,
+            SegmentIntent.EXPLANATION: 0.7,
+            SegmentIntent.DEFINITION: 0.5,
+            SegmentIntent.NARRATIVE: 0.6,
+            # Evidence & Data
+            SegmentIntent.CLAIM: 0.9,
+            SegmentIntent.EVIDENCE: 0.7,
+            SegmentIntent.DATA_WALKTHROUGH: 0.6,
+            SegmentIntent.FIGURE_REFERENCE: 1.0,  # Highest - will use KB figure
+            # Analysis & Perspective
+            SegmentIntent.ANALYSIS: 0.7,
+            SegmentIntent.COMPARISON: 0.7,
+            SegmentIntent.COUNTERPOINT: 0.6,
+            SegmentIntent.SYNTHESIS: 0.8,
+            # Editorial
+            SegmentIntent.COMMENTARY: 0.5,
+            SegmentIntent.QUESTION: 0.4,
+            SegmentIntent.SPECULATION: 0.6,
         }
         score = intent_scores.get(intent, 0.5)
 

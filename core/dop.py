@@ -169,18 +169,37 @@ def _generate_visual_direction(
     hints = []
     intent = seg.intent
 
-    # Intent-based visual suggestions
+    # Intent-based visual suggestions (content-agnostic vocabulary)
+    # Maps each intent to a default visual strategy
     intent_directions = {
-        SegmentIntent.INTRO: "Abstract visualization representing the research topic. Use minimalist design with focus on main theme. Should feel welcoming and professional.",
-        SegmentIntent.BACKGROUND: "Conceptual illustration of foundational concepts or prior work. Use diagrams and connections to show relationships.",
-        SegmentIntent.METHODOLOGY: "Technical architectural diagram or system flowchart. Show processes, components, and data flow. Use clean lines and clear hierarchy.",
-        SegmentIntent.KEY_FINDING: "Data visualization or chart representation of main results. Use vivid accent colors to highlight findings. Make the insight visually apparent.",
-        SegmentIntent.FIGURE_WALKTHROUGH: f"Frame or synchronize with Figure {seg.figure_refs[0] if seg.figure_refs else '?'}. Position for narration sync. May include annotations.",
-        SegmentIntent.DATA_DISCUSSION: "Scientific data representation, charts, or measurement context. Use technical aesthetic with clear axis labels and metrics.",
-        SegmentIntent.COMPARISON: "Side-by-side or contrast visualization showing relative performance or differences. Use comparison indicators.",
-        SegmentIntent.TRANSITION: "Subtle, transitional imagery.",
-        SegmentIntent.RECAP: "Summary visual that visually echoes or callbacks to earlier points.",
-        SegmentIntent.OUTRO: "Closing visual with strong composition. Leave visual impression of conclusion.",
+        # === Structural ===
+        SegmentIntent.INTRO: "Title card or establishing image. Use minimalist design with focus on main theme. Should feel welcoming and professional.",
+        SegmentIntent.TRANSITION: "Subtle, transitional imagery. Fade/dissolve on carry-forward.",
+        SegmentIntent.RECAP: "Montage or summary visual that echoes or callbacks to earlier points.",
+        SegmentIntent.OUTRO: "End card or closing visual with strong composition. Leave visual impression of conclusion.",
+
+        # === Exposition ===
+        SegmentIntent.CONTEXT: "Conceptual illustration of foundational concepts or prior work. Use diagrams and connections to show relationships.",
+        SegmentIntent.EXPLANATION: "Technical architectural diagram or system flowchart. Show processes, components, and data flow. Use clean lines and clear hierarchy.",
+        SegmentIntent.DEFINITION: "Clean, focused visual defining the term or concept. Use text overlay with supporting imagery.",
+        SegmentIntent.NARRATIVE: "Scene illustration or B-roll style imagery. Show the story being told with evocative visuals.",
+
+        # === Evidence & Data ===
+        SegmentIntent.CLAIM: "Text overlay highlighting the key assertion. Use vivid accent colors to highlight the claim.",
+        SegmentIntent.EVIDENCE: "Source document, quote overlay, or supporting data visualization. Show where the evidence comes from.",
+        SegmentIntent.DATA_WALKTHROUGH: "Chart, table, or data visualization. Use technical aesthetic with clear axis labels and metrics.",
+        SegmentIntent.FIGURE_REFERENCE: f"Frame or synchronize with Figure {seg.figure_refs[0] if seg.figure_refs else '?'}. Position for narration sync. May include annotations.",
+
+        # === Analysis & Perspective ===
+        SegmentIntent.ANALYSIS: "Interpretive visualization showing insights. Use carry-forward or subtle visual shift.",
+        SegmentIntent.COMPARISON: "Side-by-side or split screen visualization showing relative performance or differences.",
+        SegmentIntent.COUNTERPOINT: "Visual contrast or different color treatment. Show the opposing perspective clearly.",
+        SegmentIntent.SYNTHESIS: "Combined or merged visual bringing together multiple elements into new insight.",
+
+        # === Editorial ===
+        SegmentIntent.COMMENTARY: "Host avatar or professional narrator framing. Use carry-forward with subtle treatment.",
+        SegmentIntent.QUESTION: "Text overlay with the question prominently displayed. Create visual engagement.",
+        SegmentIntent.SPECULATION: "Abstract or futuristic visualization. Forward-looking imagery with imaginative quality.",
     }
 
     if intent in intent_directions:
