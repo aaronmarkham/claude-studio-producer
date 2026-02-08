@@ -502,11 +502,11 @@ This can start as a deterministic function (no LLM needed) and graduate to an ag
 
 ```
 READS:  StructuredScript.segments[].text
-WRITES: Audio files + registers them in ContentLibrary
-FILE:   cli/produce_video.py (existing generate_scene_audio logic)
+WRITES: Audio files, registers in ContentLibrary, segments[].actual_duration_sec, segments[].audio_file
+FILE:   cli/produce_video.py (generate_scene_audio function)
 ```
 
-**Change required:** After generating audio, call `librarian.register_audio_from_run()`. Write `actual_duration_sec` back to the structured script.
+**Implementation:** When `structured_script` is provided, iterates over `segments[].text` (not flat text split by `\n\n`). Registers each audio asset immediately in ContentLibrary and writes `actual_duration_sec` back to the segment. Uses `mutagen` to get actual MP3 duration.
 
 ### Visual Producer
 

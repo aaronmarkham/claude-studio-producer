@@ -614,16 +614,29 @@ async def generate_scene_audio(
     console,
     voice_id: str = "pFZP5JQG7iQjIQuC4Bku",  # Lily voice
     live: bool = False,
-    script_text: str = None
+    script_text: str = None,
+    structured_script: "StructuredScript" = None,
+    content_library: "ContentLibrary" = None,
 ) -> dict:
     """
     Generate audio for each scene using ElevenLabs (scene-by-scene to avoid length limits).
 
-    If script_text is provided, uses paragraphs from the generated script instead of
-    the original transcript segments. This is the correct behavior - audio should
-    come from the new script, not the original transcription.
+    Contract (UNIFIED_PRODUCTION_ARCHITECTURE.md):
+    - READS: StructuredScript.segments[].text
+    - WRITES: Audio files + registers them in ContentLibrary
+    - WRITES: actual_duration_sec back to each segment
 
-    Returns dict mapping scene_id -> audio_path
+    When structured_script is provided (Unified Production Architecture):
+    - Iterates over segments[].text (not flat script split by \\n\\n)
+    - Uses segment.idx as audio ID for proper alignment
+    - Writes actual_duration_sec back to each segment
+    - Registers assets in ContentLibrary immediately
+
+    Legacy mode (script_text provided):
+    - Splits text by \\n\\n to get paragraphs
+    - Uses paragraph index as audio ID
+
+    Returns dict mapping audio_id -> audio_path
     """
     from core.providers.audio.elevenlabs import ElevenLabsProvider
     from core.secrets import get_api_key
@@ -651,22 +664,35 @@ async def generate_scene_audio(
     audio_dir = output_dir / "audio"
     audio_dir.mkdir(exist_ok=True)
 
-    # Use generated script paragraphs if available (preferred - new content)
-    # Otherwise fall back to scene transcript segments (original transcription)
-    if script_text:
-        # Split script into paragraphs (double newlines are natural breaks)
+    # Prepare librarian for asset registration (Unified Production Architecture)
+    librarian = None
+    if content_library is not None:
+        from core.content_librarian import ContentLibrarian
+        librarian = ContentLibrarian(content_library)
+
+    # Priority 1: Use StructuredScript segments (Unified Production Architecture)
+    # Priority 2: Use script_text split by paragraphs (legacy)
+    # Priority 3: Use scene transcript segments (original transcription)
+    audio_items = []  # List of (audio_id, text, segment_idx_or_none)
+
+    if structured_script is not None:
+        console.print(f"\n[{t.label}]Generating audio from StructuredScript ({len(structured_script.segments)} segments)...[/]")
+        for seg in structured_script.segments:
+            if seg.text and len(seg.text.strip()) >= 5:
+                audio_items.append((f"audio_{seg.idx:03d}", seg.text, seg.idx))
+    elif script_text:
+        # Legacy: Split script into paragraphs (double newlines are natural breaks)
         paragraphs = [p.strip() for p in script_text.split('\n\n') if p.strip()]
-        console.print(f"\n[{t.label}]Generating audio from generated script ({len(paragraphs)} paragraphs)...[/]")
-        audio_items = [(f"audio_{i:03d}", para) for i, para in enumerate(paragraphs)]
+        console.print(f"\n[{t.label}]Generating audio from script text ({len(paragraphs)} paragraphs)...[/]")
+        audio_items = [(f"audio_{i:03d}", para, i) for i, para in enumerate(paragraphs)]
     else:
         console.print(f"\n[{t.label}]Generating scene-by-scene audio...[/]")
-        audio_items = []
         for scene in scenes:
             text = scene.transcript_segment if isinstance(scene.transcript_segment, str) else ""
             if hasattr(scene.transcript_segment, 'text'):
                 text = scene.transcript_segment.text
             if text and len(text.strip()) >= 5:
-                audio_items.append((scene.scene_id, text))
+                audio_items.append((scene.scene_id, text, None))
 
     total_chars = 0
     total_cost = 0.0
@@ -680,7 +706,7 @@ async def generate_scene_audio(
     ) as progress:
         task = progress.add_task("Generating audio...", total=len(audio_items))
 
-        for audio_id, text in audio_items:
+        for audio_id, text, segment_idx in audio_items:
             if not text or len(text.strip()) < 5:
                 progress.advance(task)
                 continue
@@ -699,6 +725,39 @@ async def generate_scene_audio(
                     audio_paths[audio_id] = str(audio_path)
                     total_chars += len(text)
                     total_cost += audio_provider.estimate_cost(text)
+
+                    # Get actual audio duration (contract: write actual_duration_sec back)
+                    actual_duration = None
+                    try:
+                        from mutagen.mp3 import MP3
+                        audio_info = MP3(str(audio_path))
+                        actual_duration = audio_info.info.length
+                    except Exception:
+                        # Fallback: estimate from text length (~150 wpm)
+                        word_count = len(text.split())
+                        actual_duration = (word_count / 150) * 60
+
+                    # Write actual_duration_sec back to StructuredScript segment
+                    if structured_script is not None and segment_idx is not None:
+                        seg = structured_script.get_segment(segment_idx)
+                        if seg:
+                            seg.actual_duration_sec = actual_duration
+                            seg.audio_file = str(audio_path)
+
+                    # Register audio asset in ContentLibrary immediately
+                    if librarian is not None and segment_idx is not None:
+                        from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
+                        asset = AssetRecord(
+                            asset_id=f"aud_{segment_idx:04d}",
+                            asset_type=AssetType.AUDIO,
+                            source=AssetSource.ELEVENLABS,
+                            status=AssetStatus.DRAFT,
+                            segment_idx=segment_idx,
+                            path=str(audio_path),
+                            duration_sec=actual_duration,
+                        )
+                        librarian.library.register(asset)
+
             except Exception as e:
                 console.print(f"[{t.warning}]Audio failed for {audio_id}: {e}[/]")
 
@@ -1280,7 +1339,10 @@ async def _produce_video_async(
             console=console,
             voice_id=voice_id,
             live=live,
-            script_text=script_text
+            script_text=script_text,
+            # Pass StructuredScript and ContentLibrary for Unified Production Architecture
+            structured_script=structured_script if use_dop else None,
+            content_library=content_library if use_dop else None,
         )
 
     # Save asset manifest (for both live and mock)
@@ -1322,15 +1384,19 @@ async def _produce_video_async(
         if registered_images:
             console.print(f"[{t.success}]Registered {len(registered_images)} images in content library[/]")
 
-        # Register generated audio
-        registered_audio = librarian.register_audio_from_run(str(output_dir), structured_script)
-        if registered_audio:
-            console.print(f"[{t.success}]Registered {len(registered_audio)} audio clips in content library[/]")
+        # Note: Audio assets are already registered in generate_scene_audio() when using DoP
+        # (contract: Audio Producer registers assets immediately, not deferred)
 
         # Save content library for future reuse
         library_path = output_dir / "content_library.json"
         librarian.save(library_path)
         console.print(f"[{t.success}]Saved content library to:[/] {library_path}")
+
+        # Save updated StructuredScript with actual_duration_sec values
+        if structured_script and generate_audio:
+            script_path = output_dir / f"{structured_script.script_id}_structured_script.json"
+            structured_script.save(script_path)
+            console.print(f"[{t.success}]Updated structured script with audio durations:[/] {script_path}")
 
     # Final summary
     console.print()
