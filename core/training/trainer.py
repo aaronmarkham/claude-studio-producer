@@ -10,7 +10,7 @@ import numpy as np
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from agents.audio_generator import AudioGeneratorAgent, VoiceStyle
+from core.audio_utils import generate_audio_chunks, concatenate_audio_files
 from core.claude_client import ClaudeClient, JSONExtractor
 from core.memory.manager import MemoryManager
 
@@ -216,29 +216,43 @@ async def run_training_loop(
                     shutil.copy(pair.audio_path, audio_path)
                     generated_duration = await get_audio_duration(str(audio_path))
                 else:
-                    console.print("  Generating TTS audio...")
+                    console.print("  Generating TTS audio (per-paragraph chunking)...")
                     audio_path = output_dir / trial_id / f"{pair.pair_id}_audio.mp3"
+                    audio_chunk_dir = output_dir / trial_id / "audio_chunks"
 
-                    audio_agent = AudioGeneratorAgent(claude_client=claude_client)
+                    from core.providers.audio.elevenlabs import ElevenLabsProvider
+                    from core.secrets import get_api_key
 
-                    # Generate with conversational style (will use "Adam" voice via mapping)
-                    try:
-                        voiceover_result = await audio_agent.generate_voiceover(
-                            text=script_text,
-                            voice_style=VoiceStyle.CONVERSATIONAL,
-                            voice_id=None,  # Use default mapping based on style
-                        )
+                    api_key = get_api_key("ELEVENLABS_API_KEY")
+                    if not api_key:
+                        raise RuntimeError("ELEVENLABS_API_KEY not set")
 
-                        # Save audio to file
-                        voiceover_result.audio_path.rename(audio_path)
-                        generated_duration = voiceover_result.duration
-                    except Exception as e:
-                        console.print(f"  [yellow]Warning: TTS generation failed: {e}[/yellow]")
-                        console.print(f"  [yellow]Falling back to copying reference audio[/yellow]")
-                        # Fallback: copy reference audio
-                        import shutil
-                        shutil.copy(pair.audio_path, audio_path)
-                        generated_duration = await get_audio_duration(str(audio_path))
+                    audio_provider = ElevenLabsProvider()
+                    paragraphs = [p.strip() for p in script_text.split('\n\n') if p.strip() and len(p.strip()) >= 5]
+                    items = [(f"chunk_{i:03d}", para) for i, para in enumerate(paragraphs)]
+                    console.print(f"  Generating {len(items)} audio chunks...")
+
+                    def _on_chunk(idx, total, audio_id):
+                        if (idx + 1) % 10 == 0:
+                            console.print(f"    [{idx+1}/{total}] chunks generated...")
+
+                    chunks = await generate_audio_chunks(
+                        provider=audio_provider,
+                        items=items,
+                        output_dir=audio_chunk_dir,
+                        voice_id="pFZP5JQG7iQjIQuC4Bku",
+                        on_chunk_complete=_on_chunk,
+                    )
+
+                    if not chunks:
+                        raise RuntimeError("No audio chunks were generated")
+
+                    console.print(f"  Concatenating {len(chunks)} chunks...")
+                    generated_duration = await concatenate_audio_files(
+                        chunk_paths=[c.path for c in chunks],
+                        output_path=audio_path,
+                    )
+                    console.print(f"  [green]Audio saved: {audio_path} ({generated_duration:.1f}s)[/green]")
 
                 # 3. Calculate all loss metrics
                 console.print("  Calculating loss metrics...")
@@ -405,6 +419,29 @@ async def generate_podcast_script(
     target_word_count = int(target_duration_sec * 2.5)  # ~150 WPM avg
 
     # Build style guidance from profile
+    # Sanitize phrases to remove reference podcast branding (show names, host names)
+    def _sanitize_phrases(phrases: list) -> list:
+        """Remove phrases that contain show/host names from the reference podcast."""
+        import re
+        # Common patterns: "Welcome to <Show Name>", "I'm <Host Name>", "I'm your host <Name>"
+        branding_patterns = [
+            r"(?i)welcome to\b",
+            r"(?i)\bi'm your host\b",
+            r"(?i)\bi'm\s+\w+[,.]?\s*(today|and)",
+            r"(?i)\bpaper breakdown\b",
+            r"(?i)\bjournal club\b",
+        ]
+        sanitized = []
+        for phrase in phrases:
+            if any(re.search(p, phrase) for p in branding_patterns):
+                continue
+            sanitized.append(phrase)
+        return sanitized
+
+    safe_intro = _sanitize_phrases(style_profile.intro_phrases[:3]) if style_profile.intro_phrases else []
+    safe_transition = _sanitize_phrases(style_profile.transition_phrases[:3]) if style_profile.transition_phrases else []
+    safe_emphasis = _sanitize_phrases(style_profile.emphasis_phrases[:3]) if style_profile.emphasis_phrases else []
+
     style_guidance = f"""
 STYLE PROFILE (adopt this conversational style, don't copy phrases verbatim):
 - Average sentence length: {style_profile.avg_sentence_length:.1f} words
@@ -414,9 +451,9 @@ STYLE PROFILE (adopt this conversational style, don't copy phrases verbatim):
 - Analogies per segment: {style_profile.analogies_per_segment:.2f}
 
 STYLE EXAMPLES (use similar patterns and tone, but adapt to your content):
-Intro style examples: {', '.join(style_profile.intro_phrases[:3]) if style_profile.intro_phrases else 'N/A'}
-Transition style examples: {', '.join(style_profile.transition_phrases[:3]) if style_profile.transition_phrases else 'N/A'}
-Emphasis style examples: {', '.join(style_profile.emphasis_phrases[:3]) if style_profile.emphasis_phrases else 'N/A'}
+Intro style examples: {', '.join(safe_intro) if safe_intro else 'N/A'}
+Transition style examples: {', '.join(safe_transition) if safe_transition else 'N/A'}
+Emphasis style examples: {', '.join(safe_emphasis) if safe_emphasis else 'N/A'}
 Enthusiasm markers: {', '.join(style_profile.enthusiasm_markers[:5]) if style_profile.enthusiasm_markers else 'N/A'}
 """
 

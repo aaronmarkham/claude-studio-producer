@@ -411,11 +411,15 @@ class StructuredScript:
             # Calculate importance score
             importance = cls._calculate_importance(para, intent, figure_refs)
 
+            # Extract key concepts from text
+            key_concepts = cls._extract_key_concepts(para)
+
             segments.append(ScriptSegment(
                 idx=idx,
                 text=para,
                 intent=intent,
                 figure_refs=figure_refs,
+                key_concepts=key_concepts,
                 estimated_duration_sec=estimated_duration,
                 importance_score=importance,
             ))
@@ -609,3 +613,58 @@ class StructuredScript:
             score = min(1.0, score + 0.1)
 
         return round(score, 2)
+
+    @staticmethod
+    def _extract_key_concepts(text: str, max_concepts: int = 3) -> List[str]:
+        """
+        Extract key noun phrases from paragraph text using heuristics.
+
+        Looks for capitalized multi-word phrases, technical terms, and
+        quoted phrases. Returns up to max_concepts items.
+        """
+        concepts = []
+
+        # 1. Quoted phrases (e.g., "Extended Kalman Filter")
+        quoted = re.findall(r'"([^"]{3,40})"', text)
+        concepts.extend(quoted)
+
+        # 2. Capitalized multi-word phrases (e.g., "Global Positioning System")
+        #    Match 2-5 consecutive capitalized words with 3+ chars each, not at sentence start
+        cap_pattern = r'(?<=[.!?]\s|, )([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+)'
+        skip_starts = {"and", "but", "the", "for", "with", "from", "into", "that", "this",
+                        "what", "when", "where", "which", "while", "also", "then", "just"}
+        for match in re.findall(cap_pattern, text):
+            first_word = match.split()[0].lower()
+            if first_word not in skip_starts:
+                concepts.append(match)
+
+        # 3. Technical terms with common patterns (acronyms + expansions)
+        #    e.g., "UAV", "GPS", "GNSS", "EKF"
+        acronyms = re.findall(r'\b([A-Z]{2,6})\b', text)
+        # Filter common English words that happen to be uppercase
+        stopwords = {"THE", "AND", "BUT", "FOR", "NOT", "YOU", "ALL", "CAN", "HER",
+                     "WAS", "ONE", "OUR", "OUT", "ARE", "HAS", "HIS", "HOW", "ITS",
+                     "MAY", "NEW", "NOW", "OLD", "SEE", "WAY", "WHO", "DID", "GET",
+                     "LET", "SAY", "SHE", "TOO", "USE"}
+        acronyms = [a for a in acronyms if a not in stopwords]
+        concepts.extend(acronyms[:2])
+
+        # 4. Phrases after signal words like "called", "known as", "termed"
+        signal = re.findall(r'(?:called|known as|termed|referred to as)\s+["\']?([A-Z][^,."\']{2,35})', text, re.IGNORECASE)
+        # Clean trailing whitespace and incomplete words
+        concepts.extend(s.rsplit(' ', 1)[0] if len(s) > 30 else s for s in signal)
+
+        # Deduplicate while preserving order, limit to max_concepts
+        seen = set()
+        unique = []
+        for c in concepts:
+            cleaned = c.strip()
+            # Strip leading articles/prepositions
+            for prefix in ("a ", "an ", "the "):
+                if cleaned.lower().startswith(prefix):
+                    cleaned = cleaned[len(prefix):]
+            c_lower = cleaned.lower()
+            if c_lower not in seen and len(cleaned) >= 2:
+                seen.add(c_lower)
+                unique.append(cleaned)
+        return unique[:max_concepts]

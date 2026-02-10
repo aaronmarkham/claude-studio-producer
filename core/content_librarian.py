@@ -312,6 +312,12 @@ class ContentLibrarian:
         - "carry_forward": Use previous image (asset_id is None, handled at assembly)
         - "text_only": No image (asset_id is None)
         """
+        # If segment already has DoP assignment, use it directly
+        if segment.display_mode and segment.visual_asset_id:
+            asset = self.library.get(segment.visual_asset_id)
+            if asset:
+                return (segment.display_mode, segment.visual_asset_id)
+
         # If segment references a figure, use figure_sync mode
         if segment.figure_refs:
             # Find the KB figure asset

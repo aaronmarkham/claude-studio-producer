@@ -118,9 +118,10 @@ def concatenate_audio(audio_clips: List[AudioClip], output_path: Path) -> bool:
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         for clip in audio_clips:
-            # Use forward slashes for ffmpeg concat
-            path_str = str(clip.path).replace('\\', '/')
-            f.write(f"file '{path_str}'\n")
+            # Absolute paths required — concat demuxer resolves relative paths
+            # from the temp file's directory, not CWD
+            abs_path = str(Path(clip.path).resolve()).replace('\\', '/')
+            f.write(f"file '{abs_path}'\n")
         concat_file = f.name
 
     try:
@@ -146,8 +147,8 @@ def create_final_video(video_segments: List[Path], audio_path: Path, output_path
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         for seg in video_segments:
-            path_str = str(seg).replace('\\', '/')
-            f.write(f"file '{path_str}'\n")
+            abs_path = str(Path(seg).resolve()).replace('\\', '/')
+            f.write(f"file '{abs_path}'\n")
         concat_file = f.name
 
     try:

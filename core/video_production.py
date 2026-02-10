@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Any
 
 from core.training.models import AlignedSegment, SegmentType
 from core.models.document import DocumentGraph
+from core.models.structured_script import SegmentIntent, StructuredScript
 from core.models.video_production import VideoScene, VisualPlan
 
 
@@ -189,6 +190,143 @@ def segments_to_scenes(
 
     # Optionally merge short scenes (not implemented here for simplicity)
     # return _merge_short_scenes(scenes, min_duration=15.0)
+
+    return scenes
+
+
+# Maps SegmentIntent values to SEGMENT_VISUAL_MAPPING keys
+INTENT_TO_VISUAL_KEY = {
+    "intro": "INTRO",
+    "context": "BACKGROUND",
+    "explanation": "METHODOLOGY",
+    "definition": "BACKGROUND",
+    "narrative": "BACKGROUND",
+    "claim": "KEY_FINDING",
+    "evidence": "KEY_FINDING",
+    "data_walkthrough": "FIGURE_DISCUSSION",
+    "figure_reference": "FIGURE_DISCUSSION",
+    "analysis": "IMPLICATION",
+    "comparison": "IMPLICATION",
+    "counterpoint": "LIMITATION",
+    "synthesis": "IMPLICATION",
+    "commentary": "TANGENT",
+    "question": "TANGENT",
+    "speculation": "TANGENT",
+    "transition": "TRANSITION",
+    "recap": "CONCLUSION",
+    "outro": "CONCLUSION",
+}
+
+# Maps SegmentIntent → SegmentType for VideoScene.segment_type
+INTENT_TO_SEGMENT_TYPE = {
+    SegmentIntent.INTRO: SegmentType.INTRO,
+    SegmentIntent.CONTEXT: SegmentType.BACKGROUND,
+    SegmentIntent.EXPLANATION: SegmentType.METHODOLOGY,
+    SegmentIntent.DEFINITION: SegmentType.BACKGROUND,
+    SegmentIntent.NARRATIVE: SegmentType.BACKGROUND,
+    SegmentIntent.CLAIM: SegmentType.KEY_FINDING,
+    SegmentIntent.EVIDENCE: SegmentType.KEY_FINDING,
+    SegmentIntent.DATA_WALKTHROUGH: SegmentType.FIGURE_DISCUSSION,
+    SegmentIntent.FIGURE_REFERENCE: SegmentType.FIGURE_DISCUSSION,
+    SegmentIntent.ANALYSIS: SegmentType.IMPLICATION,
+    SegmentIntent.COMPARISON: SegmentType.IMPLICATION,
+    SegmentIntent.COUNTERPOINT: SegmentType.LIMITATION,
+    SegmentIntent.SYNTHESIS: SegmentType.IMPLICATION,
+    SegmentIntent.COMMENTARY: SegmentType.TANGENT,
+    SegmentIntent.QUESTION: SegmentType.TANGENT,
+    SegmentIntent.SPECULATION: SegmentType.TANGENT,
+    SegmentIntent.TRANSITION: SegmentType.TRANSITION,
+    SegmentIntent.RECAP: SegmentType.CONCLUSION,
+    SegmentIntent.OUTRO: SegmentType.CONCLUSION,
+}
+
+
+def structured_script_to_scenes(
+    script: StructuredScript,
+    visual_mapping: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[VideoScene]:
+    """
+    Convert StructuredScript segments to video scenes.
+
+    Used instead of segments_to_scenes() when a StructuredScript is available,
+    so that scene count matches audio clips and DoP visual plans.
+
+    Timing is estimated from actual_duration_sec (if audio was generated),
+    estimated_duration_sec, or text length at ~150 WPM.
+
+    Args:
+        script: StructuredScript with segments
+        visual_mapping: Optional custom mapping (defaults to SEGMENT_VISUAL_MAPPING)
+
+    Returns:
+        List of VideoScene objects with scene_id matching f"scene_{seg.idx:03d}"
+    """
+    if visual_mapping is None:
+        visual_mapping = SEGMENT_VISUAL_MAPPING
+
+    scenes = []
+    current_time = 0.0
+
+    for seg in script.segments:
+        # Skip transition segments
+        if seg.intent == SegmentIntent.TRANSITION:
+            continue
+
+        # Estimate duration for timing
+        if seg.actual_duration_sec:
+            duration = seg.actual_duration_sec
+        elif seg.estimated_duration_sec:
+            duration = seg.estimated_duration_sec
+        else:
+            # ~150 WPM estimate
+            word_count = len(seg.text.split()) if seg.text else 0
+            duration = max(5.0, word_count / 2.5)  # 150 WPM = 2.5 WPS
+
+        start_time = current_time
+        end_time = current_time + duration
+        current_time = end_time
+
+        # Map intent to visual mapping key
+        visual_key = INTENT_TO_VISUAL_KEY.get(seg.intent.value, "BACKGROUND")
+        mapping = visual_mapping.get(visual_key, visual_mapping.get("BACKGROUND", {}))
+
+        # Map intent to legacy SegmentType
+        segment_type = INTENT_TO_SEGMENT_TYPE.get(seg.intent, SegmentType.BACKGROUND)
+
+        # Title from key_concepts or text snippet
+        title_is_fallback = False
+        if seg.key_concepts:
+            title = seg.key_concepts[0]
+        else:
+            title_is_fallback = True
+            words = seg.text.split()[:6] if seg.text else []
+            title = " ".join(words)
+            if len(title) > 35:
+                title = title[:32] + "..."
+            elif not title:
+                title = f"Segment {seg.idx + 1}"
+
+        # Concept summary
+        concept = f"Discussion of {seg.key_concepts[0]}" if seg.key_concepts else "Segment discussion"
+
+        scene = VideoScene(
+            scene_id=f"scene_{seg.idx:03d}",
+            title=title,
+            title_is_fallback=title_is_fallback,
+            concept=concept,
+            transcript_segment=seg.text or "",
+            start_time=start_time,
+            end_time=end_time,
+            segment_type=segment_type,
+            key_concepts=seg.key_concepts,
+            technical_terms=[],
+            referenced_figures=[f"Figure {n}" for n in seg.figure_refs],
+            visual_complexity=mapping.get("visual_complexity", "medium"),
+            animation_candidate=mapping.get("animation_candidate", False),
+            ken_burns_enabled=mapping.get("ken_burns", False),
+        )
+
+        scenes.append(scene)
 
     return scenes
 

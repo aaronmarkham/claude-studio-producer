@@ -373,12 +373,13 @@ async def load_training_trial(trial_id: str) -> dict:
     """Load artifacts from a training trial"""
     base_path = Path("artifacts/training_output")
 
-    # Find the trial directory
+    # Find the trial directory (latest match, since timestamps are in the name)
     trial_dir = None
-    for d in base_path.iterdir():
-        if d.is_dir() and trial_id in d.name:
-            trial_dir = d
-            break
+    matching_dirs = sorted(
+        [d for d in base_path.iterdir() if d.is_dir() and trial_id in d.name]
+    )
+    if matching_dirs:
+        trial_dir = matching_dirs[-1]
 
     if not trial_dir:
         raise click.ClickException(f"Trial not found: {trial_id}")
@@ -694,9 +695,12 @@ async def generate_scene_audio(
             if text and len(text.strip()) >= 5:
                 audio_items.append((scene.scene_id, text, None))
 
-    total_chars = 0
-    total_cost = 0.0
+    # Build items list and segment map for post-processing
+    from core.audio_utils import generate_audio_chunks
+    items = [(audio_id, text) for audio_id, text, _ in audio_items]
+    segment_map = {audio_id: seg_idx for audio_id, _, seg_idx in audio_items}
 
+    # Progress callback wired to Rich Progress
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -704,64 +708,52 @@ async def generate_scene_audio(
         TextColumn("{task.completed}/{task.total}"),
         console=console
     ) as progress:
-        task = progress.add_task("Generating audio...", total=len(audio_items))
+        prog_task = progress.add_task("Generating audio...", total=len(items))
 
-        for audio_id, text, segment_idx in audio_items:
-            if not text or len(text.strip()) < 5:
-                progress.advance(task)
-                continue
+        def _on_complete(idx, total, audio_id):
+            progress.update(prog_task, description=f"Audio: {audio_id[:15]}...")
+            progress.advance(prog_task)
 
-            progress.update(task, description=f"Audio: {audio_id[:15]}...")
+        def _on_error(audio_id, exc):
+            console.print(f"[{t.warning}]Audio failed for {audio_id}: {exc}[/]")
 
-            try:
-                result = await audio_provider.generate_speech(
-                    text=text,
-                    voice_id=voice_id
-                )
+        chunks = await generate_audio_chunks(
+            provider=audio_provider,
+            items=items,
+            output_dir=audio_dir,
+            voice_id=voice_id,
+            on_chunk_complete=_on_complete,
+            on_chunk_error=_on_error,
+        )
 
-                if result.success and result.audio_data:
-                    audio_path = audio_dir / f"{audio_id}.mp3"
-                    audio_path.write_bytes(result.audio_data)
-                    audio_paths[audio_id] = str(audio_path)
-                    total_chars += len(text)
-                    total_cost += audio_provider.estimate_cost(text)
+    # Post-process: populate audio_paths, write back to StructuredScript, register in ContentLibrary
+    total_chars = sum(c.char_count for c in chunks)
+    total_cost = sum(c.estimated_cost for c in chunks)
 
-                    # Get actual audio duration (contract: write actual_duration_sec back)
-                    actual_duration = None
-                    try:
-                        from mutagen.mp3 import MP3
-                        audio_info = MP3(str(audio_path))
-                        actual_duration = audio_info.info.length
-                    except Exception:
-                        # Fallback: estimate from text length (~150 wpm)
-                        word_count = len(text.split())
-                        actual_duration = (word_count / 150) * 60
+    for chunk in chunks:
+        audio_paths[chunk.audio_id] = str(chunk.path)
+        seg_idx = segment_map.get(chunk.audio_id)
 
-                    # Write actual_duration_sec back to StructuredScript segment
-                    if structured_script is not None and segment_idx is not None:
-                        seg = structured_script.get_segment(segment_idx)
-                        if seg:
-                            seg.actual_duration_sec = actual_duration
-                            seg.audio_file = str(audio_path)
+        # Write actual_duration_sec back to StructuredScript segment
+        if structured_script is not None and seg_idx is not None:
+            seg = structured_script.get_segment(seg_idx)
+            if seg:
+                seg.actual_duration_sec = chunk.duration_sec
+                seg.audio_file = str(chunk.path)
 
-                    # Register audio asset in ContentLibrary immediately
-                    if librarian is not None and segment_idx is not None:
-                        from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
-                        asset = AssetRecord(
-                            asset_id=f"aud_{segment_idx:04d}",
-                            asset_type=AssetType.AUDIO,
-                            source=AssetSource.ELEVENLABS,
-                            status=AssetStatus.DRAFT,
-                            segment_idx=segment_idx,
-                            path=str(audio_path),
-                            duration_sec=actual_duration,
-                        )
-                        librarian.library.register(asset)
-
-            except Exception as e:
-                console.print(f"[{t.warning}]Audio failed for {audio_id}: {e}[/]")
-
-            progress.advance(task)
+        # Register audio asset in ContentLibrary immediately
+        if librarian is not None and seg_idx is not None:
+            from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
+            asset = AssetRecord(
+                asset_id=f"aud_{seg_idx:04d}",
+                asset_type=AssetType.AUDIO,
+                source=AssetSource.ELEVENLABS,
+                status=AssetStatus.DRAFT,
+                segment_idx=seg_idx,
+                path=str(chunk.path),
+                duration_sec=chunk.duration_sec,
+            )
+            librarian.library.register(asset)
 
     console.print(f"[{t.success}]Generated {len(audio_paths)} audio clips[/]")
     console.print(f"[{t.dimmed}]Total characters: {total_chars} | Est. cost: ${total_cost:.3f}[/]")
@@ -1001,7 +993,7 @@ async def generate_live_assets(
                                 status=AssetStatus.DRAFT,
                                 segment_idx=seg_idx,
                                 path=image_path,
-                                generation_prompt=plan.dalle_prompt,
+                                prompt=plan.dalle_prompt,
                             )
                             librarian.library.register(asset)
 
@@ -1118,13 +1110,24 @@ async def _produce_video_async(
         except Exception as e:
             console.print(f"[{t.warning}]Could not load knowledge graph: {e}[/]")
 
+    # Check if we have a structured script (Unified Production Architecture)
+    structured_script = trial_data.get("structured_script") if from_training else None
+    use_dop = structured_script is not None
+
+    if use_dop:
+        console.print(f"[{t.success}]Using Unified Production Architecture (DoP)[/]\n")
+
     # Convert to VideoScenes
-    from core.video_production import segments_to_scenes, create_visual_plan
+    from core.video_production import segments_to_scenes, structured_script_to_scenes, create_visual_plan
     from core.video_production import SEGMENT_VISUAL_MAPPING
 
     console.print(f"\n[{t.label}]Converting segments to video scenes...[/]")
-    all_scenes = segments_to_scenes(aligned_segments, SEGMENT_VISUAL_MAPPING)
-    console.print(f"[{t.success}]Created {len(all_scenes)} video scenes[/]\n")
+    if structured_script is not None:
+        all_scenes = structured_script_to_scenes(structured_script, SEGMENT_VISUAL_MAPPING)
+        console.print(f"[{t.success}]Created {len(all_scenes)} video scenes from structured script[/]\n")
+    else:
+        all_scenes = segments_to_scenes(aligned_segments, SEGMENT_VISUAL_MAPPING)
+        console.print(f"[{t.success}]Created {len(all_scenes)} video scenes from aligned segments[/]\n")
 
     # Apply scene range if specified (for incremental production)
     if scene_start > 0 or scene_limit:
@@ -1143,13 +1146,6 @@ async def _produce_video_async(
     if show_tiers_only:
         console.print(f"[{t.dimmed}]Use --budget <tier> to produce video with selected budget[/]")
         return
-
-    # Check if we have a structured script (Unified Production Architecture)
-    structured_script = trial_data.get("structured_script") if from_training else None
-    use_dop = structured_script is not None
-
-    if use_dop:
-        console.print(f"[{t.success}]Using Unified Production Architecture (DoP)[/]\n")
 
     # Get budget allocation if tier specified
     allocation = None
@@ -1223,7 +1219,7 @@ async def _produce_video_async(
 
             for seg in structured_script.segments:
                 # Create visual plan from segment's DoP assignment
-                from core.models.video_production import SceneVisualPlan
+                from core.models.video_production import VisualPlan as SceneVisualPlan
 
                 # Map display_mode to visual plan settings
                 display_mode = seg.display_mode or "carry_forward"
