@@ -28,6 +28,80 @@ class AtomType(Enum):
     KEYWORD = "keyword"
 
 
+class DocumentType(str, Enum):
+    """What kind of document this is."""
+    SCIENTIFIC_PAPER = "scientific_paper"
+    NEWS_ARTICLE = "news_article"
+    BLOG_POST = "blog_post"
+    TECHNICAL_REPORT = "technical_report"
+    DATASET_README = "dataset_readme"
+    GOVERNMENT_DOCUMENT = "government_document"
+    GENERIC = "generic"  # Fallback
+
+
+class ZoneRole(str, Enum):
+    """
+    What role a document zone plays.
+
+    Zones are contiguous regions of the document. A zone's role
+    determines how its atoms are treated during extraction.
+    """
+    FRONT_MATTER = "front_matter"       # Title, authors, affiliations, abstract
+    BODY = "body"                       # Main content — full topic extraction
+    BACK_MATTER = "back_matter"         # References, acknowledgments, appendix
+    BIOGRAPHICAL = "biographical"       # Author bios, institutional info
+    BOILERPLATE = "boilerplate"         # Headers, footers, page numbers, copyright
+
+
+@dataclass
+class DocumentZone:
+    """A contiguous region of the document with a known role."""
+    role: ZoneRole
+    start_block: int                    # First block index (inclusive)
+    end_block: int                      # Last block index (inclusive)
+    label: str = ""                     # e.g., "Author Affiliations", "Methods", "References"
+
+
+@dataclass
+class ContentProfile:
+    """
+    What the classifier learned about this document.
+
+    Produced by ContentClassifier, consumed by DocumentIngestorAgent
+    to guide LLM analysis.
+    """
+    document_type: DocumentType
+    confidence: float                   # 0-1, how sure the classifier is
+
+    zones: List[DocumentZone] = field(default_factory=list)
+
+    # Detected metadata (extracted early, before LLM)
+    detected_authors: List[str] = field(default_factory=list)
+    detected_institutions: List[str] = field(default_factory=list)
+    detected_doi: Optional[str] = None
+    detected_date: Optional[str] = None
+
+    # Extraction rules derived from document type
+    # These tell the ingestor what to do with each zone
+    topic_extraction_zones: List[ZoneRole] = field(default_factory=list)  # Only extract topics from these
+    entity_extraction_zones: List[ZoneRole] = field(default_factory=list)  # Extract entities from these
+    metadata_zones: List[ZoneRole] = field(default_factory=list)           # Store as metadata, not content
+
+    def is_metadata_block(self, block_index: int) -> bool:
+        """Check if a block is in a metadata zone."""
+        for zone in self.zones:
+            if zone.start_block <= block_index <= zone.end_block:
+                return zone.role in self.metadata_zones
+        return False
+
+    def get_zone_for_block(self, block_index: int) -> Optional[DocumentZone]:
+        """Get the zone a block belongs to."""
+        for zone in self.zones:
+            if zone.start_block <= block_index <= zone.end_block:
+                return zone
+        return None
+
+
 @dataclass
 class DocumentAtom:
     """Smallest unit of extracted knowledge from a document"""

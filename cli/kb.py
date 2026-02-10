@@ -14,6 +14,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
+from core.content_classifier import is_theme_candidate
+
 # Fix Windows encoding issues
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -190,6 +192,9 @@ def _rebuild_knowledge_graph(project_dir: Path, project) -> None:
                 continue
             # Single words must be at least 6 chars to be meaningful themes
             if ' ' not in topic and len(topic) < 6:
+                continue
+            # Filter institutional/venue names using content-aware check
+            if not is_theme_candidate(topic):
                 continue
             topic_sources = set(atom_sources.get(aid) for aid in atom_ids)
             topic_sources.discard(None)
@@ -952,6 +957,10 @@ def _calculate_topic_quality(topics: Dict[str, List[str]], atom_sources: Dict[st
         if topic_lower in STRUCTURAL_NOISE_TERMS:
             is_noise = True
             noise_reason = "structural term"
+        elif not is_theme_candidate(topic):
+            # Filters: institutional names, journal/conference names
+            is_noise = True
+            noise_reason = "institutional/venue name"
         elif len(topic_lower) < 3:
             is_noise = True
             noise_reason = "too short"

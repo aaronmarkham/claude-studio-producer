@@ -10,7 +10,8 @@ from typing import List, Optional, Dict, Any, Tuple
 from strands import tool
 
 from core.claude_client import ClaudeClient, JSONExtractor
-from core.models.document import AtomType, DocumentAtom, DocumentGraph
+from core.models.document import AtomType, DocumentAtom, DocumentGraph, ContentProfile
+from core.content_classifier import ContentClassifier, is_theme_candidate
 from .base import StudioAgent
 
 
@@ -42,6 +43,7 @@ class DocumentIngestorAgent(StudioAgent):
     ):
         super().__init__(claude_client=claude_client)
         self.mock_mode = mock_mode
+        self.classifier = ContentClassifier()
 
     async def ingest(self, source_path: str) -> DocumentGraph:
         """
@@ -66,11 +68,15 @@ class DocumentIngestorAgent(StudioAgent):
         # Phase 1: Extract raw content with PyMuPDF
         extraction = self._extract_with_pymupdf(path)
 
+        # Phase 1.5: Content-aware classification (before LLM)
+        # This identifies document type and zones to guide extraction
+        profile = self.classifier.classify(extraction)
+
         # Phase 2: LLM analysis for structure and semantics
         if self.mock_mode:
-            graph = self._mock_analyze(doc_id, source_path, extraction)
+            graph = self._mock_analyze(doc_id, source_path, extraction, profile)
         else:
-            graph = await self._llm_analyze(doc_id, source_path, extraction)
+            graph = await self._llm_analyze(doc_id, source_path, extraction, profile)
 
         return graph
 
@@ -332,26 +338,62 @@ class DocumentIngestorAgent(StudioAgent):
         return images
 
     async def _llm_analyze(
-        self, doc_id: str, source_path: str, extraction: ExtractionResult
+        self, doc_id: str, source_path: str, extraction: ExtractionResult,
+        profile: ContentProfile
     ) -> DocumentGraph:
         """
         Phase 2: Use LLM to analyze extracted content, classify atoms,
         build hierarchy, and generate summaries.
-        """
-        # Build context for LLM - send all text blocks
-        text_context = self._build_text_context(extraction)
 
-        # Step 1: Structure analysis - classify blocks into atoms
-        structure_prompt = self._build_structure_prompt(text_context, extraction.metadata)
-        structure_response = await self.claude.query(structure_prompt)
-        structure = JSONExtractor.extract(structure_response)
+        Uses chunked classification to avoid output token truncation:
+        - Sends blocks in batches of ~30 to the LLM
+        - Each chunk gets a complete JSON response
+        - Chunks are merged into the final classified block list
+
+        Uses ContentProfile from pre-LLM classification to:
+        - Guide document-type-aware prompts
+        - Filter topics from metadata zones (affiliations, biographical)
+        """
+        # Step 1: Classify blocks in chunks to avoid output truncation
+        # A 100-block document would need ~15k output tokens in one shot,
+        # hitting limits and producing truncated JSON. Chunking to ~30 blocks
+        # keeps each response well under 8k tokens.
+        all_classified_blocks = []
+        title = extraction.metadata.get("title", "")
+        authors = []
+
+        num_blocks = len(extraction.text_blocks)
+        chunk_size = 30
+
+        for chunk_start in range(0, num_blocks, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, num_blocks)
+            chunk_blocks = extraction.text_blocks[chunk_start:chunk_end]
+            chunk_indices = list(range(chunk_start, chunk_end))
+
+            text_context = self._build_text_context_for_chunk(chunk_blocks, chunk_indices)
+            is_first_chunk = chunk_start == 0
+
+            structure_prompt = self._build_structure_prompt(
+                text_context, extraction.metadata, profile,
+                chunk_start=chunk_start, chunk_end=chunk_end, total_blocks=num_blocks,
+                include_title_authors=is_first_chunk,
+            )
+            structure_response = await self.claude.query(structure_prompt)
+            structure = JSONExtractor.extract(structure_response)
+
+            # Grab title/authors from first chunk only
+            if is_first_chunk:
+                title = structure.get("title", title)
+                authors = structure.get("authors", [])
+
+            all_classified_blocks.extend(structure.get("blocks", []))
 
         # Step 2: Build atoms from classified blocks
         atoms: Dict[str, DocumentAtom] = {}
         hierarchy: Dict[str, List[str]] = {}
         flow: List[str] = []
 
-        classified_blocks = structure.get("blocks", [])
+        classified_blocks = all_classified_blocks
         current_section_id = None
 
         # Map LLM type names to our AtomType enum
@@ -377,10 +419,11 @@ class DocumentIngestorAgent(StudioAgent):
             "page_footer": "citation",
             "page_header": "citation",
             "metadata": "citation",
-            "authors": "paragraph",
-            "affiliations": "paragraph",
-            "contact": "paragraph",
-            "date": "citation",
+            "authors": "author",
+            "affiliations": "author",  # Affiliations are author metadata, not content
+            "contact": "author",
+            "author_bio": "author",
+            "date": "date",
         }
 
         for i, block_info in enumerate(classified_blocks):
@@ -400,13 +443,21 @@ class DocumentIngestorAgent(StudioAgent):
                 continue
 
             atom_id = f"{doc_id}_atom_{i:03d}"
+            # Filter topics: remove institutional names and metadata noise
+            raw_topics = block_info.get("topics", [])
+            filtered_topics = [t for t in raw_topics if is_theme_candidate(t)]
+
+            # If block is in a metadata zone, don't extract topics at all
+            if profile.is_metadata_block(block_idx):
+                filtered_topics = []
+
             atom = DocumentAtom(
                 atom_id=atom_id,
                 atom_type=atom_type,
                 content=text_block["text"],
                 source_page=text_block["page"],
                 source_location=text_block["bbox"],
-                topics=block_info.get("topics", []),
+                topics=filtered_topics,
                 entities=block_info.get("entities", []),
                 importance_score=block_info.get("importance", 0.5),
             )
@@ -449,8 +500,9 @@ class DocumentIngestorAgent(StudioAgent):
                 if fig_match:
                     atom.figure_number = f"{fig_match.group(1)} {fig_match.group(2)}"
 
-        # Step 4: Generate summaries
-        summary_prompt = self._build_summary_prompt(text_context)
+        # Step 4: Generate summaries (use abbreviated context — just title, abstract, conclusions)
+        summary_context = self._build_summary_context(extraction)
+        summary_prompt = self._build_summary_prompt(summary_context)
         summary_response = await self.claude.query(summary_prompt)
         summaries = JSONExtractor.extract(summary_response)
 
@@ -474,8 +526,8 @@ class DocumentIngestorAgent(StudioAgent):
             figures=[aid for aid, a in atoms.items() if a.atom_type == AtomType.FIGURE],
             tables=[aid for aid, a in atoms.items() if a.atom_type == AtomType.TABLE],
             key_quotes=key_quote_ids,
-            title=structure.get("title", extraction.metadata.get("title", "")),
-            authors=structure.get("authors", []),
+            title=title or extraction.metadata.get("title", ""),
+            authors=authors,
             page_count=extraction.page_count,
         )
 
@@ -571,74 +623,163 @@ class DocumentIngestorAgent(StudioAgent):
 
         return None
 
-    def _build_text_context(self, extraction: ExtractionResult) -> str:
-        """Build a text representation of all blocks for LLM analysis"""
+    def _build_text_context_for_chunk(
+        self,
+        blocks: List[Dict[str, Any]],
+        block_indices: List[int],
+    ) -> str:
+        """Build text context for a specific chunk of blocks.
+
+        Args:
+            blocks: The text blocks in this chunk
+            block_indices: The original indices of these blocks in the full document
+        """
         lines = []
-        for i, block in enumerate(extraction.text_blocks):
+        for block, idx in zip(blocks, block_indices):
             page = block["page"] + 1  # 1-indexed
             font_hint = f" [size={block['font_size']:.0f}]" if block["font_size"] > 14 else ""
             bold_hint = " [BOLD]" if block["is_bold"] else ""
-            lines.append(f"[Block {i}, Page {page}{font_hint}{bold_hint}]")
-            lines.append(block["text"])
-            lines.append("")
+            lines.append(f"[Block {idx}, Page {page}{font_hint}{bold_hint}]\n{block['text']}\n")
         return "\n".join(lines)
 
-    def _build_structure_prompt(self, text_context: str, metadata: Dict[str, Any]) -> str:
-        """Build the prompt for LLM structure analysis"""
-        return f"""Analyze this document's structure. Classify each text block by its role.
+    def _build_summary_context(self, extraction: ExtractionResult, max_chars: int = 15000) -> str:
+        """Build abbreviated context for summary generation.
+
+        Includes title/abstract area (first ~15 blocks) and conclusion area (last ~10 blocks).
+        Summaries don't need every block — just the key sections.
+        """
+        blocks = extraction.text_blocks
+        num_blocks = len(blocks)
+
+        if num_blocks <= 30:
+            # Small doc — use everything
+            indices = list(range(num_blocks))
+        else:
+            # First 15 (title, abstract, intro) + last 10 (conclusion, summary)
+            indices = list(range(min(15, num_blocks))) + list(range(max(0, num_blocks - 10), num_blocks))
+            # Deduplicate if overlap
+            indices = sorted(set(indices))
+
+        lines = []
+        total_chars = 0
+        for i in indices:
+            block = blocks[i]
+            page = block["page"] + 1
+            text = f"[Page {page}]\n{block['text']}\n"
+            if total_chars + len(text) > max_chars:
+                break
+            lines.append(text)
+            total_chars += len(text)
+
+        return "\n".join(lines)
+
+    def _build_structure_prompt(
+        self, text_context: str, metadata: Dict[str, Any],
+        profile: Optional[ContentProfile] = None,
+        chunk_start: int = 0, chunk_end: int = 0, total_blocks: int = 0,
+        include_title_authors: bool = True,
+    ) -> str:
+        """Build the prompt for LLM structure analysis.
+
+        Uses ContentProfile to provide document-type-specific guidance.
+        Supports chunked classification — each chunk gets its own prompt.
+
+        Args:
+            text_context: Formatted text blocks for this chunk
+            metadata: PDF metadata
+            profile: Content classification profile
+            chunk_start: First block index in this chunk
+            chunk_end: Last block index (exclusive) in this chunk
+            total_blocks: Total blocks in the full document
+            include_title_authors: Whether to ask for title/authors (first chunk only)
+        """
+        # Document type context for LLM
+        doc_type_context = ""
+        if profile:
+            doc_type = profile.document_type.value.replace("_", " ")
+            doc_type_context = f"""
+Document type detected: {doc_type} (confidence: {profile.confidence:.0%})
+
+Document-type-specific guidance:
+"""
+            if profile.document_type.value == "scientific_paper":
+                doc_type_context += """- This is a SCIENTIFIC PAPER. Focus on methodology, findings, and technical contributions.
+- Front matter (title, authors, affiliations, abstract) is metadata, NOT content topics.
+- Author affiliations (universities, institutes, labs) are NOT topics - they are metadata.
+- Extract topics ONLY from the body content (introduction through conclusion).
+- Good topics: technical concepts, methods, algorithms, problem domains.
+- BAD topics: "Harvard University", "Department of Computer Science", author names.
+"""
+            elif profile.document_type.value == "news_article":
+                doc_type_context += """- This is a NEWS ARTICLE. Focus on events, quotes, and key facts.
+- Bylines and datelines are metadata, not topics.
+- Extract topics from the article body, not headers/footers.
+"""
+            elif profile.document_type.value == "dataset_readme":
+                doc_type_context += """- This is a DATASET README. Focus on what data is included, format, and intended use.
+- Extract topics about data types, domains, and applications.
+"""
+
+        # Chunk context
+        chunk_note = ""
+        if total_blocks > 0:
+            chunk_note = f"\nNOTE: This is blocks {chunk_start}-{chunk_end - 1} of {total_blocks} total. Classify ONLY these blocks.\n"
+
+        # Title/authors line — only for first chunk
+        if include_title_authors:
+            title_authors_schema = """  "title": "The document title",
+  "authors": ["Author Name", ...],
+"""
+        else:
+            title_authors_schema = ""
+
+        return f"""Classify each text block by its role and extract metadata.
 
 Document metadata:
 - Title: {metadata.get('title', 'Unknown')}
 - Author: {metadata.get('author', 'Unknown')}
-
-Text blocks (with page numbers and font hints):
+{doc_type_context}{chunk_note}
+Text blocks:
 ---
 {text_context}
 ---
 
-For each block, classify its type and extract metadata. Respond with JSON:
+Respond with JSON:
 {{
-  "title": "The document title",
-  "authors": ["Author Name", ...],
-  "blocks": [
+{title_authors_schema}  "blocks": [
     {{
       "block_index": 0,
       "type": "title|abstract|section_header|paragraph|quote|citation|equation|author|date|keyword",
       "topics": ["topic1", "topic2"],
       "entities": ["entity1", "entity2"],
       "importance": 0.8
-    }},
-    ...
+    }}
   ]
 }}
 
-Classification guidelines:
-- title: The main document title (usually largest font, first page)
-- abstract: Summary paragraph at the start (often labeled "Abstract")
+Classification types:
+- title: Main document title (largest font, first page)
+- abstract: Summary paragraph (often labeled "Abstract")
 - section_header: Section/subsection headings (bold, larger font)
 - paragraph: Regular body text
 - quote: Quoted text or block quotes
 - citation: References, bibliography entries
 - equation: Mathematical equations
-- author: Author names/affiliations
+- author: Author names/affiliations (METADATA, not content)
 - date: Publication dates
 
-Topics extraction (IMPORTANT):
-- Topics are SEMANTIC/CONCEPTUAL subjects discussed in the block content
-- Good topics: "Kalman filter", "UAV positioning", "sensor fusion", "GPS-denied navigation"
-- BAD topics: "figure caption", "header", "paragraph", "abstract", "section" (these are block TYPES, not topics)
-- Extract 1-3 meaningful technical/conceptual topics per block
-- For structural blocks (citations, dates, authors), topics can be empty []
+Topics (IMPORTANT):
+- Extract 1-3 CONCEPTUAL topics per block (what it's about, not what it is)
+- Good: "Kalman filter", "UAV positioning", "sensor fusion"
+- BAD — never extract these as topics:
+  * Institutions: "Stanford University", "Department of Physics"
+  * Block types: "figure caption", "abstract", "section"
+  * Author/person names, journal names
+- For author/citation/date/affiliation blocks: topics = []
 
-Entities extraction:
-- Named entities: specific algorithms, systems, datasets, organizations
-- Examples: "IKF-PF", "ROS", "Gazebo", "Ultra-Wideband"
+Entities: Named algorithms, systems, datasets (e.g., "IKF-PF", "ROS")
 
-Importance scoring (0-1):
-- 1.0: Title, key findings, conclusions
-- 0.8: Abstract, section headers, important claims
-- 0.5: Regular paragraphs
-- 0.3: Citations, dates, metadata
+Importance: 1.0 = title/findings, 0.8 = abstract/headers, 0.5 = paragraphs, 0.3 = citations/metadata
 """
 
     def _build_summary_prompt(self, text_context: str) -> str:
@@ -659,11 +800,13 @@ Respond with JSON:
 """
 
     def _mock_analyze(
-        self, doc_id: str, source_path: str, extraction: ExtractionResult
+        self, doc_id: str, source_path: str, extraction: ExtractionResult,
+        profile: ContentProfile
     ) -> DocumentGraph:
         """
         Mock analysis for testing without LLM calls.
         Classifies blocks using heuristics (font size, position, bold).
+        Uses ContentProfile for zone-aware topic filtering.
         """
         atoms: Dict[str, DocumentAtom] = {}
         hierarchy: Dict[str, List[str]] = {}
@@ -699,7 +842,14 @@ Respond with JSON:
                 atom_type = AtomType.PARAGRAPH
                 importance = 0.5
 
-            topics = self._extract_mock_topics(text)
+            # Extract and filter topics using content-aware rules
+            raw_topics = self._extract_mock_topics(text)
+            filtered_topics = [t for t in raw_topics if is_theme_candidate(t)]
+
+            # If block is in a metadata zone, don't extract topics
+            if profile.is_metadata_block(i):
+                filtered_topics = []
+
             entities = self._extract_mock_entities(text)
             relationships = self._extract_mock_relationships(text, entities)
 
@@ -710,7 +860,7 @@ Respond with JSON:
                 source_page=block["page"],
                 source_location=block["bbox"],
                 importance_score=importance,
-                topics=topics,
+                topics=filtered_topics,
                 entities=entities,
                 relationships=relationships,
             )
