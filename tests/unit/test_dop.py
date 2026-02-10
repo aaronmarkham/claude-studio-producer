@@ -221,7 +221,7 @@ class TestBudgetTierRatios:
 
         dalle_count = sum(
             1 for s in result.segments
-            if s.display_mode == "dall_e"
+            if s.display_mode in ("dall_e", "web_image")
         )
 
         # 27% of 9 segments = ~2.43, expect 2-3 images
@@ -233,7 +233,7 @@ class TestBudgetTierRatios:
 
         dalle_count = sum(
             1 for s in result.segments
-            if s.display_mode == "dall_e"
+            if s.display_mode in ("dall_e", "web_image")
         )
 
         # 10% of 9 segments = ~0.9, expect 1 image (minimum 1 for visibility)
@@ -245,7 +245,7 @@ class TestBudgetTierRatios:
 
         dalle_count = sum(
             1 for s in result.segments
-            if s.display_mode == "dall_e"
+            if s.display_mode in ("dall_e", "web_image")
         )
 
         # 55% of 9 segments = ~4.95, expect 4-5 images
@@ -257,7 +257,7 @@ class TestBudgetTierRatios:
 
         dalle_or_figure_count = sum(
             1 for s in result.segments
-            if s.display_mode in ["dall_e", "figure_sync"]
+            if s.display_mode in ["dall_e", "web_image", "figure_sync"]
         )
 
         # All 9 segments should get either DALL-E or figure_sync
@@ -269,7 +269,7 @@ class TestBudgetTierRatios:
 
         dalle_count = sum(
             1 for s in result.segments
-            if s.display_mode == "dall_e"
+            if s.display_mode in ("dall_e", "web_image")
         )
 
         # Micro tier should have 0 DALL-E images
@@ -297,7 +297,7 @@ class TestBudgetTierRatios:
         result_100 = assign_visuals(script_100, empty_library, "medium")
         dalle_count_100 = sum(
             1 for s in result_100.segments
-            if s.display_mode == "dall_e"
+            if s.display_mode in ("dall_e", "web_image")
         )
 
         # 27% of 100 = 27
@@ -323,7 +323,7 @@ class TestBudgetTierRatios:
         result_10 = assign_visuals(script_10, empty_library, "medium")
         dalle_count_10 = sum(
             1 for s in result_10.segments
-            if s.display_mode == "dall_e"
+            if s.display_mode in ("dall_e", "web_image")
         )
 
         # 27% of 10 = 2.7, expect 2-3
@@ -350,7 +350,7 @@ class TestImportanceScoring:
 
         # Segment 1 (0.4) should not have DALL-E if budget limited
         seg1 = result.get_segment(1)
-        if result.segments.count(s for s in result.segments if s.display_mode == "dall_e") == 1:
+        if result.segments.count(s for s in result.segments if s.display_mode in ("dall_e", "web_image")) == 1:
             # If only 1 image in low tier, it should go to highest importance
             assert seg1.display_mode != "dall_e" or seg3.display_mode == "figure_sync"
 
@@ -394,9 +394,9 @@ class TestImportanceScoring:
 
         result = assign_visuals(script, empty_library, "low")  # Only 1 image for low tier
 
-        # Segment 1 (0.9) should get the image
+        # Segment 1 (0.9) should get the image (dall_e or web_image)
         seg1 = result.get_segment(1)
-        assert seg1.display_mode == "dall_e"
+        assert seg1.display_mode in ("dall_e", "web_image")
 
 
 # ============================================================================
@@ -618,6 +618,7 @@ class TestFullScriptProcessing:
             assert segment.display_mode in [
                 "figure_sync",
                 "dall_e",
+                "web_image",
                 "carry_forward",
                 "text_only"
             ]
@@ -642,7 +643,7 @@ class TestFullScriptProcessing:
             result = assign_visuals(sample_script, empty_library, tier)
             dalle_count = sum(
                 1 for s in result.segments
-                if s.display_mode == "dall_e"
+                if s.display_mode in ("dall_e", "web_image")
             )
             tier_dalle_counts[tier] = dalle_count
 
@@ -758,7 +759,7 @@ class TestEdgeCases:
         try:
             result = assign_visuals(sample_script, empty_library, "invalid_tier")
             # If it doesn't raise, should behave like medium
-            dalle_count = sum(1 for s in result.segments if s.display_mode == "dall_e")
+            dalle_count = sum(1 for s in result.segments if s.display_mode in ("dall_e", "web_image"))
             assert dalle_count > 0
         except (ValueError, KeyError):
             # Acceptable to raise for invalid tier
