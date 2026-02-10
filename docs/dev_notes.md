@@ -12,6 +12,32 @@
 - **Transcript-led video production** - Budget-aware visual generation from training outputs
 - **Budget tier system** - micro/low/medium/high/full tiers for controlling image generation costs
 
+### Feb 9, 2026 - Content-Aware Document Classification
+
+The KB ingestion pipeline was treating all documents identically — scientific papers, news articles, and blog posts all got the same LLM prompts and the same topic extraction logic. This caused metadata pollution: author affiliations, university names, and journal/conference names were leaking into `key_themes`.
+
+**ContentClassifier** (`core/content_classifier.py`):
+- Runs *before* the LLM, using heuristics on raw PyMuPDF extraction (font sizes, positions, text patterns)
+- Detects document type (scientific paper, news article, blog post, dataset readme, etc.)
+- Identifies structural zones: front matter, body, back matter, biographical, boilerplate
+- Produces a `ContentProfile` that the ingestor uses to guide LLM prompts
+
+**Zone-Aware Topic Filtering**:
+- Blocks in metadata zones (affiliations, author bios) get `topics = []` — no theme extraction
+- `is_theme_candidate()` filter catches institutional names, journal/conference venues
+- Integrated into both LLM and mock analysis paths, plus KB topic quality checks
+
+**Chunked LLM Classification**:
+- Large documents (100+ blocks) were hitting output token limits, producing truncated JSON
+- Now sends blocks in batches of ~30, each getting a complete JSON response
+- Added `_repair_truncated_json()` to JSONExtractor as an additional safety net
+
+**New Data Models** (`core/models/document.py`):
+- `DocumentType` enum (scientific_paper, news_article, blog_post, etc.)
+- `ZoneRole` enum (front_matter, body, back_matter, biographical, boilerplate)
+- `DocumentZone` dataclass for contiguous regions
+- `ContentProfile` with `is_metadata_block()` and `get_zone_for_block()` helpers
+
 ### Feb 7, 2026 - Unified Production Architecture (Phases 1-4)
 
 Implemented all four phases of the Unified Production Architecture spec, which unifies the original agent pipeline and the transcript-led video production pipeline.

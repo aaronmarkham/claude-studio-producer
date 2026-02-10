@@ -240,8 +240,9 @@ claude-studio kb produce "AI Research" \
 ```
 
 **Features:**
+- **Content-aware classification**: Pre-LLM classifier detects document type (scientific paper, news, etc.) and structural zones to guide extraction
 - **Document ingestion**: Extracts atoms (paragraphs, figures, tables, equations) with PyMuPDF
-- **LLM classification**: Claude categorizes atoms by type and extracts topics/entities
+- **LLM classification**: Claude categorizes atoms by type and extracts topics/entities, with zone-aware filtering to prevent metadata pollution
 - **Knowledge graph**: Builds cross-document connections via shared entities
 - **Rich concept generation**: Assembles KB content into detailed prompts for ScriptWriter
 

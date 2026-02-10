@@ -219,6 +219,9 @@ Working:
 - Variant/perspective support for bias analysis workflows
 - Backward compatibility with intent mapping (METHODOLOGY → EXPLANATION, etc.)
 - Comprehensive test suite: 180+ tests covering unified architecture
+- Content-aware document classification (ContentClassifier identifies doc type + zones before LLM)
+- Chunked LLM classification for large documents (batches of ~30 blocks)
+- Truncated JSON repair in JSONExtractor
 
 In progress:
 - Additional video providers (Pika, Kling stubbed)

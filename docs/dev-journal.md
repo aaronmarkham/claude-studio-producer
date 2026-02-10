@@ -13,6 +13,17 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 9, 2026 - Content-Aware Document Classification
+
+The KB ingestion pipeline was treating all documents identically, which caused metadata pollution — author affiliations and university names were leaking into key themes. Now a `ContentClassifier` runs before the LLM to identify document type and structural zones.
+
+**What changed:**
+- **Pre-LLM classification**: Heuristics on font sizes, positions, and text patterns detect document type (scientific paper, news article, etc.) and identify zones (front matter, body, back matter)
+- **Zone-aware topic filtering**: Blocks in metadata zones (affiliations, author bios) no longer produce topics. `is_theme_candidate()` catches institutional and venue names.
+- **Chunked LLM analysis**: Large documents now classify blocks in batches of ~30, avoiding output token truncation. Truncated JSON repair added as a safety net.
+
+The result: cleaner knowledge graphs with themes that reflect actual content, not bibliographic metadata.
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 7, 2026 - Content Model Expansion
 
 Extended StructuredScript with content-agnostic vocabulary and source attribution for broader use cases beyond scientific podcasts.

@@ -1,9 +1,9 @@
 # Content-Aware Ingestion
 
-> Status: Ready for Implementation
+> Status: Implemented (February 9, 2026)
 > Priority: High — directly impacts KB quality, which cascades to every downstream production
 > Depends on: Existing document_ingestor.py, knowledge.py, document.py
-> Date: February 7, 2026
+> Date: February 7, 2026 (spec) / February 9, 2026 (implemented)
 
 ## Problem
 
