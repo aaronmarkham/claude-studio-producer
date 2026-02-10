@@ -375,9 +375,57 @@ class ClaudeClient:
         return ""
 
 
+def _repair_truncated_json(json_str: str) -> str:
+    """
+    Attempt to repair truncated JSON by closing unclosed brackets/braces.
+
+    This handles cases where LLM output is cut off mid-response.
+    """
+    # Count unclosed brackets
+    open_braces = json_str.count('{') - json_str.count('}')
+    open_brackets = json_str.count('[') - json_str.count(']')
+
+    if open_braces <= 0 and open_brackets <= 0:
+        return json_str  # Already balanced or over-closed
+
+    # Try to find the last complete value and truncate there
+    # Look for patterns like: "key": value, or "key": "value",
+    # and try to close after them
+
+    repaired = json_str.rstrip()
+
+    # Remove trailing comma if present
+    if repaired.endswith(','):
+        repaired = repaired[:-1]
+
+    # If we're in the middle of a string, try to close it
+    # Count quotes to see if we're mid-string
+    quote_count = repaired.count('"') - repaired.count('\\"')
+    if quote_count % 2 == 1:
+        repaired += '"'
+
+    # Close any unclosed brackets/braces
+    # We need to close in reverse order of what's open
+    # Simple heuristic: close brackets first (arrays), then braces (objects)
+    stack = []
+    for char in json_str:
+        if char == '{':
+            stack.append('}')
+        elif char == '[':
+            stack.append(']')
+        elif char in '}]':
+            if stack and stack[-1] == char:
+                stack.pop()
+
+    # Close in reverse order
+    repaired += ''.join(reversed(stack))
+
+    return repaired
+
+
 class JSONExtractor:
     """Utility to extract JSON from Claude responses"""
-    
+
     @staticmethod
     def extract(response: str, debug: bool = False) -> Dict[str, Any]:
         """
@@ -442,7 +490,16 @@ class JSONExtractor:
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError:
-                pass
+                # Try to repair truncated JSON
+                repaired = _repair_truncated_json(json_str)
+                if debug:
+                    print(f"[JSON EXTRACT DEBUG] Attempting repair, added: {len(repaired) - len(json_str)} chars")
+                try:
+                    return json.loads(repaired)
+                except json.JSONDecodeError as e:
+                    if debug:
+                        print(f"[JSON EXTRACT DEBUG] Repair failed: {e}")
+                    pass
 
         # Try to find JSON object anywhere in the text
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
