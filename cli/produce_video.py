@@ -435,6 +435,71 @@ async def load_training_trial(trial_id: str) -> dict:
     }
 
 
+def script_segments_to_aligned(structured_script: StructuredScript):
+    """
+    Bridge: Convert StructuredScript segments to AlignedSegment objects.
+
+    This enables --script mode by creating AlignedSegments from a parsed script
+    without requiring training data. The AlignedSegments feed into segments_to_scenes()
+    for the existing video production pipeline.
+    """
+    from core.training.models import (
+        AlignedSegment, TranscriptSegment, SegmentType
+    )
+    from core.models.structured_script import SegmentIntent
+
+    # Map SegmentIntent → SegmentType (best-effort mapping)
+    INTENT_TO_TYPE = {
+        SegmentIntent.INTRO: SegmentType.INTRO,
+        SegmentIntent.OUTRO: SegmentType.CONCLUSION,
+        SegmentIntent.TRANSITION: SegmentType.TRANSITION,
+        SegmentIntent.RECAP: SegmentType.CONCLUSION,
+        SegmentIntent.CONTEXT: SegmentType.BACKGROUND,
+        SegmentIntent.EXPLANATION: SegmentType.METHODOLOGY,
+        SegmentIntent.DEFINITION: SegmentType.BACKGROUND,
+        SegmentIntent.NARRATIVE: SegmentType.BACKGROUND,
+        SegmentIntent.CLAIM: SegmentType.KEY_FINDING,
+        SegmentIntent.EVIDENCE: SegmentType.KEY_FINDING,
+        SegmentIntent.DATA_WALKTHROUGH: SegmentType.KEY_FINDING,
+        SegmentIntent.FIGURE_REFERENCE: SegmentType.FIGURE_DISCUSSION,
+        SegmentIntent.ANALYSIS: SegmentType.IMPLICATION,
+        SegmentIntent.COMPARISON: SegmentType.METHODOLOGY,
+        SegmentIntent.COUNTERPOINT: SegmentType.LIMITATION,
+        SegmentIntent.SYNTHESIS: SegmentType.IMPLICATION,
+        SegmentIntent.COMMENTARY: SegmentType.TANGENT,
+        SegmentIntent.QUESTION: SegmentType.TANGENT,
+        SegmentIntent.SPECULATION: SegmentType.IMPLICATION,
+    }
+
+    aligned = []
+    cumulative_time = 0.0
+
+    for seg in structured_script.segments:
+        duration = seg.estimated_duration_sec or (len(seg.text.split()) / 150 * 60)
+        seg_type = INTENT_TO_TYPE.get(seg.intent, SegmentType.BACKGROUND)
+
+        transcript_seg = TranscriptSegment(
+            segment_id=f"seg_{seg.idx:03d}",
+            text=seg.text,
+            start_time=cumulative_time,
+            end_time=cumulative_time + duration,
+            duration=duration,
+            segment_type=seg_type.value,
+        )
+
+        aligned.append(AlignedSegment(
+            segment_id=f"seg_{seg.idx:03d}",
+            transcript_segment=transcript_seg,
+            segment_type=seg_type,
+            key_concepts=seg.key_concepts,
+            referenced_figures=[f"figure_{f}" for f in seg.figure_refs],
+        ))
+
+        cumulative_time += duration
+
+    return aligned
+
+
 def reconstruct_aligned_segments(segment_dicts: list):
     """Reconstruct AlignedSegment objects from JSON dicts"""
     from core.training.models import (
@@ -1175,8 +1240,49 @@ async def _produce_video_async(
         aligned_segment_dicts = trial_data["aligned_segments"]
         console.print(f"[{t.success}]Loaded {len(aligned_segment_dicts)} aligned segments[/]")
         console.print()
+    elif script_path:
+        # --script mode: parse script file directly (no training required)
+        script_file = Path(script_path)
+        if not script_file.exists():
+            raise click.ClickException(f"Script file not found: {script_path}")
+
+        console.print(f"[{t.label}]Loading script file:[/] {script_file.name}")
+        script_text = script_file.read_text(encoding="utf-8")
+
+        # Build StructuredScript from flat text
+        structured_script_obj = StructuredScript.from_script_text(
+            script_text=script_text,
+            trial_id=run_id,
+        )
+        console.print(f"[{t.success}]Parsed {len(structured_script_obj.segments)} segments from script[/]")
+
+        # Convert to AlignedSegments for the video pipeline
+        aligned_segments_list = script_segments_to_aligned(structured_script_obj)
+        aligned_segment_dicts = [
+            {
+                "segment_id": a.segment_id,
+                "transcript_segment": {
+                    "segment_id": a.transcript_segment.segment_id,
+                    "text": a.transcript_segment.text,
+                    "start_time": a.transcript_segment.start_time,
+                    "end_time": a.transcript_segment.end_time,
+                    "duration": a.transcript_segment.duration,
+                },
+                "segment_type": a.segment_type.value,
+                "key_concepts": a.key_concepts,
+                "referenced_figures": a.referenced_figures,
+            }
+            for a in aligned_segments_list
+        ]
+        # Store structured script in trial_data-like dict for downstream use
+        trial_data = {
+            "aligned_segments": aligned_segment_dicts,
+            "structured_script": structured_script_obj,
+        }
+        console.print(f"[{t.success}]Loaded {len(aligned_segment_dicts)} aligned segments[/]")
+        console.print()
     else:
-        raise click.ClickException("Currently only --from-training mode is supported")
+        raise click.ClickException("Provide --from-training or --script")
 
     # Reconstruct AlignedSegment objects
     with Progress(
@@ -1225,7 +1331,7 @@ async def _produce_video_async(
         return
 
     # Check if we have a structured script (Unified Production Architecture)
-    structured_script = trial_data.get("structured_script") if from_training else None
+    structured_script = trial_data.get("structured_script") if (from_training or script_path) else None
     use_dop = structured_script is not None
 
     if use_dop:
@@ -1304,7 +1410,7 @@ async def _produce_video_async(
 
             for seg in structured_script.segments:
                 # Create visual plan from segment's DoP assignment
-                from core.models.video_production import SceneVisualPlan
+                from core.models.video_production import VisualPlan as SceneVisualPlan
 
                 # Map display_mode to visual plan settings
                 display_mode = seg.display_mode or "carry_forward"
@@ -1682,7 +1788,7 @@ def produce_video_cmd(from_training, script, output, live, style, kb, budget, sh
     \b
     Input modes:
       --from-training  Use a training trial's script and segments
-      --script         Use an existing script file (coming soon)
+      --script         Use an existing script file (no training required)
 
     \b
     Budget tiers (use --show-tiers to see detailed costs):
