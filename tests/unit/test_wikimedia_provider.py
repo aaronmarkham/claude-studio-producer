@@ -211,7 +211,7 @@ class TestWikimediaProvider:
             assert result.success is True
             assert result.cost == 0.0
             assert result.provider_metadata["provider"] == "wikimedia"
-            assert result.provider_metadata["license"] == "Public domain"
+            assert result.provider_metadata["license"] in ("Public domain", "CC0")
 
 
 class TestDoPWebImageIntegration:

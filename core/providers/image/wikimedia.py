@@ -105,33 +105,18 @@ class WikimediaProvider(ImageProvider):
         search_query = self._clean_query(prompt)
 
         try:
-            async with aiohttp.ClientSession() as session:
-                # Step 1: Search for images
-                candidates = await self._search_images(
+            async with aiohttp.ClientSession(
+                headers={"User-Agent": self.USER_AGENT}
+            ) as session:
+                # Try progressively simpler queries until we get results
+                detailed = await self._search_with_fallback(
                     session, search_query, max_results
                 )
-
-                if not candidates:
-                    # Try a simplified query
-                    simplified = self._simplify_query(search_query)
-                    if simplified != search_query:
-                        candidates = await self._search_images(
-                            session, simplified, max_results
-                        )
-
-                if not candidates:
-                    return ImageGenerationResult(
-                        success=False,
-                        error_message=f"No suitable images found for: {search_query[:100]}",
-                    )
-
-                # Step 2: Get image info (dimensions, URL, license)
-                detailed = await self._get_image_details(session, candidates)
 
                 if not detailed:
                     return ImageGenerationResult(
                         success=False,
-                        error_message="No images met quality/license requirements",
+                        error_message=f"No suitable images found for: {search_query[:100]}",
                     )
 
                 # Step 3: Rank and select best match
@@ -191,6 +176,121 @@ class WikimediaProvider(ImageProvider):
                 error_message=f"Wikimedia search failed: {str(e)}",
             )
 
+    # Required by Wikimedia API policy
+    USER_AGENT = (
+        "ClaudeStudioProducer/1.0 "
+        "(https://github.com/aaronmarkham/claude-studio-producer; "
+        "image sourcing for video production)"
+    )
+
+    async def _search_with_fallback(
+        self,
+        session: aiohttp.ClientSession,
+        query: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Try progressively simpler queries until results are found.
+
+        Wikimedia search is strict — too many terms yields zero results.
+        Strategy: try full query, then simplified, then just key terms.
+        """
+        # Attempt 1: Full cleaned query
+        results = await self._search_and_detail(session, query, limit)
+        if results:
+            return results
+
+        # Attempt 2: Simplified (top 5 significant words)
+        simplified = self._simplify_query(query)
+        if simplified != query:
+            results = await self._search_and_detail(session, simplified, limit)
+            if results:
+                return results
+
+        # Attempt 3: Just the first 3 significant words
+        words = simplified.split()
+        if len(words) > 3:
+            shorter = " ".join(words[:3])
+            results = await self._search_and_detail(session, shorter, limit)
+            if results:
+                return results
+
+        # Attempt 4: First 2 words
+        if len(words) > 2:
+            shortest = " ".join(words[:2])
+            results = await self._search_and_detail(session, shortest, limit)
+            if results:
+                return results
+
+        return []
+
+    async def _search_and_detail(
+        self,
+        session: aiohttp.ClientSession,
+        query: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Search Wikimedia Commons and return detailed image info in one call."""
+        params = {
+            "action": "query",
+            "format": "json",
+            "generator": "search",
+            "gsrsearch": f"filetype:bitmap {query}",
+            "gsrnamespace": "6",  # File namespace
+            "gsrlimit": str(limit),
+            "prop": "imageinfo",
+            "iiprop": "url|size|mime|extmetadata|mediatype",
+            "iiurlwidth": "1920",
+        }
+        headers = {"User-Agent": self.USER_AGENT}
+
+        async with session.get(API_URL, params=params, headers=headers) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+
+        pages = data.get("query", {}).get("pages", {})
+        results = []
+
+        for page_id, page in pages.items():
+            if int(page_id) <= 0:
+                continue
+
+            imageinfo = page.get("imageinfo", [{}])[0]
+            mime = imageinfo.get("mime", "")
+            width = imageinfo.get("width", 0)
+            height = imageinfo.get("height", 0)
+
+            if not mime.startswith("image/"):
+                continue
+            ext = "." + mime.split("/")[-1].replace("jpeg", "jpg")
+            if ext not in ALLOWED_EXTENSIONS:
+                continue
+            if width < MIN_WIDTH or height < MIN_HEIGHT:
+                continue
+
+            extmeta = imageinfo.get("extmetadata", {})
+            license_short = extmeta.get("LicenseShortName", {}).get("value", "")
+            description = extmeta.get("ImageDescription", {}).get("value", "")
+            attribution = extmeta.get("Artist", {}).get("value", "")
+
+            url = imageinfo.get("thumburl") or imageinfo.get("url", "")
+
+            results.append({
+                "page_id": page_id,
+                "title": page.get("title", "").replace("File:", ""),
+                "url": url,
+                "original_url": imageinfo.get("url", ""),
+                "width": width,
+                "height": height,
+                "mime": mime,
+                "license": license_short,
+                "description": self._strip_html(description),
+                "attribution": self._strip_html(attribution),
+                "page_url": f"https://commons.wikimedia.org/wiki/{urllib.parse.quote(page.get('title', ''))}",
+            })
+
+        return results
+
     async def _search_images(
         self,
         session: aiohttp.ClientSession,
@@ -209,8 +309,9 @@ class WikimediaProvider(ImageProvider):
             "iiprop": "url|size|mime|extmetadata",
             "iiurlwidth": "1920",  # Request thumbnail up to this width
         }
+        headers = {"User-Agent": self.USER_AGENT}
 
-        async with session.get(API_URL, params=params) as resp:
+        async with session.get(API_URL, params=params, headers=headers) as resp:
             if resp.status != 200:
                 return []
             data = await resp.json()
@@ -232,8 +333,9 @@ class WikimediaProvider(ImageProvider):
             "iiprop": "url|size|mime|extmetadata|mediatype",
             "iiurlwidth": "1920",
         }
+        headers = {"User-Agent": self.USER_AGENT}
 
-        async with session.get(API_URL, params=params) as resp:
+        async with session.get(API_URL, params=params, headers=headers) as resp:
             if resp.status != 200:
                 return []
             data = await resp.json()
