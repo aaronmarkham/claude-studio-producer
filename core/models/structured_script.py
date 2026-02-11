@@ -411,11 +411,15 @@ class StructuredScript:
             # Calculate importance score
             importance = cls._calculate_importance(para, intent, figure_refs)
 
+            # Extract key concepts (capitalized multi-word phrases + technical terms)
+            key_concepts = cls._extract_key_concepts(para)
+
             segments.append(ScriptSegment(
                 idx=idx,
                 text=para,
                 intent=intent,
                 figure_refs=figure_refs,
+                key_concepts=key_concepts,
                 estimated_duration_sec=estimated_duration,
                 importance_score=importance,
             ))
@@ -462,6 +466,80 @@ class StructuredScript:
             total_estimated_duration_sec=total_duration,
             created_at=datetime.now().isoformat(),
         )
+
+    @staticmethod
+    def _extract_key_concepts(text: str) -> List[str]:
+        """Extract key concepts from paragraph text via heuristics.
+
+        Finds capitalized multi-word phrases (e.g., 'Kalman Filter', 'Particle Filter'),
+        quoted terms, and technical terms that are likely to be meaningful search queries.
+        """
+        concepts = []
+        seen = set()
+
+        # Sentence starters and common words to skip
+        skip = {
+            'the', 'this', 'that', 'these', 'those', 'but', 'and', 'now', 'so',
+            'well', 'let', 'here', 'what', 'how', 'when', 'where', 'why', 'who',
+            'think', 'consider', 'imagine', 'look', 'hey', 'welcome', 'take',
+            'you', 'we', 'they', 'our', 'their', 'its', 'for', 'from', 'with',
+            'not', 'don', 'doesn', 'didn', 'can', 'could', 'would', 'should',
+            'may', 'might', 'will', 'shall', 'has', 'have', 'had', 'are', 'is',
+            'was', 'were', 'been', 'being', 'into', 'about', 'just', 'like',
+            'sure', 'say', 'said', 'get', 'got', 'know', 'knew', 'see', 'seen',
+            'one', 'two', 'first', 'second', 'each', 'every', 'some', 'any',
+            'it', 'do', 'does', 'did', 'if', 'then', 'than', 'or', 'nor',
+            'both', 'either', 'neither', 'also', 'too', 'yet', 'still',
+        }
+
+        # 1. Multi-word capitalized phrases (e.g., "Kalman Filter", "Monte Carlo")
+        multi_cap = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text)
+        for phrase in multi_cap:
+            lower = phrase.lower()
+            if lower not in seen and phrase.split()[0].lower() not in skip:
+                seen.add(lower)
+                concepts.append(phrase)
+
+        # 2. Single capitalized words mid-sentence
+        mid_caps = re.findall(r'(?<=[a-z,;:]\s)([A-Z][a-z]{3,})\b', text)
+        for word in mid_caps:
+            lower = word.lower()
+            if lower not in seen and lower not in skip:
+                seen.add(lower)
+                concepts.append(word)
+
+        # 3. Quoted terms
+        quoted = re.findall(r'"([^"]{3,40})"', text)
+        for q in quoted:
+            lower = q.lower()
+            if lower not in seen:
+                seen.add(lower)
+                concepts.append(q)
+
+        # 4. Technical compound terms (lowercase but meaningful)
+        tech_patterns = re.findall(
+            r'\b((?:computational|matrix|neural|machine|deep|artificial|quantum|'
+            r'statistical|mathematical|transformer|language|attention|gradient|'
+            r'reinforcement|unsupervised|supervised|probabilistic|stochastic|'
+            r'adversarial|generative|convolutional|recurrent)\s+'
+            r'[a-z]+(?:\s+[a-z]+)?)\b',
+            text, re.IGNORECASE
+        )
+        for term in tech_patterns:
+            lower = term.lower()
+            if lower not in seen:
+                seen.add(lower)
+                concepts.append(term)
+
+        # 5. Acronyms (2+ uppercase letters, not common ones)
+        acronyms = re.findall(r'\b([A-Z]{2,}[a-z]?)\b', text)
+        skip_acronyms = {'OK', 'US', 'UK', 'EU', 'AM', 'PM', 'IT', 'OR', 'AN', 'DO'}
+        for acr in acronyms:
+            if acr not in seen and acr not in skip_acronyms and len(acr) >= 2:
+                seen.add(acr)
+                concepts.append(acr)
+
+        return concepts[:5]
 
     @staticmethod
     def _classify_intent(

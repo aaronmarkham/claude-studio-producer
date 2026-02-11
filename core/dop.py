@@ -235,7 +235,66 @@ def _generate_visual_direction(
     if not hints:
         hints.append("Create a professional visual representation of the narration content.")
 
+    # For web_image mode, generate a concise search query instead of art direction
+    if seg.display_mode == "web_image":
+        return _generate_web_search_query(seg)
+
     return " ".join(filter(None, hints))
+
+
+def _generate_web_search_query(seg: ScriptSegment) -> str:
+    """
+    Generate a concise Wikimedia Commons search query from segment content.
+
+    Unlike DALL-E prompts (which describe desired art), web image queries
+    need short, specific noun phrases that match real photographs/diagrams.
+    """
+    import re
+
+    parts = []
+
+    # Use key_concepts first — they're the best source
+    if seg.key_concepts:
+        parts.extend(seg.key_concepts[:3])
+
+    # Extract capitalized terms (proper nouns, technical terms) from text
+    if not parts:
+        # Find multi-word capitalized phrases and standalone capitalized words
+        caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', seg.text)
+        # Deduplicate while preserving order
+        seen = set()
+        for term in caps:
+            lower = term.lower()
+            # Skip common sentence starters
+            if lower in {'the', 'this', 'that', 'these', 'but', 'and', 'now',
+                         'so', 'well', 'let', 'here', 'what', 'how', 'when',
+                         'think', 'consider', 'imagine', 'look', 'hey', 'welcome'}:
+                continue
+            if lower not in seen:
+                seen.add(lower)
+                parts.append(term)
+            if len(parts) >= 4:
+                break
+
+    # Still nothing? Extract long words as a last resort
+    if not parts:
+        words = re.findall(r'\b[a-zA-Z]{6,}\b', seg.text)
+        stop = {'really', 'actually', 'probably', 'basically', 'something',
+                'through', 'between', 'another', 'because', 'however',
+                'different', 'interesting', 'talking', 'looking', 'everything'}
+        parts = [w for w in words if w.lower() not in stop][:4]
+
+    # Add domain context based on intent
+    intent_context = {
+        SegmentIntent.EXPLANATION: "diagram",
+        SegmentIntent.DATA_WALKTHROUGH: "chart data",
+        SegmentIntent.EVIDENCE: "research",
+        SegmentIntent.COMPARISON: "comparison",
+    }
+    if seg.intent in intent_context and len(parts) < 3:
+        parts.append(intent_context[seg.intent])
+
+    return " ".join(parts) if parts else "scientific diagram"
 
 
 # Intents that tend to discuss concrete, searchable real-world concepts

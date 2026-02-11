@@ -1440,15 +1440,38 @@ async def _produce_video_async(
                     # Generate DALL-E prompt from visual direction
                     dalle_prompt = f"{seg.visual_direction} {style_consistency['style_suffix']}"
                 elif display_mode == "web_image":
-                    # Build search query from key concepts + segment text
-                    search_parts = []
-                    if seg.key_concepts:
-                        search_parts.extend(seg.key_concepts[:3])
-                    if not search_parts:
-                        # Fall back to first few words of segment text
-                        words = seg.text.split()[:8]
-                        search_parts.append(" ".join(words))
-                    dalle_prompt = " ".join(search_parts)  # Reuse dalle_prompt field for search query
+                    # Build search query for Wikimedia Commons
+                    # Priority: visual_direction > key_concepts > extracted nouns
+                    if seg.visual_direction:
+                        # DoP already wrote a good description of what to show
+                        dalle_prompt = seg.visual_direction
+                    elif seg.key_concepts:
+                        dalle_prompt = " ".join(seg.key_concepts[:3])
+                    else:
+                        # Extract meaningful terms from segment text
+                        # Filter out common words to get searchable noun phrases
+                        import re as _re
+                        stop_words = {
+                            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+                            'would', 'could', 'should', 'may', 'might', 'can', 'shall',
+                            'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+                            'as', 'into', 'through', 'during', 'before', 'after', 'above',
+                            'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both', 'either',
+                            'it', 'its', 'this', 'that', 'these', 'those', 'you', 'your',
+                            'we', 'our', 'they', 'their', 'he', 'she', 'his', 'her',
+                            'what', 'which', 'who', 'whom', 'how', 'when', 'where', 'why',
+                            'here', 'there', 'about', 'just', 'like', 'get', 'got',
+                            'really', 'actually', 'probably', 'right', 'going', 'let',
+                            'know', 'think', 'say', 'said', 'one', 'way', 'thing',
+                            've', 've', 're', 's', 't', 'don', 'doesn', 'didn', 'won',
+                        }
+                        words = _re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|[a-z]{4,}", seg.text)
+                        # Prefer capitalized phrases (proper nouns, technical terms)
+                        caps = [w for w in words if w[0].isupper()]
+                        lower = [w for w in words if w[0].islower() and w.lower() not in stop_words]
+                        terms = (caps[:4] + lower[:3])[:5]
+                        dalle_prompt = " ".join(terms) if terms else seg.intent.value + " diagram"
                 elif display_mode == "figure_sync":
                     # Use KB figure
                     figures_matched += 1
