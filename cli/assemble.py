@@ -54,12 +54,13 @@ class AudioClip:
 class VisualSegment:
     """Visual segment for assembly."""
     segment_idx: int
-    display_mode: str  # figure_sync, dall_e, carry_forward, text_only
+    display_mode: str  # figure_sync, dall_e, web_image, carry_forward, text_only, transcript
     image_path: Optional[Path]
     audio_path: Optional[Path]
     audio_duration: float
     start_time: float
     end_time: float
+    transcript_text: str = ""  # Narration text for transcript overlay mode
 
 
 def get_media_duration(path: Path) -> float:
@@ -77,19 +78,116 @@ def get_media_duration(path: Path) -> float:
         return 0.0
 
 
+def create_transcript_overlay(text: str, duration: float, output_path: Path,
+                               font_size: int = 42, max_chars_per_line: int = 50,
+                               bg_color: tuple = (26, 26, 46),
+                               text_color: str = "white") -> bool:
+    """Create a video segment showing transcript text on a dark background.
+
+    Uses Pillow for text rendering (no freetype/drawtext dependency) and
+    ffmpeg to encode the static frame into a video segment.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    if duration <= 0:
+        return False
+
+    # Word-wrap text
+    words = text.split()
+    lines = []
+    current_line = []
+    current_len = 0
+    for word in words:
+        if current_len + len(word) + 1 > max_chars_per_line and current_line:
+            lines.append(" ".join(current_line))
+            current_line = [word]
+            current_len = len(word)
+        else:
+            current_line.append(word)
+            current_len += len(word) + 1
+    if current_line:
+        lines.append(" ".join(current_line))
+
+    # Limit to ~12 lines (screen height) — truncate if needed
+    if len(lines) > 12:
+        lines = lines[:12]
+        lines[-1] = lines[-1][:max_chars_per_line - 3] + "..."
+
+    wrapped = "\n".join(lines)
+
+    # Render with Pillow
+    img = Image.new('RGB', (1920, 1080), color=bg_color)
+    draw = ImageDraw.Draw(img)
+
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except OSError:
+        try:
+            # Linux fallback
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        except OSError:
+            font = ImageFont.load_default(size=font_size)
+
+    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    x = (1920 - text_w) // 2
+    y = (1080 - text_h) // 2
+
+    # Draw text with slight shadow for readability
+    draw.multiline_text((x + 2, y + 2), wrapped, fill=(0, 0, 0), font=font, align="center")
+    draw.multiline_text((x, y), wrapped, fill=text_color, font=font, align="center")
+
+    # Save frame to temp file
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+        frame_path = f.name
+        img.save(frame_path)
+
+    fps = 30
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", frame_path,
+        "-t", str(duration),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-r", str(fps),
+        str(output_path)
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+    finally:
+        os.unlink(frame_path)
+
+
 def create_video_with_ken_burns(image_path: Path, duration: float, output_path: Path) -> bool:
-    """Create a video from a static image with Ken Burns (slow zoom) effect."""
+    """Create a video from a static image with smooth Ken Burns (slow zoom) effect.
+
+    Uses ease-in-out interpolation via frame number for jitter-free zooming.
+    Zooms from 1.0 to 1.08 over the duration, centered.
+    """
     if duration <= 0:
         return False
 
     fps = 30
     total_frames = int(duration * fps)
 
-    # zoompan: slow zoom from 1.0 to 1.1, centered
+    # Smooth ease-in-out zoom using cosine interpolation
+    # progress = on/d (0→1 over duration)
+    # zoom = 1 + 0.08 * (1 - cos(progress * PI)) / 2
+    # This gives smooth acceleration and deceleration
+    zoom_range = 0.08  # 8% zoom — subtle but visible, no jitter
+    zoom_expr = f"1+{zoom_range}*(1-cos(on/{total_frames}*PI))/2"
+
     filter_complex = (
-        f"scale=1920:1080:force_original_aspect_ratio=decrease,"
-        f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,"
-        f"zoompan=z='min(zoom+0.0003,1.1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"scale=3840:2160:force_original_aspect_ratio=decrease,"
+        f"pad=3840:2160:(ow-iw)/2:(oh-ih)/2:black,"
+        f"zoompan=z='{zoom_expr}':"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"d={total_frames}:s=1920x1080:fps={fps}"
     )
 
@@ -159,7 +257,6 @@ def create_final_video(video_segments: List[Path], audio_path: Path, output_path
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k",
             "-map", "0:v", "-map", "1:a",
-            "-shortest",
             str(output_path)
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -313,13 +410,22 @@ def build_visual_segments_from_librarian(
             if img.exists():
                 image_path = img
 
-        # Handle carry-forward
-        if display_mode == "carry_forward" or not image_path:
-            if last_image_path:
-                image_path = last_image_path
-        else:
-            if image_path:
-                last_image_path = image_path
+        # Get transcript text for overlay
+        transcript_text = seg_data.get("text_preview", "")
+        # Get full text from structured script if available
+        if structured_script:
+            script_seg = structured_script.get_segment(segment_idx)
+            if script_seg:
+                transcript_text = script_seg.text
+
+        # Handle carry-forward and transcript fallback
+        if image_path:
+            last_image_path = image_path
+        elif display_mode == "carry_forward" and last_image_path:
+            image_path = last_image_path
+        elif display_mode in ("text_only", "carry_forward") or not image_path:
+            # No image available — use transcript overlay
+            display_mode = "transcript"
 
         start_time = cumulative_time
         end_time = cumulative_time + audio_duration
@@ -333,6 +439,7 @@ def build_visual_segments_from_librarian(
             audio_duration=audio_duration,
             start_time=start_time,
             end_time=end_time,
+            transcript_text=transcript_text,
         ))
 
     return segments, manifest
@@ -484,14 +591,23 @@ async def _assemble_async(
                 description=f"Segment {seg.segment_idx:03d} ({seg.display_mode})..."
             )
 
-            if seg.image_path and seg.image_path.exists():
+            success = False
+            if seg.display_mode == "transcript" or (not seg.image_path or not seg.image_path.exists()):
+                # Transcript overlay — text on dark background
+                success = create_transcript_overlay(
+                    seg.transcript_text or f"Segment {seg.segment_idx}",
+                    seg.audio_duration,
+                    segment_path
+                )
+            elif seg.image_path and seg.image_path.exists():
                 success = create_video_with_ken_burns(
                     seg.image_path,
                     seg.audio_duration,
                     segment_path
                 )
-                if success:
-                    video_segments.append(segment_path)
+
+            if success:
+                video_segments.append(segment_path)
 
             progress.advance(task)
 
