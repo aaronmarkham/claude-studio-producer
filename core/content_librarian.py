@@ -327,6 +327,21 @@ class ContentLibrarian:
             # The assembly will need to handle missing figure
             return ("figure_sync", None)
 
+        # Respect the DoP's display_mode assignment if set
+        dop_mode = segment.display_mode
+        if dop_mode and dop_mode not in ("figure_sync",):  # figure_sync handled above
+            # Find any image asset for this segment (approved or draft)
+            img_assets = self.library.query(
+                asset_type=AssetType.IMAGE,
+                segment_idx=segment.idx,
+            )
+            if img_assets:
+                return (dop_mode, img_assets[0].asset_id)
+            # DoP assigned a mode but no asset yet
+            if dop_mode in ("dall_e", "web_image"):
+                return (dop_mode, None)
+            return (dop_mode, None)
+
         # Check if we have an approved image for this segment
         approved_img = self.library.get_approved_for_segment(
             segment.idx,
