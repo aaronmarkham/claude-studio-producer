@@ -38,6 +38,7 @@ class AssetSource(str, Enum):
     LUMA = "luma"
     RUNWAY = "runway"
     KB_EXTRACTION = "kb_extraction"
+    WEB = "web"                 # Sourced from web (Wikimedia Commons, etc.)
     FFMPEG = "ffmpeg"           # Processed/composited
     MANUAL = "manual"           # User-provided
 

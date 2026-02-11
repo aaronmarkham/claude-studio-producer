@@ -819,19 +819,22 @@ async def generate_live_assets(
     """
     from core.models.video_production import SceneAssets
     from core.providers.image.dalle import DalleProvider
+    from core.providers.image.wikimedia import WikimediaProvider
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
     import shutil
 
     t = get_theme()
     assets = []
 
-    # Initialize DALL-E provider
+    # Initialize image providers
+    dalle = None
+    wikimedia = WikimediaProvider()
+
     try:
         dalle = DalleProvider()
     except ValueError as e:
-        console.print(f"[{t.error}]Failed to initialize DALL-E: {e}[/]")
-        console.print(f"[{t.dimmed}]Run 'claude-studio secrets set OPENAI_API_KEY' to configure[/]")
-        return []
+        console.print(f"[{t.dimmed}]DALL-E not available: {e}[/]")
+        console.print(f"[{t.dimmed}]Web image and KB figure modes still active[/]")
 
     # Prepare librarian for asset registration (Unified Production Architecture)
     librarian = None
@@ -848,8 +851,9 @@ async def generate_live_assets(
             segments_to_skip = set(reusable.keys())
             console.print(f"[{t.dimmed}]Skipping {len(segments_to_skip)} segments with approved assets[/]")
 
-    # Count scenes needing DALL-E generation
+    # Count scenes needing generation by type
     scenes_needing_dalle = []
+    scenes_needing_web_image = []
     scenes_with_kb_figures = []
     scenes_shared = []
 
@@ -874,13 +878,16 @@ async def generate_live_assets(
             scenes_shared.append(plan)
         elif kb_figure:
             scenes_with_kb_figures.append(plan)
-        elif plan.dalle_prompt:
+        elif budget_mode == 'web_image':
+            scenes_needing_web_image.append(plan)
+        elif plan.dalle_prompt and budget_mode != 'web_image':
             scenes_needing_dalle.append(plan)
         else:
             scenes_shared.append(plan)
 
     console.print(f"\n[{t.label}]Asset generation plan:[/]")
     console.print(f"  [green]KB figures to copy:[/] {len(scenes_with_kb_figures)}")
+    console.print(f"  [cyan]Web images to source:[/] {len(scenes_needing_web_image)} (Wikimedia Commons)")
     console.print(f"  [yellow]DALL-E images to generate:[/] {len(scenes_needing_dalle)}")
     console.print(f"  [dim]Shared/text-only (no generation):[/] {len(scenes_shared)}")
     console.print()
@@ -934,8 +941,81 @@ async def generate_live_assets(
 
         console.print(f"[{t.success}]Copied {len(scenes_with_kb_figures)} KB figures[/]")
 
+    # Source web images from Wikimedia Commons
+    if scenes_needing_web_image:
+        console.print(f"\n[{t.label}]Sourcing web images from Wikimedia Commons...[/]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Searching...", total=len(scenes_needing_web_image))
+
+            for plan in scenes_needing_web_image:
+                search_query = plan.dalle_prompt  # We stored the search query here
+                progress.update(task, description=f"Searching: {search_query[:40]}...")
+
+                result = await wikimedia.generate_image(
+                    prompt=search_query,
+                    output_dir=str(images_dir),
+                    prefer_diagrams=True,
+                )
+
+                if result.success and result.image_path:
+                    # Rename to standard scene naming
+                    src = Path(result.image_path)
+                    dst = images_dir / f"{plan.scene_id}.png"
+                    if src != dst:
+                        shutil.move(str(src), str(dst))
+                    image_path = str(dst)
+
+                    assets.append(SceneAssets(
+                        scene_id=plan.scene_id,
+                        image_path=image_path,
+                        video_path=None,
+                        visual_plan=plan
+                    ))
+
+                    # Register web image asset (Unified Production Architecture)
+                    if librarian is not None:
+                        seg_idx = None
+                        if plan.scene_id.startswith("scene_"):
+                            try:
+                                seg_idx = int(plan.scene_id.split("_")[1])
+                            except (IndexError, ValueError):
+                                pass
+                        if seg_idx is not None:
+                            from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
+                            asset = AssetRecord(
+                                asset_id=f"web_{seg_idx:04d}",
+                                asset_type=AssetType.IMAGE,
+                                source=AssetSource.WEB,
+                                status=AssetStatus.DRAFT,
+                                segment_idx=seg_idx,
+                                path=image_path,
+                                generation_prompt=search_query,
+                            )
+                            librarian.library.register(asset)
+
+                            if structured_script is not None:
+                                seg = structured_script.get_segment(seg_idx)
+                                if seg:
+                                    seg.visual_asset_id = asset.asset_id
+
+                    console.print(f"  [{t.dimmed}]{plan.scene_id}: {result.provider_metadata.get('title', '?')[:50]} ({result.provider_metadata.get('license', '?')})[/]")
+                else:
+                    console.print(f"  [{t.dimmed}]{plan.scene_id}: no image found, will use carry-forward[/]")
+
+                progress.advance(task)
+
+        web_count = sum(1 for a in assets if a.scene_id in {p.scene_id for p in scenes_needing_web_image})
+        console.print(f"[{t.success}]Sourced {web_count} web images (cost: $0.00)[/]")
+
     # Generate DALL-E images
-    if scenes_needing_dalle:
+    if scenes_needing_dalle and dalle is not None:
         console.print(f"\n[{t.label}]Generating DALL-E images...[/]")
 
         with Progress(
@@ -1180,6 +1260,7 @@ async def _produce_video_async(
 
             console.print(f"[{t.label}]DoP visual assignment:[/]")
             console.print(f"[{t.dimmed}]  Figure sync: {dop_summary['figure_sync']} (KB figures)[/]")
+            console.print(f"[{t.dimmed}]  Web image: {dop_summary['web_image']} (Wikimedia Commons)[/]")
             console.print(f"[{t.dimmed}]  DALL-E: {dop_summary['dall_e']}[/]")
             console.print(f"[{t.dimmed}]  Carry forward: {dop_summary['carry_forward']}[/]")
             console.print(f"[{t.dimmed}]  Text only: {dop_summary['text_only']}[/]")
@@ -1235,6 +1316,16 @@ async def _produce_video_async(
                 if display_mode == "dall_e":
                     # Generate DALL-E prompt from visual direction
                     dalle_prompt = f"{seg.visual_direction} {style_consistency['style_suffix']}"
+                elif display_mode == "web_image":
+                    # Build search query from key concepts + segment text
+                    search_parts = []
+                    if seg.key_concepts:
+                        search_parts.extend(seg.key_concepts[:3])
+                    if not search_parts:
+                        # Fall back to first few words of segment text
+                        words = seg.text.split()[:8]
+                        search_parts.append(" ".join(words))
+                    dalle_prompt = " ".join(search_parts)  # Reuse dalle_prompt field for search query
                 elif display_mode == "figure_sync":
                     # Use KB figure
                     figures_matched += 1
@@ -1257,7 +1348,7 @@ async def _produce_video_async(
                                 break
 
                 # Ken Burns for non-animated scenes with images
-                if display_mode in ["dall_e", "figure_sync"]:
+                if display_mode in ["dall_e", "web_image", "figure_sync"]:
                     ken_burns = {"enabled": True, "direction": "slow_zoom_in", "duration_match": "scene_duration"}
 
                 plan = SceneVisualPlan(
