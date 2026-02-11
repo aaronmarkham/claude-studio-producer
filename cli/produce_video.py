@@ -1078,7 +1078,7 @@ async def generate_live_assets(
                                 status=AssetStatus.DRAFT,
                                 segment_idx=seg_idx,
                                 path=image_path,
-                                generation_prompt=search_query,
+                                prompt=search_query,
                             )
                             librarian.library.register(asset)
 
@@ -1163,7 +1163,7 @@ async def generate_live_assets(
                                 status=AssetStatus.DRAFT,
                                 segment_idx=seg_idx,
                                 path=image_path,
-                                generation_prompt=plan.dalle_prompt,
+                                prompt=plan.dalle_prompt,
                             )
                             librarian.library.register(asset)
 
