@@ -162,12 +162,16 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
 
     # Count scenes that actually need DALL-E generation
     # - Has a non-empty dalle_prompt AND
-    # - Not in text_only or shared mode
+    # - Not in text_only, shared, or web_image mode
     dalle_needed = []
+    web_image_needed = []
     for p in visual_plans:
         budget_mode = getattr(p, 'budget_mode', None)
         if budget_mode == "text_only" or budget_mode == "shared":
-            continue  # No DALL-E needed
+            continue  # No generation needed
+        if budget_mode == "web_image":
+            web_image_needed.append(p)
+            continue  # Wikimedia, not DALL-E
         if not p.dalle_prompt:
             continue  # Empty prompt means no generation
         dalle_needed.append(p)
@@ -210,6 +214,15 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
         "-",
         "[green]$0.00[/]"
     )
+
+    # Web images row (Wikimedia Commons - free)
+    if web_image_needed:
+        table.add_row(
+            "Web Images (Wikimedia)",
+            "-",
+            str(len(web_image_needed)),
+            "[green]$0.00[/]"
+        )
 
     # DALL-E images row
     dalle_cost = dalle_to_generate * dalle_cost_per_image
@@ -332,6 +345,10 @@ def print_full_scene_list(visual_plans: list, scenes: list = None):
             # Show which primary scene this shares with
             shares_with = getattr(plan, 'shares_image_with', '?')
             source = f"[dim]shared[/]"
+        elif budget_mode == "web_image":
+            source = "[cyan]Wikimedia[/]"
+        elif budget_mode == "carry_forward":
+            source = "[dim]carry fwd[/]"
         elif budget_mode == "primary":
             source = "[yellow]DALL-E[/]"
         else:

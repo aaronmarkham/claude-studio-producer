@@ -39,9 +39,9 @@ def _resolve_project(project: str) -> Optional[Path]:
     if exact.is_dir():
         return exact
 
-    # Prefix match on directory name
+    # Prefix match on directory name (also check without kb_ prefix)
     for d in KB_DIR.iterdir():
-        if d.is_dir() and d.name.startswith(project):
+        if d.is_dir() and (d.name.startswith(project) or d.name == f"kb_{project}"):
             return d
 
     # Name match (case-insensitive) via project.json
@@ -1557,4 +1557,4 @@ Generate the complete podcast script now:"""
         preview += "..."
     console.print(f"[{t.dimmed}]{preview}[/]")
 
-    console.print(f"\n[{t.label}]Next step:[/] cs produce-video --script {script_path} --budget low --mock")
+    console.print(f"\n[{t.label}]Next step:[/] cs produce-video --script {script_path} --kb \"{proj.name}\" --budget medium --mock")
