@@ -57,7 +57,7 @@ class TestAssetSource:
 
     def test_asset_source_count(self):
         """Test that we have the expected number of sources"""
-        assert len(AssetSource) == 9
+        assert len(AssetSource) == 10
 
 
 class TestAssetRecord:

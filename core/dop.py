@@ -87,7 +87,7 @@ def assign_visuals(
     else:
         dalle_budget_for_images = 0
 
-    # Phase 4: Score and assign DALL-E to remaining segments by importance
+    # Phase 4: Score and assign images to remaining segments by importance
     segments_needing_assignment = [s for s in script.segments if s.display_mode is None]
 
     # First, separate transitions (they always get text_only)
@@ -98,7 +98,7 @@ def assign_visuals(
     for seg in transition_segments:
         seg.display_mode = "text_only"
 
-    # Now allocate DALL-E to non-transition segments
+    # Now allocate images to non-transition segments
     if dalle_budget_for_images > 0 and non_transition_segments:
         # Sort by importance (descending)
         # Prioritize: approved assets first, then by importance score
@@ -111,25 +111,29 @@ def assign_visuals(
             reverse=True
         )
 
-        dalle_assigned = 0
+        image_assigned = 0
         for seg in sorted_segments:
-            if dalle_assigned < dalle_budget_for_images:
-                seg.display_mode = "dall_e"
+            if image_assigned < dalle_budget_for_images:
                 # Link to existing approved image if available
                 existing = library.get_approved_for_segment(seg.idx, AssetType.IMAGE)
                 if existing:
+                    seg.display_mode = "dall_e"
                     seg.visual_asset_id = existing.asset_id
-                dalle_assigned += 1
+                elif _should_use_web_image(seg):
+                    seg.display_mode = "web_image"
+                else:
+                    seg.display_mode = "dall_e"
+                image_assigned += 1
             else:
                 seg.display_mode = "carry_forward"
     else:
-        # No DALL-E budget, assign carry_forward
+        # No image budget, assign carry_forward
         for seg in non_transition_segments:
             seg.display_mode = "carry_forward"
 
-    # Phase 6: Generate visual direction for dall_e and figure_sync
+    # Phase 6: Generate visual direction for dall_e, web_image, and figure_sync
     for seg in script.segments:
-        if seg.display_mode in ["dall_e", "figure_sync"] and not seg.visual_direction:
+        if seg.display_mode in ["dall_e", "web_image", "figure_sync"] and not seg.visual_direction:
             seg.visual_direction = _generate_visual_direction(seg, script, library)
 
     return script
@@ -231,7 +235,111 @@ def _generate_visual_direction(
     if not hints:
         hints.append("Create a professional visual representation of the narration content.")
 
+    # For web_image mode, generate a concise search query instead of art direction
+    if seg.display_mode == "web_image":
+        return _generate_web_search_query(seg)
+
     return " ".join(filter(None, hints))
+
+
+def _generate_web_search_query(seg: ScriptSegment) -> str:
+    """
+    Generate a concise Wikimedia Commons search query from segment content.
+
+    Unlike DALL-E prompts (which describe desired art), web image queries
+    need short, specific noun phrases that match real photographs/diagrams.
+    """
+    import re
+
+    parts = []
+
+    # Use key_concepts first — they're the best source
+    if seg.key_concepts:
+        parts.extend(seg.key_concepts[:3])
+
+    # Extract capitalized terms (proper nouns, technical terms) from text
+    if not parts:
+        # Find multi-word capitalized phrases and standalone capitalized words
+        caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', seg.text)
+        # Deduplicate while preserving order
+        seen = set()
+        for term in caps:
+            lower = term.lower()
+            # Skip common sentence starters
+            if lower in {'the', 'this', 'that', 'these', 'but', 'and', 'now',
+                         'so', 'well', 'let', 'here', 'what', 'how', 'when',
+                         'think', 'consider', 'imagine', 'look', 'hey', 'welcome'}:
+                continue
+            if lower not in seen:
+                seen.add(lower)
+                parts.append(term)
+            if len(parts) >= 4:
+                break
+
+    # Still nothing? Extract long words as a last resort
+    if not parts:
+        words = re.findall(r'\b[a-zA-Z]{6,}\b', seg.text)
+        stop = {'really', 'actually', 'probably', 'basically', 'something',
+                'through', 'between', 'another', 'because', 'however',
+                'different', 'interesting', 'talking', 'looking', 'everything'}
+        parts = [w for w in words if w.lower() not in stop][:4]
+
+    # Add domain context based on intent
+    intent_context = {
+        SegmentIntent.EXPLANATION: "diagram",
+        SegmentIntent.DATA_WALKTHROUGH: "chart data",
+        SegmentIntent.EVIDENCE: "research",
+        SegmentIntent.COMPARISON: "comparison",
+    }
+    if seg.intent in intent_context and len(parts) < 3:
+        parts.append(intent_context[seg.intent])
+
+    return " ".join(parts) if parts else "scientific diagram"
+
+
+# Intents that tend to discuss concrete, searchable real-world concepts
+_WEB_IMAGE_INTENTS = {
+    SegmentIntent.CONTEXT,
+    SegmentIntent.EXPLANATION,
+    SegmentIntent.EVIDENCE,
+    SegmentIntent.DATA_WALKTHROUGH,
+    SegmentIntent.NARRATIVE,
+    SegmentIntent.COMPARISON,
+}
+
+# Intents that are more abstract/editorial — better suited for generated images
+_GENERATED_IMAGE_INTENTS = {
+    SegmentIntent.INTRO,
+    SegmentIntent.OUTRO,
+    SegmentIntent.COMMENTARY,
+    SegmentIntent.SPECULATION,
+    SegmentIntent.QUESTION,
+    SegmentIntent.SYNTHESIS,
+}
+
+
+def _should_use_web_image(seg: ScriptSegment) -> bool:
+    """Determine whether a segment should prefer a sourced web image over DALL-E.
+
+    Prefers web_image for segments that discuss concrete, searchable topics
+    (technical concepts, real-world objects, named systems). Falls back to
+    dall_e for abstract or editorial segments.
+    """
+    # Concrete intents prefer web images
+    if seg.intent in _WEB_IMAGE_INTENTS:
+        return True
+
+    # Abstract intents prefer generated images
+    if seg.intent in _GENERATED_IMAGE_INTENTS:
+        return False
+
+    # For other intents, use key_concepts as a signal
+    # If the segment has specific, named concepts, web images are likely better
+    if seg.key_concepts and len(seg.key_concepts) >= 2:
+        return True
+
+    # Default to web_image — sourced images are generally safer than DALL-E
+    return True
 
 
 def get_visual_plan_summary(script: StructuredScript) -> Dict[str, int]:
@@ -242,6 +350,7 @@ def get_visual_plan_summary(script: StructuredScript) -> Dict[str, int]:
     """
     summary = {
         "figure_sync": 0,
+        "web_image": 0,
         "dall_e": 0,
         "carry_forward": 0,
         "text_only": 0,

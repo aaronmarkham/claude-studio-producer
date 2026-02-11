@@ -162,12 +162,16 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
 
     # Count scenes that actually need DALL-E generation
     # - Has a non-empty dalle_prompt AND
-    # - Not in text_only or shared mode
+    # - Not in text_only, shared, or web_image mode
     dalle_needed = []
+    web_image_needed = []
     for p in visual_plans:
         budget_mode = getattr(p, 'budget_mode', None)
         if budget_mode == "text_only" or budget_mode == "shared":
-            continue  # No DALL-E needed
+            continue  # No generation needed
+        if budget_mode == "web_image":
+            web_image_needed.append(p)
+            continue  # Wikimedia, not DALL-E
         if not p.dalle_prompt:
             continue  # Empty prompt means no generation
         dalle_needed.append(p)
@@ -210,6 +214,15 @@ def print_asset_summary(visual_plans: list, kb_figure_count: int = 0):
         "-",
         "[green]$0.00[/]"
     )
+
+    # Web images row (Wikimedia Commons - free)
+    if web_image_needed:
+        table.add_row(
+            "Web Images (Wikimedia)",
+            "-",
+            str(len(web_image_needed)),
+            "[green]$0.00[/]"
+        )
 
     # DALL-E images row
     dalle_cost = dalle_to_generate * dalle_cost_per_image
@@ -332,6 +345,10 @@ def print_full_scene_list(visual_plans: list, scenes: list = None):
             # Show which primary scene this shares with
             shares_with = getattr(plan, 'shares_image_with', '?')
             source = f"[dim]shared[/]"
+        elif budget_mode == "web_image":
+            source = "[cyan]Wikimedia[/]"
+        elif budget_mode == "carry_forward":
+            source = "[dim]carry fwd[/]"
         elif budget_mode == "primary":
             source = "[yellow]DALL-E[/]"
         else:
@@ -434,6 +451,71 @@ async def load_training_trial(trial_id: str) -> dict:
         "knowledge_graph": knowledge_graph,
         "structured_script": structured_script,  # New: StructuredScript if available
     }
+
+
+def script_segments_to_aligned(structured_script: StructuredScript):
+    """
+    Bridge: Convert StructuredScript segments to AlignedSegment objects.
+
+    This enables --script mode by creating AlignedSegments from a parsed script
+    without requiring training data. The AlignedSegments feed into segments_to_scenes()
+    for the existing video production pipeline.
+    """
+    from core.training.models import (
+        AlignedSegment, TranscriptSegment, SegmentType
+    )
+    from core.models.structured_script import SegmentIntent
+
+    # Map SegmentIntent → SegmentType (best-effort mapping)
+    INTENT_TO_TYPE = {
+        SegmentIntent.INTRO: SegmentType.INTRO,
+        SegmentIntent.OUTRO: SegmentType.CONCLUSION,
+        SegmentIntent.TRANSITION: SegmentType.TRANSITION,
+        SegmentIntent.RECAP: SegmentType.CONCLUSION,
+        SegmentIntent.CONTEXT: SegmentType.BACKGROUND,
+        SegmentIntent.EXPLANATION: SegmentType.METHODOLOGY,
+        SegmentIntent.DEFINITION: SegmentType.BACKGROUND,
+        SegmentIntent.NARRATIVE: SegmentType.BACKGROUND,
+        SegmentIntent.CLAIM: SegmentType.KEY_FINDING,
+        SegmentIntent.EVIDENCE: SegmentType.KEY_FINDING,
+        SegmentIntent.DATA_WALKTHROUGH: SegmentType.KEY_FINDING,
+        SegmentIntent.FIGURE_REFERENCE: SegmentType.FIGURE_DISCUSSION,
+        SegmentIntent.ANALYSIS: SegmentType.IMPLICATION,
+        SegmentIntent.COMPARISON: SegmentType.METHODOLOGY,
+        SegmentIntent.COUNTERPOINT: SegmentType.LIMITATION,
+        SegmentIntent.SYNTHESIS: SegmentType.IMPLICATION,
+        SegmentIntent.COMMENTARY: SegmentType.TANGENT,
+        SegmentIntent.QUESTION: SegmentType.TANGENT,
+        SegmentIntent.SPECULATION: SegmentType.IMPLICATION,
+    }
+
+    aligned = []
+    cumulative_time = 0.0
+
+    for seg in structured_script.segments:
+        duration = seg.estimated_duration_sec or (len(seg.text.split()) / 150 * 60)
+        seg_type = INTENT_TO_TYPE.get(seg.intent, SegmentType.BACKGROUND)
+
+        transcript_seg = TranscriptSegment(
+            segment_id=f"seg_{seg.idx:03d}",
+            text=seg.text,
+            start_time=cumulative_time,
+            end_time=cumulative_time + duration,
+            duration=duration,
+            segment_type=seg_type.value,
+        )
+
+        aligned.append(AlignedSegment(
+            segment_id=f"seg_{seg.idx:03d}",
+            transcript_segment=transcript_seg,
+            segment_type=seg_type,
+            key_concepts=seg.key_concepts,
+            referenced_figures=[f"figure_{f}" for f in seg.figure_refs],
+        ))
+
+        cumulative_time += duration
+
+    return aligned
 
 
 def reconstruct_aligned_segments(segment_dicts: list):
@@ -811,19 +893,22 @@ async def generate_live_assets(
     """
     from core.models.video_production import SceneAssets
     from core.providers.image.dalle import DalleProvider
+    from core.providers.image.wikimedia import WikimediaProvider
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
     import shutil
 
     t = get_theme()
     assets = []
 
-    # Initialize DALL-E provider
+    # Initialize image providers
+    dalle = None
+    wikimedia = WikimediaProvider()
+
     try:
         dalle = DalleProvider()
     except ValueError as e:
-        console.print(f"[{t.error}]Failed to initialize DALL-E: {e}[/]")
-        console.print(f"[{t.dimmed}]Run 'claude-studio secrets set OPENAI_API_KEY' to configure[/]")
-        return []
+        console.print(f"[{t.dimmed}]DALL-E not available: {e}[/]")
+        console.print(f"[{t.dimmed}]Web image and KB figure modes still active[/]")
 
     # Prepare librarian for asset registration (Unified Production Architecture)
     librarian = None
@@ -840,8 +925,9 @@ async def generate_live_assets(
             segments_to_skip = set(reusable.keys())
             console.print(f"[{t.dimmed}]Skipping {len(segments_to_skip)} segments with approved assets[/]")
 
-    # Count scenes needing DALL-E generation
+    # Count scenes needing generation by type
     scenes_needing_dalle = []
+    scenes_needing_web_image = []
     scenes_with_kb_figures = []
     scenes_shared = []
 
@@ -866,13 +952,16 @@ async def generate_live_assets(
             scenes_shared.append(plan)
         elif kb_figure:
             scenes_with_kb_figures.append(plan)
-        elif plan.dalle_prompt:
+        elif budget_mode == 'web_image':
+            scenes_needing_web_image.append(plan)
+        elif plan.dalle_prompt and budget_mode != 'web_image':
             scenes_needing_dalle.append(plan)
         else:
             scenes_shared.append(plan)
 
     console.print(f"\n[{t.label}]Asset generation plan:[/]")
     console.print(f"  [green]KB figures to copy:[/] {len(scenes_with_kb_figures)}")
+    console.print(f"  [cyan]Web images to source:[/] {len(scenes_needing_web_image)} (Wikimedia Commons)")
     console.print(f"  [yellow]DALL-E images to generate:[/] {len(scenes_needing_dalle)}")
     console.print(f"  [dim]Shared/text-only (no generation):[/] {len(scenes_shared)}")
     console.print()
@@ -926,8 +1015,81 @@ async def generate_live_assets(
 
         console.print(f"[{t.success}]Copied {len(scenes_with_kb_figures)} KB figures[/]")
 
+    # Source web images from Wikimedia Commons
+    if scenes_needing_web_image:
+        console.print(f"\n[{t.label}]Sourcing web images from Wikimedia Commons...[/]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Searching...", total=len(scenes_needing_web_image))
+
+            for plan in scenes_needing_web_image:
+                search_query = plan.dalle_prompt  # We stored the search query here
+                progress.update(task, description=f"Searching: {search_query[:40]}...")
+
+                result = await wikimedia.generate_image(
+                    prompt=search_query,
+                    output_dir=str(images_dir),
+                    prefer_diagrams=True,
+                )
+
+                if result.success and result.image_path:
+                    # Rename to standard scene naming
+                    src = Path(result.image_path)
+                    dst = images_dir / f"{plan.scene_id}.png"
+                    if src != dst:
+                        shutil.move(str(src), str(dst))
+                    image_path = str(dst)
+
+                    assets.append(SceneAssets(
+                        scene_id=plan.scene_id,
+                        image_path=image_path,
+                        video_path=None,
+                        visual_plan=plan
+                    ))
+
+                    # Register web image asset (Unified Production Architecture)
+                    if librarian is not None:
+                        seg_idx = None
+                        if plan.scene_id.startswith("scene_"):
+                            try:
+                                seg_idx = int(plan.scene_id.split("_")[1])
+                            except (IndexError, ValueError):
+                                pass
+                        if seg_idx is not None:
+                            from core.models.content_library import AssetRecord, AssetType, AssetSource, AssetStatus
+                            asset = AssetRecord(
+                                asset_id=f"web_{seg_idx:04d}",
+                                asset_type=AssetType.IMAGE,
+                                source=AssetSource.WEB,
+                                status=AssetStatus.DRAFT,
+                                segment_idx=seg_idx,
+                                path=image_path,
+                                prompt=search_query,
+                            )
+                            librarian.library.register(asset)
+
+                            if structured_script is not None:
+                                seg = structured_script.get_segment(seg_idx)
+                                if seg:
+                                    seg.visual_asset_id = asset.asset_id
+
+                    console.print(f"  [{t.dimmed}]{plan.scene_id}: {result.provider_metadata.get('title', '?')[:50]} ({result.provider_metadata.get('license', '?')})[/]")
+                else:
+                    console.print(f"  [{t.dimmed}]{plan.scene_id}: no image found, will use carry-forward[/]")
+
+                progress.advance(task)
+
+        web_count = sum(1 for a in assets if a.scene_id in {p.scene_id for p in scenes_needing_web_image})
+        console.print(f"[{t.success}]Sourced {web_count} web images (cost: $0.00)[/]")
+
     # Generate DALL-E images
-    if scenes_needing_dalle:
+    if scenes_needing_dalle and dalle is not None:
         console.print(f"\n[{t.label}]Generating DALL-E images...[/]")
 
         with Progress(
@@ -1087,8 +1249,49 @@ async def _produce_video_async(
         aligned_segment_dicts = trial_data["aligned_segments"]
         console.print(f"[{t.success}]Loaded {len(aligned_segment_dicts)} aligned segments[/]")
         console.print()
+    elif script_path:
+        # --script mode: parse script file directly (no training required)
+        script_file = Path(script_path)
+        if not script_file.exists():
+            raise click.ClickException(f"Script file not found: {script_path}")
+
+        console.print(f"[{t.label}]Loading script file:[/] {script_file.name}")
+        script_text = script_file.read_text(encoding="utf-8")
+
+        # Build StructuredScript from flat text
+        structured_script_obj = StructuredScript.from_script_text(
+            script_text=script_text,
+            trial_id=run_id,
+        )
+        console.print(f"[{t.success}]Parsed {len(structured_script_obj.segments)} segments from script[/]")
+
+        # Convert to AlignedSegments for the video pipeline
+        aligned_segments_list = script_segments_to_aligned(structured_script_obj)
+        aligned_segment_dicts = [
+            {
+                "segment_id": a.segment_id,
+                "transcript_segment": {
+                    "segment_id": a.transcript_segment.segment_id,
+                    "text": a.transcript_segment.text,
+                    "start_time": a.transcript_segment.start_time,
+                    "end_time": a.transcript_segment.end_time,
+                    "duration": a.transcript_segment.duration,
+                },
+                "segment_type": a.segment_type.value,
+                "key_concepts": a.key_concepts,
+                "referenced_figures": a.referenced_figures,
+            }
+            for a in aligned_segments_list
+        ]
+        # Store structured script in trial_data-like dict for downstream use
+        trial_data = {
+            "aligned_segments": aligned_segment_dicts,
+            "structured_script": structured_script_obj,
+        }
+        console.print(f"[{t.success}]Loaded {len(aligned_segment_dicts)} aligned segments[/]")
+        console.print()
     else:
-        raise click.ClickException("Currently only --from-training mode is supported")
+        raise click.ClickException("Provide --from-training or --script")
 
     # Reconstruct AlignedSegment objects
     with Progress(
@@ -1111,7 +1314,7 @@ async def _produce_video_async(
             console.print(f"[{t.warning}]Could not load knowledge graph: {e}[/]")
 
     # Check if we have a structured script (Unified Production Architecture)
-    structured_script = trial_data.get("structured_script") if from_training else None
+    structured_script = trial_data.get("structured_script") if (from_training or script_path) else None
     use_dop = structured_script is not None
 
     if use_dop:
@@ -1176,6 +1379,7 @@ async def _produce_video_async(
 
             console.print(f"[{t.label}]DoP visual assignment:[/]")
             console.print(f"[{t.dimmed}]  Figure sync: {dop_summary['figure_sync']} (KB figures)[/]")
+            console.print(f"[{t.dimmed}]  Web image: {dop_summary['web_image']} (Wikimedia Commons)[/]")
             console.print(f"[{t.dimmed}]  DALL-E: {dop_summary['dall_e']}[/]")
             console.print(f"[{t.dimmed}]  Carry forward: {dop_summary['carry_forward']}[/]")
             console.print(f"[{t.dimmed}]  Text only: {dop_summary['text_only']}[/]")
@@ -1231,6 +1435,39 @@ async def _produce_video_async(
                 if display_mode == "dall_e":
                     # Generate DALL-E prompt from visual direction
                     dalle_prompt = f"{seg.visual_direction} {style_consistency['style_suffix']}"
+                elif display_mode == "web_image":
+                    # Build search query for Wikimedia Commons
+                    # Priority: visual_direction > key_concepts > extracted nouns
+                    if seg.visual_direction:
+                        # DoP already wrote a good description of what to show
+                        dalle_prompt = seg.visual_direction
+                    elif seg.key_concepts:
+                        dalle_prompt = " ".join(seg.key_concepts[:3])
+                    else:
+                        # Extract meaningful terms from segment text
+                        # Filter out common words to get searchable noun phrases
+                        import re as _re
+                        stop_words = {
+                            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+                            'would', 'could', 'should', 'may', 'might', 'can', 'shall',
+                            'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+                            'as', 'into', 'through', 'during', 'before', 'after', 'above',
+                            'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both', 'either',
+                            'it', 'its', 'this', 'that', 'these', 'those', 'you', 'your',
+                            'we', 'our', 'they', 'their', 'he', 'she', 'his', 'her',
+                            'what', 'which', 'who', 'whom', 'how', 'when', 'where', 'why',
+                            'here', 'there', 'about', 'just', 'like', 'get', 'got',
+                            'really', 'actually', 'probably', 'right', 'going', 'let',
+                            'know', 'think', 'say', 'said', 'one', 'way', 'thing',
+                            've', 've', 're', 's', 't', 'don', 'doesn', 'didn', 'won',
+                        }
+                        words = _re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|[a-z]{4,}", seg.text)
+                        # Prefer capitalized phrases (proper nouns, technical terms)
+                        caps = [w for w in words if w[0].isupper()]
+                        lower = [w for w in words if w[0].islower() and w.lower() not in stop_words]
+                        terms = (caps[:4] + lower[:3])[:5]
+                        dalle_prompt = " ".join(terms) if terms else seg.intent.value + " diagram"
                 elif display_mode == "figure_sync":
                     # Use KB figure
                     figures_matched += 1
@@ -1253,7 +1490,7 @@ async def _produce_video_async(
                                 break
 
                 # Ken Burns for non-animated scenes with images
-                if display_mode in ["dall_e", "figure_sync"]:
+                if display_mode in ["dall_e", "web_image", "figure_sync"]:
                     ken_burns = {"enabled": True, "direction": "slow_zoom_in", "duration_match": "scene_duration"}
 
                 plan = SceneVisualPlan(
@@ -1587,7 +1824,7 @@ def produce_video_cmd(from_training, script, output, live, style, kb, budget, sh
     \b
     Input modes:
       --from-training  Use a training trial's script and segments
-      --script         Use an existing script file (coming soon)
+      --script         Use an existing script file (no training required)
 
     \b
     Budget tiers (use --show-tiers to see detailed costs):
