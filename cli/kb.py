@@ -1383,3 +1383,178 @@ def inspect_cmd(project: Optional[str], file_path: Optional[str], show_topics: b
 
             if count > sample:
                 console.print(f"  [dim]... and {count - sample} more[/dim]\n")
+
+
+@kb_cmd.command("script")
+@click.argument("project")
+@click.option("--prompt", "-p", default=None, help="Focus/direction for the script (optional)")
+@click.option("--duration", "-d", type=float, default=600.0, help="Target duration in seconds (default: 10 min)")
+@click.option("--style", type=click.Choice(["conversational", "educational", "documentary", "deep_dive"]),
+              default="conversational", help="Script style")
+@click.option("--sources", "-s", multiple=True, help="Limit to specific source IDs")
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output file path (default: auto)")
+@click.option("--structured/--flat", default=True, help="Also save structured JSON (default: yes)")
+def script_cmd(project, prompt, duration, style, sources, output, structured):
+    """Generate a podcast script from KB content (no training required).
+
+    \b
+    Examples:
+      claude-studio kb script "Colleague Paper"
+      claude-studio kb script myproject -p "Focus on the methodology" -d 900
+      claude-studio kb script myproject --style deep_dive -o my_script.txt
+    """
+    asyncio.run(_generate_kb_script(project, prompt, duration, style, sources, output, structured))
+
+
+async def _generate_kb_script(project, prompt, duration, style, sources, output, save_structured):
+    """Generate a podcast-style script from KB content."""
+    import time
+    from core.models.knowledge import KnowledgeGraph
+    from core.models.structured_script import StructuredScript
+    from core.claude_client import ClaudeClient
+    from cli.theme import get_theme
+
+    t = get_theme()
+
+    # Resolve project
+    project_dir = _resolve_project(project)
+    if not project_dir:
+        console.print(f"[red]Project not found:[/red] {project}")
+        return
+
+    proj = _load_project(project_dir)
+    if not proj.sources:
+        console.print(f"[red]No sources in project.[/red] Add sources first.")
+        return
+
+    # Load knowledge graph
+    kg_path = project_dir / "knowledge_graph.json"
+    if not kg_path.exists():
+        console.print("[red]No knowledge graph found.[/red] Add sources to build the graph.")
+        return
+
+    with open(kg_path, encoding="utf-8") as f:
+        kg_data = json.load(f)
+    kg = KnowledgeGraph.from_dict(kg_data)
+
+    source_filter = list(sources) if sources else None
+
+    # Build rich context from KB
+    kb_context = _build_concept_from_kb(proj, kg, prompt or "Explain the key findings", source_filter)
+
+    # Extract figures for the structured script
+    from core.models.document import AtomType
+    kb_figures = {}
+    for atom_id, atom in kg.atoms.items():
+        atom_type = getattr(atom, 'atom_type', None)
+        if atom_type is not None:
+            atom_type = atom_type.value if hasattr(atom_type, 'value') else str(atom_type)
+        if atom_type == 'figure':
+            fig_num = getattr(atom, 'figure_number', None)
+            if fig_num:
+                kb_figures[fig_num] = {
+                    "kb_path": getattr(atom, 'image_path', '') or '',
+                    "caption": getattr(atom, 'caption', '') or '',
+                    "description": getattr(atom, 'data_summary', '') or '',
+                }
+
+    target_minutes = duration / 60
+    target_words = int(duration * 2.5)  # ~150 WPM
+
+    style_guidance = {
+        "conversational": "Conversational and engaging, like a podcast between friends who are experts. Use analogies, ask rhetorical questions, express genuine curiosity.",
+        "educational": "Clear and pedagogical. Build concepts step by step. Define terms before using them. Use examples and analogies.",
+        "documentary": "Authoritative and narrative-driven. Tell the story of the research. Paint a picture of why this matters.",
+        "deep_dive": "Thorough and detailed. Go deep into methodology and results. Don't shy away from technical details but explain them clearly.",
+    }
+
+    console.print(Panel(
+        f"[bold]KB Script Generation[/bold]\n"
+        f"Project: {proj.name} ({len(proj.sources)} sources, {len(kg.atoms)} atoms)\n"
+        f"Style: {style} | Target: {target_minutes:.0f} min (~{target_words} words)\n"
+        f"Prompt: {prompt or '(auto)'}",
+        border_style="blue"
+    ))
+
+    script_prompt = f"""You are creating a podcast-style audio script about the content in this knowledge base.
+
+=== CONTENT SOURCE ===
+{kb_context}
+
+=== INSTRUCTIONS ===
+TARGET:
+- Duration: ~{target_minutes:.0f} minutes
+- Word count: ~{target_words} words
+- Style: {style_guidance[style]}
+
+STRUCTURE:
+- Start with an engaging hook that draws the listener in
+- Build context before diving into technical details
+- Reference specific figures by number when discussing visualizations or data
+- Use transitions between major sections
+- End with implications, open questions, or a compelling takeaway
+
+CRITICAL RULES:
+1. All facts, findings, author names, and data must come from the KB content above
+2. Reference figures by number when relevant (e.g., "As we can see in Figure 3...")
+3. Write ONLY the transcript text — no JSON, no scene markers, no stage directions
+4. Use paragraph breaks between major topic shifts
+5. Do NOT repeat or duplicate content — each paragraph should cover new ground
+6. Aim precisely for ~{target_words} words
+
+Generate the complete podcast script now:"""
+
+    console.print(f"\n[{t.label}]Generating script with Claude...[/]")
+    start_time = time.time()
+
+    client = ClaudeClient()
+    response, usage = await client.query(script_prompt, return_usage=True)
+    script_text = response.strip()
+
+    elapsed = time.time() - start_time
+
+    # Check for duplication (the known bug)
+    words = script_text.split()
+    word_count = len(words)
+    half = len(script_text) // 2
+    if half > 100 and script_text[:200] == script_text[half:half+200]:
+        console.print(f"[yellow]⚠ Detected duplicate content — trimming to first half[/]")
+        script_text = script_text[:half].rstrip()
+        words = script_text.split()
+        word_count = len(words)
+
+    if usage:
+        console.print(f"[{t.dimmed}]API usage: {usage.get('input_tokens', 0)} in + {usage.get('output_tokens', 0)} out = {usage.get('total_tokens', 0)} tokens ({elapsed:.1f}s)[/]")
+
+    console.print(f"[{t.success}]Generated {word_count} words (~{word_count / 150:.1f} min at 150 WPM)[/]")
+
+    # Save script
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if output:
+        script_path = Path(output)
+    else:
+        script_path = project_dir / f"script_{timestamp}.txt"
+
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(script_text, encoding="utf-8")
+    console.print(f"[{t.success}]Script saved to:[/] {script_path}")
+
+    # Save structured version
+    if save_structured:
+        ss = StructuredScript.from_script_text(
+            script_text=script_text,
+            trial_id=f"kb_script_{timestamp}",
+            kb_figures=kb_figures if kb_figures else None,
+        )
+        ss_path = script_path.with_suffix('.json')
+        ss.save(ss_path)
+        console.print(f"[{t.success}]Structured script:[/] {ss_path} ({len(ss.segments)} segments)")
+
+    # Preview
+    console.print(f"\n[{t.label}]Preview:[/]")
+    preview = script_text[:600]
+    if len(script_text) > 600:
+        preview += "..."
+    console.print(f"[{t.dimmed}]{preview}[/]")
+
+    console.print(f"\n[{t.label}]Next step:[/] cs produce-video --script {script_path} --budget low --mock")
