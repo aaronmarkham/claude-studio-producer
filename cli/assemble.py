@@ -78,90 +78,202 @@ def get_media_duration(path: Path) -> float:
         return 0.0
 
 
+from dataclasses import dataclass
+
+@dataclass
+class WordPosition:
+    """Pre-computed position for a word in the karaoke overlay."""
+    word: str
+    line_idx: int
+    x: int      # pixel x position
+    y: int      # pixel y position
+    width: int  # rendered width in pixels
+
+def _load_font(size: int, bold: bool = False):
+    """Load OpenDyslexic font with fallback chain."""
+    from PIL import ImageFont
+    from pathlib import Path
+
+    # OpenDyslexic bundled in project
+    assets_dir = Path(__file__).parent.parent / "assets" / "fonts"
+    dyslexic = assets_dir / ("OpenDyslexic-Bold.otf" if bold else "OpenDyslexic-Regular.otf")
+    if dyslexic.exists():
+        return ImageFont.truetype(str(dyslexic), size)
+
+    # System fallbacks
+    for path in [
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
+
+
+def _render_text_with_kerning(draw, x: int, y: int, text: str, font, fill, extra_spacing: int = 2):
+    """Render text character-by-character with extra letter spacing."""
+    cursor_x = x
+    for char in text:
+        bbox = draw.textbbox((0, 0), char, font=font)
+        char_w = bbox[2] - bbox[0]
+        draw.text((cursor_x, y), char, fill=fill, font=font)
+        cursor_x += char_w + extra_spacing
+    return cursor_x - x  # total width rendered
+
+
+def _measure_text_with_kerning(draw, text: str, font, extra_spacing: int = 2) -> int:
+    """Measure width of text with extra letter spacing."""
+    total = 0
+    for char in text:
+        bbox = draw.textbbox((0, 0), char, font=font)
+        total += (bbox[2] - bbox[0]) + extra_spacing
+    return total - extra_spacing if text else 0  # remove trailing spacing
+
+
 def create_transcript_overlay(text: str, duration: float, output_path: Path,
-                               font_size: int = 42, max_chars_per_line: int = 50,
+                               font_size: int = 48, max_chars_per_line: int = 42,
                                bg_color: tuple = (26, 26, 46),
                                text_color: str = "white") -> bool:
-    """Create a video segment showing transcript text on a dark background.
+    """Create a karaoke-style video segment with progressive text highlighting.
 
-    Uses Pillow for text rendering (no freetype/drawtext dependency) and
-    ffmpeg to encode the static frame into a video segment.
+    Renders frame-by-frame animation where the current word is highlighted white,
+    already-read words fade to grey, and upcoming words are dim.
+    Uses Pillow for rendering and ffmpeg for encoding.
     """
-    from PIL import Image, ImageDraw, ImageFont
+    import shutil
+    from PIL import Image, ImageDraw
 
-    if duration <= 0:
+    if duration <= 0 or not text.strip():
         return False
 
-    # Word-wrap text
-    words = text.split()
-    lines = []
-    current_line = []
-    current_len = 0
-    for word in words:
-        if current_len + len(word) + 1 > max_chars_per_line and current_line:
-            lines.append(" ".join(current_line))
-            current_line = [word]
-            current_len = len(word)
+    font = _load_font(font_size)
+    line_height = int(font_size * 1.8)
+    extra_kerning = 3
+    margin_x = int(1920 * 0.15)
+    max_text_width = 1920 - (margin_x * 2)
+
+    # --- Pre-compute word positions ---
+    # First, word-wrap into lines
+    img_measure = Image.new('RGB', (1920, 1080), color=bg_color)
+    draw_measure = ImageDraw.Draw(img_measure)
+
+    all_words = text.split()
+    if not all_words:
+        return False
+
+    # Build lines of words
+    lines_of_words = []  # list of lists of words
+    current_line_words = []
+    for word in all_words:
+        test_line = " ".join(current_line_words + [word])
+        test_w = _measure_text_with_kerning(draw_measure, test_line, font, extra_kerning)
+        if test_w > max_text_width and current_line_words:
+            lines_of_words.append(current_line_words)
+            current_line_words = [word]
         else:
-            current_line.append(word)
-            current_len += len(word) + 1
-    if current_line:
-        lines.append(" ".join(current_line))
+            current_line_words.append(word)
+    if current_line_words:
+        lines_of_words.append(current_line_words)
 
-    # Limit to ~12 lines (screen height) — truncate if needed
-    if len(lines) > 12:
-        lines = lines[:12]
-        lines[-1] = lines[-1][:max_chars_per_line - 3] + "..."
+    # Limit lines to screen
+    max_lines = max(1, (1080 - int(1080 * 0.3)) // line_height)
+    if len(lines_of_words) > max_lines:
+        lines_of_words = lines_of_words[:max_lines]
 
-    wrapped = "\n".join(lines)
+    # Compute total text height and starting Y
+    total_text_height = len(lines_of_words) * line_height
+    start_y = (1080 - total_text_height) // 2
 
-    # Render with Pillow
-    img = Image.new('RGB', (1920, 1080), color=bg_color)
-    draw = ImageDraw.Draw(img)
+    # Build WordPosition list
+    word_positions = []
+    space_width = _measure_text_with_kerning(draw_measure, " ", font, extra_kerning)
 
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-    except OSError:
-        try:
-            # Linux fallback
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-        except OSError:
-            font = ImageFont.load_default(size=font_size)
+    for line_idx, line_words in enumerate(lines_of_words):
+        # Calculate full line width for centering
+        full_line = " ".join(line_words)
+        line_w = _measure_text_with_kerning(draw_measure, full_line, font, extra_kerning)
+        line_x = (1920 - line_w) // 2
+        y = start_y + (line_idx * line_height)
 
-    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    x = (1920 - text_w) // 2
-    y = (1080 - text_h) // 2
+        cursor_x = line_x
+        for word in line_words:
+            w = _measure_text_with_kerning(draw_measure, word, font, extra_kerning)
+            word_positions.append(WordPosition(
+                word=word, line_idx=line_idx, x=cursor_x, y=y, width=w
+            ))
+            cursor_x += w + space_width
 
-    # Draw text with slight shadow for readability
-    draw.multiline_text((x + 2, y + 2), wrapped, fill=(0, 0, 0), font=font, align="center")
-    draw.multiline_text((x, y), wrapped, fill=text_color, font=font, align="center")
-
-    # Save frame to temp file
-    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-        frame_path = f.name
-        img.save(frame_path)
-
+    # --- Generate frames ---
     fps = 30
-    cmd = [
-        "ffmpeg", "-y",
-        "-loop", "1",
-        "-i", frame_path,
-        "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-pix_fmt", "yuv420p",
-        "-r", str(fps),
-        str(output_path)
-    ]
+    total_frames = int(duration * fps)
+    if total_frames < 1:
+        total_frames = 1
+
+    words_per_second = len(word_positions) / duration if duration > 0 else len(word_positions)
+
+    # Color scheme
+    color_read = (102, 102, 102)      # already read - grey
+    color_current = (255, 255, 255)   # current word - white
+    color_upcoming = (68, 68, 68)     # upcoming - dim
+    color_shadow = (0, 0, 0)
+
+    temp_dir = tempfile.mkdtemp(prefix="karaoke_")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        for frame_num in range(total_frames):
+            elapsed = frame_num / fps
+            current_word_idx = min(int(elapsed * words_per_second), len(word_positions) - 1)
+
+            img = Image.new('RGB', (1920, 1080), color=bg_color)
+            draw = ImageDraw.Draw(img)
+
+            # Pass 1: drop shadows for all words
+            for wp in word_positions:
+                for offset in [(3, 3), (2, 2)]:
+                    _render_text_with_kerning(
+                        draw, wp.x + offset[0], wp.y + offset[1],
+                        wp.word, font, fill=color_shadow, extra_spacing=extra_kerning
+                    )
+
+            # Pass 2: colored text
+            for idx, wp in enumerate(word_positions):
+                if idx < current_word_idx:
+                    color = color_read
+                elif idx == current_word_idx:
+                    color = color_current
+                else:
+                    color = color_upcoming
+
+                _render_text_with_kerning(
+                    draw, wp.x, wp.y, wp.word, font,
+                    fill=color, extra_spacing=extra_kerning
+                )
+
+            frame_path = os.path.join(temp_dir, f"{frame_num:05d}.png")
+            img.save(frame_path)
+
+        # --- Encode with ffmpeg ---
+        cmd = [
+            "ffmpeg", "-y",
+            "-framerate", str(fps),
+            "-i", os.path.join(temp_dir, "%05d.png"),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            str(output_path)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         return result.returncode == 0
+
     except subprocess.TimeoutExpired:
         return False
+    except Exception as e:
+        logger.error(f"Karaoke overlay failed: {e}")
+        return False
     finally:
-        os.unlink(frame_path)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def create_video_with_ken_burns(image_path: Path, duration: float, output_path: Path) -> bool:
@@ -199,6 +311,31 @@ def create_video_with_ken_burns(image_path: Path, duration: float, output_path: 
         "-t", str(duration),
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-pix_fmt", "yuv420p",
+        str(output_path)
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def create_static_image_video(image_path: Path, duration: float, output_path: Path) -> bool:
+    """Create a video from a static image with no zoom/pan — just scale and hold."""
+    if duration <= 0:
+        return False
+
+    fps = 30
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", str(image_path),
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black",
+        "-t", str(duration),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-r", str(fps),
         str(output_path)
     ]
 
@@ -600,11 +737,20 @@ async def _assemble_async(
                     segment_path
                 )
             elif seg.image_path and seg.image_path.exists():
-                success = create_video_with_ken_burns(
-                    seg.image_path,
-                    seg.audio_duration,
-                    segment_path
-                )
+                # Only use Ken Burns effect for dall_e (AI-generated) images
+                if seg.display_mode == "dall_e":
+                    success = create_video_with_ken_burns(
+                        seg.image_path,
+                        seg.audio_duration,
+                        segment_path
+                    )
+                else:
+                    # For web_image, figure_sync, and all others: static hold (no zoom)
+                    success = create_static_image_video(
+                        seg.image_path,
+                        seg.audio_duration,
+                        segment_path
+                    )
 
             if success:
                 video_segments.append(segment_path)
