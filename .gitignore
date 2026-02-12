@@ -74,3 +74,5 @@ setup_here.sh
 artifacts/*
 !artifacts/.gitkeep
 !artifacts/README.md
+audio/
+images/

@@ -38,6 +38,8 @@ KNOWN_KEYS = {
     "KLING_API_KEY": "Kling AI API key (video)",
     "MUBERT_API_KEY": "Mubert API key (music)",
     "SUNO_API_KEY": "Suno API key (music)",
+    "YOUTUBE_CLIENT_SECRETS_PATH": "Path to YouTube OAuth2 client secrets JSON",
+    "YOUTUBE_API_KEY": "YouTube Data API key",
 }
 
 

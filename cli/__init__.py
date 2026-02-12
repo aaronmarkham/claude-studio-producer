@@ -22,6 +22,7 @@ from .training import training
 from .produce_video import produce_video_cmd
 from .assemble import assemble_cmd
 from .assets import assets
+from .upload import upload_cmd
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -92,6 +93,9 @@ main.add_command(providers_cmd, name="providers")
 main.add_command(agents_cmd, name="agents")
 main.add_command(config_cmd, name="config")
 main.add_command(themes_cmd, name="themes")
+
+# Upload commands
+main.add_command(upload_cmd, name="upload")
 
 
 if __name__ == "__main__":
