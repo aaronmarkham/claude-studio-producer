@@ -33,20 +33,38 @@ class YouTubeUploader:
     """Upload videos to YouTube using the Data API v3.
     
     Authentication flow:
-    1. First run: opens browser for OAuth2 consent, stores refresh token
+    1. First run: opens browser for OAuth2 consent, stores refresh token in keychain
     2. Subsequent runs: uses stored refresh token (no browser needed)
     
-    Requires a YouTube API OAuth2 client secrets JSON file.
-    Set via: cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/client_secrets.json
-    Or set YOUTUBE_API_KEY for simple API access (uploads need OAuth though).
+    Secrets stored in OS keychain (no files on disk):
+        cs secrets set YOUTUBE_CLIENT_ID <client_id>
+        cs secrets set YOUTUBE_CLIENT_SECRET <client_secret>
+    
+    Or legacy file-based approach:
+        cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/client_secrets.json
     """
     
-    def __init__(self, client_secrets_path: Optional[str] = None, token_dir: Optional[Path] = None):
+    def __init__(self, client_id: Optional[str] = None, client_secret: Optional[str] = None,
+                 client_secrets_path: Optional[str] = None, token_dir: Optional[Path] = None):
         self.token_dir = token_dir or DEFAULT_TOKEN_DIR
         self.token_dir.mkdir(parents=True, exist_ok=True)
         self.token_path = self.token_dir / "token.json"
+        self.client_id = client_id
+        self.client_secret = client_secret
         self.client_secrets_path = client_secrets_path
         self._service = None
+
+    def _build_client_config(self) -> Dict[str, Any]:
+        """Build OAuth2 client config from individual secrets."""
+        return {
+            "installed": {
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": ["http://localhost"],
+            }
+        }
 
     def _get_credentials(self):
         """Get or refresh OAuth2 credentials."""
@@ -62,18 +80,28 @@ class YouTubeUploader:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
-                if not self.client_secrets_path or not Path(self.client_secrets_path).exists():
+                # Prefer individual secrets over file path
+                if self.client_id and self.client_secret:
+                    client_config = self._build_client_config()
+                    flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+                elif self.client_secrets_path and Path(self.client_secrets_path).exists():
+                    flow = InstalledAppFlow.from_client_secrets_file(self.client_secrets_path, SCOPES)
+                else:
                     raise FileNotFoundError(
-                        "YouTube OAuth2 client secrets file not found. "
-                        "Download from Google Cloud Console (APIs > Credentials > OAuth 2.0 Client IDs) "
-                        "and set path via: cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/client_secrets.json"
+                        "YouTube OAuth2 credentials not configured.\n"
+                        "Set via keychain (recommended):\n"
+                        "  cs secrets set YOUTUBE_CLIENT_ID <your_client_id>\n"
+                        "  cs secrets set YOUTUBE_CLIENT_SECRET <your_client_secret>\n"
+                        "Or via file:\n"
+                        "  cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/client_secrets.json"
                     )
-                flow = InstalledAppFlow.from_client_secrets_file(self.client_secrets_path, SCOPES)
+                flow = flow if isinstance(flow, InstalledAppFlow) else flow
                 creds = flow.run_local_server(port=0)
 
-            # Save token for future runs
+            # Save refresh token for future runs
             with open(self.token_path, "w") as f:
                 f.write(creds.to_json())
+            os.chmod(str(self.token_path), 0o600)
 
         return creds
 

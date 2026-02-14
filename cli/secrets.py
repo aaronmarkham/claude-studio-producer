@@ -77,8 +77,11 @@ def set_key(key_name: str, value: str = None):
 
     # Normalize key name
     key_name = key_name.upper()
-    if not key_name.endswith("_API_KEY") and not key_name.endswith("_KEY"):
-        key_name = f"{key_name}_API_KEY"
+
+    # Only auto-append _API_KEY if the key isn't already known and doesn't end with a known suffix
+    if key_name not in KNOWN_KEYS:
+        if not key_name.endswith("_API_KEY") and not key_name.endswith("_KEY") and not key_name.endswith("_ID") and not key_name.endswith("_SECRET") and not key_name.endswith("_PATH"):
+            key_name = f"{key_name}_API_KEY"
 
     # Check if it's a known key
     if key_name not in KNOWN_KEYS:
@@ -126,8 +129,9 @@ def delete_key(key_name: str, force: bool = False):
 
     # Normalize key name
     key_name = key_name.upper()
-    if not key_name.endswith("_API_KEY") and not key_name.endswith("_KEY"):
-        key_name = f"{key_name}_API_KEY"
+    if key_name not in KNOWN_KEYS:
+        if not key_name.endswith("_API_KEY") and not key_name.endswith("_KEY") and not key_name.endswith("_ID") and not key_name.endswith("_SECRET") and not key_name.endswith("_PATH"):
+            key_name = f"{key_name}_API_KEY"
 
     if not force:
         if not click.confirm(f"Delete {key_name} from keychain?"):

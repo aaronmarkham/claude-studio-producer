@@ -10,6 +10,32 @@ from core.secrets import get_api_key
 console = Console()
 
 
+def _get_uploader():
+    """Create YouTubeUploader from keychain secrets (preferred) or file path (legacy)."""
+    from core.providers.upload.youtube import YouTubeUploader
+
+    client_id = get_api_key("YOUTUBE_CLIENT_ID")
+    client_secret = get_api_key("YOUTUBE_CLIENT_SECRET")
+    client_secrets_path = get_api_key("YOUTUBE_CLIENT_SECRETS_PATH")
+
+    if client_id and client_secret:
+        return YouTubeUploader(client_id=client_id, client_secret=client_secret)
+    elif client_secrets_path:
+        return YouTubeUploader(client_secrets_path=client_secrets_path)
+    else:
+        console.print(Panel(
+            "[red]YouTube OAuth2 credentials not configured.[/red]\n\n"
+            "[bold]Option 1 — Keychain (recommended):[/bold]\n"
+            "  [cyan]cs secrets set YOUTUBE_CLIENT_ID <your_client_id>[/cyan]\n"
+            "  [cyan]cs secrets set YOUTUBE_CLIENT_SECRET <your_client_secret>[/cyan]\n\n"
+            "[bold]Option 2 — JSON file:[/bold]\n"
+            "  [cyan]cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/client_secrets.json[/cyan]\n\n"
+            "Get credentials from Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Desktop app)",
+            title="YouTube Setup Required",
+        ))
+        raise click.Abort()
+
+
 @click.group()
 def upload_cmd():
     """Upload videos to platforms."""
@@ -29,28 +55,15 @@ def youtube(video_path, title, description, tags, category, privacy, notify):
     """Upload a video to YouTube.
     
     Requires OAuth2 setup on first run (opens browser for consent).
-    Set client secrets path: cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/file.json
+    
+    Setup:
+        cs secrets set YOUTUBE_CLIENT_ID <client_id>
+        cs secrets set YOUTUBE_CLIENT_SECRET <client_secret>
     
     Example:
         cs upload youtube ./rough_cut.mp4 -t "Hallucination Stations Explained"
     """
-    from core.providers.upload.youtube import YouTubeUploader
-
-    # Get client secrets path from secrets store
-    client_secrets = get_api_key("YOUTUBE_CLIENT_SECRETS_PATH")
-    if not client_secrets:
-        console.print(Panel(
-            "[red]YouTube OAuth2 client secrets not configured.[/red]\n\n"
-            "1. Go to Google Cloud Console → APIs & Services → Credentials\n"
-            "2. Create an OAuth 2.0 Client ID (Desktop application)\n"
-            "3. Download the client secrets JSON file\n"
-            "4. Run: [cyan]cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/client_secrets.json[/cyan]",
-            title="YouTube Setup Required",
-        ))
-        raise click.Abort()
-
-    uploader = YouTubeUploader(client_secrets_path=client_secrets)
-
+    uploader = _get_uploader()
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
     with console.status("[bold green]Uploading to YouTube..."):
@@ -84,14 +97,7 @@ def youtube_auth():
     Opens a browser window for Google account authorization.
     Only needed once — token is stored for future uploads.
     """
-    from core.providers.upload.youtube import YouTubeUploader
-
-    client_secrets = get_api_key("YOUTUBE_CLIENT_SECRETS_PATH")
-    if not client_secrets:
-        console.print("[red]Set client secrets first: cs secrets set YOUTUBE_CLIENT_SECRETS_PATH /path/to/file.json[/red]")
-        raise click.Abort()
-
-    uploader = YouTubeUploader(client_secrets_path=client_secrets)
+    uploader = _get_uploader()
 
     console.print("[yellow]Opening browser for YouTube authorization...[/yellow]")
     try:
