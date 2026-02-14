@@ -1,7 +1,9 @@
 """Upload command - Upload produced videos to YouTube."""
 
+import json
 import click
 from pathlib import Path
+from datetime import datetime, timezone
 from rich.console import Console
 from rich.panel import Panel
 
@@ -34,6 +36,46 @@ def _get_uploader():
             title="YouTube Setup Required",
         ))
         raise click.Abort()
+
+
+def _save_upload_metadata(video_path: str, result, title: str, description: str,
+                          tags: list, privacy: str):
+    """Save upload metadata to the production directory and assembly manifest."""
+    video_file = Path(video_path)
+    upload_meta = {
+        "platform": "youtube",
+        "video_id": result.video_id,
+        "url": result.video_url,
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "privacy": privacy,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "source_file": str(video_file.name),
+    }
+
+    # Save upload record next to the video
+    upload_record_path = video_file.parent / "upload_record.json"
+    records = []
+    if upload_record_path.exists():
+        try:
+            records = json.loads(upload_record_path.read_text())
+        except (json.JSONDecodeError, Exception):
+            records = []
+    records.append(upload_meta)
+    upload_record_path.write_text(json.dumps(records, indent=2))
+
+    # Update assembly manifest if it exists
+    manifest_path = video_file.parent / "assembly_manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            if "uploads" not in manifest:
+                manifest["uploads"] = []
+            manifest["uploads"].append(upload_meta)
+            manifest_path.write_text(json.dumps(manifest, indent=2))
+        except (json.JSONDecodeError, Exception):
+            pass  # Don't fail the upload over metadata
 
 
 @click.group()
@@ -85,6 +127,9 @@ def youtube(video_path, title, description, tags, category, privacy, notify):
             f"Privacy: {privacy}",
             title="YouTube Upload",
         ))
+
+        # Save upload metadata alongside the video
+        _save_upload_metadata(video_path, result, title, description, tag_list, privacy)
     else:
         console.print(f"[red]✗ Upload failed: {result.error}[/red]")
         raise click.Abort()
