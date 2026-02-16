@@ -13,6 +13,29 @@ A chronological record of development decisions, discoveries, and lessons learne
 
 ## Recent Updates
 
+### <img src="https://github.com/aaronmarkham.png?size=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 15, 2026 - YouTube Publishing
+
+I spent the last week playing with OpenClaw and even had my new agent, Lilit, start working with the codebase. Some of the most recent updates like getting the OpenTTS provider working and the YouTube publishing working was courtesy of Lilit.
+
+I think the most interesting aspect of this was able to teach Lilit to use this studio CLI, and now I can just ask for a podcast about x topic and I'll get one. 
+
+Yesterday I wanted to learn about the latest advances in memory, and she provided two papers from 2026. I selected said make a podcast for each. One was very long, 17 pages, and something was causing the subagent to fail extracting the pdf, so she made a [github issue about it](https://github.com/aaronmarkham/claude-studio-producer/issues/10). I probably need to figure out how to have that agent get a proper identity like when Claude Code makes an update and you see that we committed together, rather that it coming up as an issue from me.
+
+Anyways, the [second paper about "FadeMem"]( https://arxiv.org/abs/2601.18642), had no such issue. Here's the video:
+https://youtu.be/eToEeH0yz4o
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/eToEeH0yz4o" frameborder="0" allowfullscreen></iframe>
+
+This video is a culmination of several advances:
+1. karaoke style text renderings
+2. more selective image inputs (oh yeah, we have a new wikimedia provider!)
+3. knowledge base has better alignment with the content and we're also timeline aware so that the spoken word of the script is better about trigger relevant visuals
+4. there's probably more, but I can't recall right now because it has been a pretty intense week!
+
+I'll see if Lilit cares to chime in on that. No doubt she will.
+
+Oh! Classic burying the lede: you can just have OpenClaw (or your agent of choice) drive this studio and generate videos from w/e source content you want. The CLI is so feature rich that they can tinker with it and make a wide variety of content about your source material, so my focus on science papers was purely self-limiting on my laser focus. GLHF!
+
 ### <img src="https://avatars.githubusercontent.com/u/81847?s=20" width="20" height="20" style="border-radius:50%; vertical-align:middle"/> Feb 9, 2026 - Content-Aware Document Classification
 
 The KB ingestion pipeline was treating all documents identically, which caused metadata pollution — author affiliations and university names were leaking into key themes. Now a `ContentClassifier` runs before the LLM to identify document type and structural zones.
