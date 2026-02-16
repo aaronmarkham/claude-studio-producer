@@ -721,7 +721,6 @@ async def generate_scene_audio(
 
     Returns dict mapping audio_id -> audio_path
     """
-    from core.providers.audio.elevenlabs import ElevenLabsProvider
     from core.secrets import get_api_key
 
     t = get_theme()
@@ -731,17 +730,41 @@ async def generate_scene_audio(
         console.print(f"[{t.dimmed}]Mock mode: Skipping audio generation[/]")
         return audio_paths
 
-    # Check API key
-    api_key = get_api_key("ELEVENLABS_API_KEY")
-    if not api_key:
-        console.print(f"[{t.error}]ELEVENLABS_API_KEY not set - skipping audio[/]")
-        return audio_paths
+    # Try ElevenLabs first, fall back to OpenAI TTS
+    # Set TTS_PROVIDER=openai to force OpenAI TTS (e.g., when ElevenLabs quota is exhausted)
+    import os as _os
+    audio_provider = None
+    force_provider = _os.environ.get("TTS_PROVIDER", "").lower()
 
-    try:
-        audio_provider = ElevenLabsProvider()
-    except Exception as e:
-        console.print(f"[{t.error}]Failed to initialize ElevenLabs: {e}[/]")
-        return audio_paths
+    if force_provider != "openai":
+        api_key = get_api_key("ELEVENLABS_API_KEY")
+        if api_key:
+            try:
+                from core.providers.audio.elevenlabs import ElevenLabsProvider
+                audio_provider = ElevenLabsProvider()
+                console.print(f"[{t.label}]Using ElevenLabs TTS[/]")
+            except Exception as e:
+                console.print(f"[{t.warning}]ElevenLabs unavailable: {e}[/]")
+
+    if audio_provider is None:
+        openai_key = get_api_key("OPENAI_API_KEY")
+        if openai_key:
+            try:
+                from core.providers.audio.openai_tts import OpenAITTSProvider
+                from core.providers.base import AudioProviderConfig
+                config = AudioProviderConfig(api_key=openai_key)
+                audio_provider = OpenAITTSProvider(config, model="tts-1-hd")
+                console.print(f"[{t.label}]Using OpenAI TTS (HD)[/]")
+            except Exception as e:
+                console.print(f"[{t.warning}]OpenAI TTS unavailable: {e}[/]")
+
+    if audio_provider is None:
+        console.print(f"[{t.error}]No TTS provider available - set ELEVENLABS_API_KEY or OPENAI_API_KEY[/]")
+
+    # Map ElevenLabs voice IDs to OpenAI voices when using OpenAI TTS
+    from core.providers.audio.openai_tts import OpenAITTSProvider as _OpenAITTS
+    if isinstance(audio_provider, _OpenAITTS):
+        voice_id = "onyx"  # Deep, authoritative — good for narration
 
     # Create audio directory
     audio_dir = output_dir / "audio"

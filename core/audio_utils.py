@@ -58,9 +58,14 @@ async def generate_audio_chunks(
         try:
             result = await provider.generate_speech(text=text, voice_id=voice_id)
 
-            if result.success and result.audio_data:
+            if result.success and (result.audio_data or result.audio_path):
                 audio_path = output_dir / f"{audio_id}.mp3"
-                audio_path.write_bytes(result.audio_data)
+                if result.audio_data:
+                    audio_path.write_bytes(result.audio_data)
+                elif result.audio_path:
+                    # Provider already saved to disk (e.g., OpenAI TTS) — copy to expected location
+                    import shutil
+                    shutil.copy2(result.audio_path, audio_path)
 
                 duration = await get_audio_duration(audio_path)
                 cost = provider.estimate_cost(text)
