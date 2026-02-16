@@ -26,6 +26,12 @@ https://youtu.be/eToEeH0yz4o
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/eToEeH0yz4o" frameborder="0" allowfullscreen></iframe>
 
+One key takeaway is that this was produced by me just having a conversation with the agent, Lilit, and suggesting a more entertaining script, less serious, more John Oliver, more Jon Stewart. The other thing was that I ran out of elevenlabs credits, so Lilit asked me if I wanted to try OpenTTS. I said sure. And it thrashed a little bit and chewed through some opus credits, but it figured it out and published the video using the Onyx voice... while I had dinner. Pretty neat actually.
+
+Prior to that interaction though, I produced this video using the CLI myself, using a pdf about LLM hallucinations and this one shows off some other advances in the studio's tooling.
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/R9OucxBTnYs" frameborder="0" allowfullscreen></iframe>
+
 This video is a culmination of several advances:
 1. karaoke style text renderings
 2. more selective image inputs (oh yeah, we have a new wikimedia provider!)
