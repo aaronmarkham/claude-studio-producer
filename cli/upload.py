@@ -135,6 +135,44 @@ def youtube(video_path, title, description, tags, category, privacy, notify):
         raise click.Abort()
 
 
+@upload_cmd.command("youtube-update")
+@click.argument("video_id")
+@click.option("--title", help="New title")
+@click.option("--description", help="New description")
+@click.option("--tags", default=None, help="Comma-separated tags")
+@click.option("--category", help="YouTube category ID (e.g. 27=Education)")
+@click.option("--privacy", type=click.Choice(["public","unlisted","private"]), help="Privacy status")
+def youtube_update(video_id, title, description, tags, category, privacy):
+    """Update YouTube video metadata after upload.
+
+    Example:
+        cs upload youtube-update <VIDEO_ID> --title "New Title" --description "New desc" --tags "a,b,c" --privacy public
+    """
+    uploader = _get_uploader()
+    tag_list = None
+    if tags is not None:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    console.print(f"[bold green]Updating YouTube video metadata for [cyan]{video_id}[/cyan]...[/bold green]")
+    result = uploader.update_video_metadata(
+        video_id=video_id,
+        title=title,
+        description=description,
+        tags=tag_list,
+        privacy=privacy,
+        category_id=category,
+    )
+    if result.success:
+        console.print(Panel(
+            f"[green]✓ Metadata updated![/green] Video: https://youtu.be/{video_id}",
+            title="YouTube Update",
+        ))
+    else:
+        console.print(f"[red]✗ Update failed: {result.error}[/red]")
+        if "re-auth" in str(result.error):
+            console.print("[yellow]If you see a scope/insufficient permissions error, run: [bold]cs upload youtube-auth[/bold][/yellow]")
+        raise click.Abort()
+
+
 @upload_cmd.command("youtube-auth")
 def youtube_auth():
     """Set up YouTube OAuth2 authentication.

@@ -195,3 +195,66 @@ class YouTubeUploader:
             return True
         except Exception:
             return False
+
+    def update_video_metadata(self, video_id: str, title: str = None, description: str = None, tags=None, privacy: str = None, category_id: str = None) -> UploadResult:
+        """
+        Update an uploaded YouTube video's metadata.
+        Only the provided fields are updated; others are preserved.
+
+        Args:
+            video_id: The YouTube video ID to update
+            title: (optional) New title
+            description: (optional) New description
+            tags: (optional) List of tags
+            privacy: (optional) public|unlisted|private
+            category_id: (optional) New category ID (string)
+        Returns:
+            UploadResult
+        """
+        try:
+            service = self._get_service()
+            # Fetch current metadata
+            video_response = (
+                service.videos()
+                .list(part="snippet,status", id=video_id)
+                .execute()
+            )
+            items = video_response.get("items")
+            if not items:
+                return UploadResult(success=False, error=f"Video {video_id} not found.")
+
+            video = items[0]
+            snippet = video["snippet"]
+            status = video["status"]
+            # Update with provided params
+            if title is not None:
+                snippet["title"] = title
+            if description is not None:
+                snippet["description"] = description
+            if tags is not None:
+                snippet["tags"] = tags
+            if category_id is not None:
+                snippet["categoryId"] = category_id
+            if privacy is not None:
+                status["privacyStatus"] = privacy
+
+            body = {
+                "id": video_id,
+                "snippet": snippet,
+                "status": status,
+            }
+            # Update video metadata
+            updated_video = (
+                service.videos()
+                .update(part="snippet,status", body=body)
+                .execute()
+            )
+            return UploadResult(success=True, video_id=video_id,
+                                video_url=f"https://youtu.be/{video_id}")
+
+        except Exception as e:
+            # Specific error for scope issues
+            err_msg = str(e)
+            if "insufficientPermissions" in err_msg or "insufficient permissions" in err_msg or "403" in err_msg:
+                err_msg += "\n[!] You may need to re-authenticate with: cs upload youtube-auth (scopes updated)"
+            return UploadResult(success=False, video_id=video_id, error=err_msg)
