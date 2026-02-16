@@ -163,21 +163,3 @@ cs luma recover -o ./recovered -n 100
 | `status` | `GENERATION_ID`, `--json` | Show generation status |
 | `download` | `GENERATION_ID`, `-o PATH` | Download a generation |
 | `recover` | `-o DIR`, `-n LIMIT`, `--dry-run` | Recover completed generations |
-
----
-
-## Combine (`cs combine`)
-
-Combine scene videos from a production run.
-
-```bash
-cs combine <run_id> -l              # List available scenes
-cs combine <run_id> -s 1,3,4        # Combine specific scenes
-cs combine <run_id> -o combined.mp4 # Custom output filename
-```
-
-| Option | Description |
-|--------|-------------|
-| `-s`, `--scenes` | Comma-separated scene numbers to combine |
-| `-o`, `--output` | Output filename |
-| `-l`, `--list` | List available scenes without combining |

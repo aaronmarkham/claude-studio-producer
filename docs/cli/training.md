@@ -29,7 +29,7 @@ cs training run --with-audio
 | `--max-trials` | int | 5 | Maximum number of training trials |
 | `--with-audio` | flag | | Generate TTS audio (disabled by default, uses reference audio) |
 
-**Training pairs** should contain matched audio + transcript files in the pairs directory.
+**Training pairs** are discovered by matching same-basename `.pdf` and `.mp3` files in the pairs directory (e.g., `episode01.pdf` + `episode01.mp3`).
 
 ---
 
