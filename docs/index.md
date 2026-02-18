@@ -87,6 +87,7 @@ To a production-ready platform with:
 - [Memory & Learning](specs/MEMORY_AND_DASHBOARD.html) - Provider-specific continuous improvement
 - [Multi-Tenant Memory](specs/MULTI_TENANT_MEMORY_ARCHITECTURE.html) - Enterprise namespace hierarchy
 - [Knowledge Base System](specs/KNOWLEDGE_TO_VIDEO.html) - Document/research to video pipeline
+- [Knowledge Base Deep Dive](knowledge-base-deep-dive.html) - How PDFs become rich knowledge graphs (atoms, topics, figures, quality metrics)
 - [Document Ingestion](specs/DOCUMENT_TO_VIDEO.html) - PDF atomization and semantic chunking
 - [Podcast Training Pipeline](specs/PODCAST_TRAINING_PIPELINE.html) - ML-style iterative quality improvement
 - [Transcript-Led Video Production](specs/TRANSCRIPT_LED_VIDEO_PRODUCTION.html) - Budget-aware visual generation
