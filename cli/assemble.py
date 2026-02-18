@@ -476,7 +476,7 @@ def build_visual_segments_from_manifest(
             img = Path(asset["image_path"])
             if img.exists():
                 image_path = img
-                display_mode = "dall_e"
+                display_mode = asset.get("display_mode", "dall_e")
 
         if image_path:
             last_image_path = image_path
@@ -658,11 +658,17 @@ async def _assemble_async(
         segments, assembly_manifest = build_visual_segments_from_librarian(
             structured_script, librarian, audio_dir
         )
-    elif manifest:
-        console.print(f"[{t.dimmed}]Using asset manifest (legacy mode)[/]")
-        segments = build_visual_segments_from_manifest(manifest, audio_dir, images_dir)
     else:
-        raise click.ClickException("No structured script or asset manifest found")
+        if not structured_script:
+            raise click.ClickException(
+                "No structured script found. Run produce-video first to generate one."
+            )
+        if not content_library:
+            raise click.ClickException(
+                "Content library failed to load. Check content_library.json for invalid "
+                "asset types, sources, or malformed entries. Do NOT fall back to legacy mode — "
+                "fix the content library instead."
+            )
 
     console.print(f"[{t.success}]Loaded {len(segments)} segments[/]\n")
 
