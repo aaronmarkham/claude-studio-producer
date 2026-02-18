@@ -130,6 +130,7 @@ An **atom** is the smallest unit of extracted knowledge. Every piece of informat
 The system recognizes **14 atom types** across three categories:
 
 ### Text Atoms
+
 | Type | Description | Example |
 |------|-------------|---------|
 | `title` | Document title | "Precise Positioning Method of UAV..." |
@@ -140,6 +141,7 @@ The system recognizes **14 atom types** across three categories:
 | `citation` | References, DOIs, licensing info | "Digital Object Identifier 10.1109/..." |
 
 ### Visual Atoms
+
 | Type | Description | Example |
 |------|-------------|---------|
 | `figure` | Extracted figure with AI-generated description | Flowchart of particle filter algorithm |
@@ -149,6 +151,7 @@ The system recognizes **14 atom types** across three categories:
 | `diagram` | Technical diagrams | System architecture diagrams |
 
 ### Meta Atoms
+
 | Type | Description | Example |
 |------|-------------|---------|
 | `author` | Author names and affiliations | "YANGMEI ZHANG, School of Electronic..." |
