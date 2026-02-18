@@ -49,6 +49,7 @@ dependencies = [
     "textstat>=0.7.0",
     "numpy>=1.24.0",
     "pymupdf>=1.24.0",
+    "spiritwriter-core @ git+https://github.com/aaronmarkham/spiritwriter-core.git",
     "Pillow>=10.0.0",
 ]
 
