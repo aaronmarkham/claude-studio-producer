@@ -6,10 +6,33 @@ per-chunk TTS audio via any AudioProvider, get durations, and concatenate.
 """
 
 import asyncio
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
+
+
+def clean_text_for_tts(text: str) -> str:
+    """Clean markdown and formatting artifacts from text before sending to TTS.
+
+    Strips markdown bold/italic markers, headers, and other formatting
+    that TTS engines would read literally (e.g., "asterisk asterisk").
+    """
+    # Remove markdown bold **text** and __text__
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    # Remove markdown italic *text* and _text_ (but not contractions like don't)
+    text = re.sub(r'(?<!\w)\*(.+?)\*(?!\w)', r'\1', text)
+    # Remove markdown headers
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    # Remove markdown links [text](url) → text
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    # Remove remaining stray asterisks
+    text = text.replace('*', '')
+    # Clean up multiple spaces
+    text = re.sub(r'  +', ' ', text)
+    return text.strip()
 
 
 @dataclass
@@ -56,7 +79,8 @@ async def generate_audio_chunks(
             continue
 
         try:
-            result = await provider.generate_speech(text=text, voice_id=voice_id)
+            clean_text = clean_text_for_tts(text)
+            result = await provider.generate_speech(text=clean_text, voice_id=voice_id)
 
             if result.success and (result.audio_data or result.audio_path):
                 audio_path = output_dir / f"{audio_id}.mp3"
