@@ -390,8 +390,8 @@ class StructuredScript:
         figure_mentions: Dict[int, List[int]] = {}  # figure_number -> segment indices
 
         for idx, para in enumerate(paragraphs):
-            # Parse "Figure N" mentions
-            figure_pattern = r"Figure\s+(\d+)"
+            # Parse "Figure N" and "Table N" mentions
+            figure_pattern = r"(?:Figure|Table|Fig\.)\s+(\d+)"
             matches = re.findall(figure_pattern, para, re.IGNORECASE)
             figure_refs = [int(m) for m in matches]
 

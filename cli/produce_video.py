@@ -1455,6 +1455,20 @@ async def _produce_video_async(
                 ken_burns = None
                 kb_figure_path = None
 
+                # Force figure_sync when segment explicitly references a figure/table
+                # regardless of budget tier — explicit references should always show the figure
+                if seg.figure_refs and kb_figure_paths and display_mode != "figure_sync":
+                    for fig_num in seg.figure_refs:
+                        fig_idx = fig_num - 1  # KB figures are 0-indexed
+                        fig_key = f"fig_{fig_idx:03d}"
+                        for kb_id, kb_path in kb_figure_paths.items():
+                            if fig_key in kb_id:
+                                display_mode = "figure_sync"
+                                kb_figure_path = kb_path
+                                break
+                        if kb_figure_path:
+                            break
+
                 if display_mode == "dall_e":
                     # Generate DALL-E prompt from visual direction
                     dalle_prompt = f"{seg.visual_direction} {style_consistency['style_suffix']}"
