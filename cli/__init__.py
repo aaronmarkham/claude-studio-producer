@@ -23,6 +23,7 @@ from .produce_video import produce_video_cmd
 from .assemble import assemble_cmd
 from .assets import assets
 from .upload import upload_cmd
+from .figures import figures
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -69,6 +70,7 @@ main.add_command(produce_cmd, name="produce")
 main.add_command(produce_video_cmd, name="produce-video")
 main.add_command(assemble_cmd, name="assemble")
 main.add_command(assets, name="assets")
+main.add_command(figures, name="figures")
 main.add_command(resume_cmd, name="resume")
 main.add_command(render_cmd, name="render")
 main.add_command(test_provider_cmd, name="test-provider")
