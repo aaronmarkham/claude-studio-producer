@@ -106,7 +106,7 @@ def paper(kb_id, budget, style, voice, duration, live, interactive, provider):
 
     # TODO: Wire to stage_plan → stage_produce → stage_audio → stage_assemble
     # For now, delegate to existing produce pipeline
-    _run_legacy_pipeline(manifest, provider, voice, duration, interactive)
+    _run_pipeline(manifest, provider, voice, duration, interactive)
 
 
 @produce_unified_cmd.command()
@@ -130,7 +130,7 @@ def topic(topic_text, budget, style, voice, duration, live, interactive, provide
     click.echo(f"   Dir: {manifest.run_dir}")
     click.echo()
 
-    _run_legacy_pipeline(manifest, provider, voice, duration, interactive)
+    _run_pipeline(manifest, provider, voice, duration, interactive)
 
 
 @produce_unified_cmd.command()
@@ -169,7 +169,7 @@ def project(shards, kb, asset_paths, prompt, budget, style, voice, duration, liv
     click.echo(f"   Dir: {manifest.run_dir}")
     click.echo()
 
-    _run_legacy_pipeline(manifest, provider, voice, duration, interactive)
+    _run_pipeline(manifest, provider, voice, duration, interactive)
 
 
 @produce_unified_cmd.command("script")
@@ -191,7 +191,7 @@ def script_cmd(script_file, budget, style, voice, duration, live, interactive, p
     click.echo(f"   Dir: {manifest.run_dir}")
     click.echo()
 
-    _run_legacy_pipeline(manifest, provider, voice, duration, interactive)
+    _run_pipeline(manifest, provider, voice, duration, interactive)
 
 
 # === Run management subcommands ===
@@ -322,26 +322,16 @@ def list_runs():
 
 # === Legacy bridge ===
 
-def _run_legacy_pipeline(manifest: RunManifest, provider: str, voice: str,
-                         duration: float, interactive: bool):
-    """Bridge to existing produce pipeline while we refactor.
+def _run_pipeline(manifest: RunManifest, provider: str, voice: str,
+                  duration: float, interactive: bool):
+    """Execute the production pipeline with manifest checkpointing."""
+    import asyncio
+    from core.pipeline.runner import run_pipeline
 
-    This will be replaced stage by stage as we extract functions.
-    """
-    click.echo("⚡ Delegating to production pipeline...")
-    click.echo(f"   (legacy bridge — will be replaced with stage functions)\n")
-
-    # For now, just save the manifest and tell the user what to run
-    if manifest.source_type == SourceType.PAPER and manifest.kb_project:
-        click.echo(f"   Equivalent: cs kb produce {manifest.kb_project} "
-                    f"--budget {manifest.budget.total} --style {manifest.style}"
-                    + (" --live" if manifest.live else ""))
-    elif manifest.source_type == SourceType.SCRIPT and manifest.script_path:
-        click.echo(f"   Equivalent: cs produce-video --script {manifest.script_path} "
-                    f"--budget {manifest.budget.total}"
-                    + (" --live" if manifest.live else ""))
-    else:
-        click.echo(f"   Source type '{manifest.source_type.value}' not yet wired to legacy pipeline")
-
-    click.echo(f"\n   Manifest saved: {manifest.run_dir}/manifest.json")
-    click.echo(f"   Next: wire stage functions to replace legacy pipeline")
+    asyncio.run(run_pipeline(
+        manifest,
+        provider=provider,
+        voice=voice,
+        duration=duration,
+        interactive=interactive,
+    ))
