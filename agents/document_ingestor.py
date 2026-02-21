@@ -93,6 +93,7 @@ class DocumentIngestorAgent(StudioAgent):
         Phase 1: Use PyMuPDF (fitz) to extract raw text blocks and images.
 
         Returns structured extraction with positional information.
+        Processes pages one at a time to limit memory usage on large documents.
 
         Args:
             use_rendered_figures: If True, extract figures by rendering pages and
@@ -100,60 +101,72 @@ class DocumentIngestorAgent(StudioAgent):
                 raw embedded image extraction (faster but may produce fragments).
         """
         import fitz  # PyMuPDF
+        import logging
+
+        logger = logging.getLogger(__name__)
 
         doc = fitz.open(str(path))
-        page_count = len(doc)
+        try:
+            page_count = len(doc)
 
-        text_blocks: List[Dict[str, Any]] = []
-        images: List[Dict[str, Any]] = []
-        seen_xrefs_global: set = set()  # Deduplicate images across pages
-        metadata = {
-            "title": doc.metadata.get("title", ""),
-            "author": doc.metadata.get("author", ""),
-            "subject": doc.metadata.get("subject", ""),
-            "keywords": doc.metadata.get("keywords", ""),
-            "creator": doc.metadata.get("creator", ""),
-            "creation_date": doc.metadata.get("creationDate", ""),
-        }
+            # Size guard: warn on large documents
+            if page_count > 20:
+                logger.warning(
+                    "Large PDF detected (%d pages). Figure extraction will be capped.", page_count
+                )
 
-        for page_num in range(len(doc)):
-            page = doc[page_num]
+            text_blocks: List[Dict[str, Any]] = []
+            images: List[Dict[str, Any]] = []
+            metadata = {
+                "title": doc.metadata.get("title", ""),
+                "author": doc.metadata.get("author", ""),
+                "subject": doc.metadata.get("subject", ""),
+                "keywords": doc.metadata.get("keywords", ""),
+                "creator": doc.metadata.get("creator", ""),
+                "creation_date": doc.metadata.get("creationDate", ""),
+            }
 
-            # Extract text blocks with position
-            blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
-            for block in blocks:
-                if block["type"] == 0:  # Text block
-                    # Combine lines within the block
-                    text = ""
-                    for line in block.get("lines", []):
-                        line_text = ""
-                        for span in line.get("spans", []):
-                            line_text += span.get("text", "")
-                        text += line_text + "\n"
-                    text = text.strip()
-                    if text:
-                        # Detect font size for structure hints
-                        font_sizes = []
-                        is_bold = False
+            # Page-by-page text extraction to limit memory
+            for page_num in range(page_count):
+                page = doc[page_num]
+
+                # Extract text blocks with position
+                blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+                for block in blocks:
+                    if block["type"] == 0:  # Text block
+                        # Combine lines within the block
+                        text = ""
                         for line in block.get("lines", []):
+                            line_text = ""
                             for span in line.get("spans", []):
-                                font_sizes.append(span.get("size", 12))
-                                if "bold" in span.get("font", "").lower():
-                                    is_bold = True
+                                line_text += span.get("text", "")
+                            text += line_text + "\n"
+                        text = text.strip()
+                        if text:
+                            # Detect font size for structure hints
+                            font_sizes = []
+                            is_bold = False
+                            for line in block.get("lines", []):
+                                for span in line.get("spans", []):
+                                    font_sizes.append(span.get("size", 12))
+                                    if "bold" in span.get("font", "").lower():
+                                        is_bold = True
 
-                        avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 12
+                            avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 12
 
-                        text_blocks.append({
-                            "text": text,
-                            "page": page_num,
-                            "bbox": (block["bbox"][0], block["bbox"][1],
-                                     block["bbox"][2], block["bbox"][3]),
-                            "font_size": avg_font_size,
-                            "is_bold": is_bold,
-                        })
+                            text_blocks.append({
+                                "text": text,
+                                "page": page_num,
+                                "bbox": (block["bbox"][0], block["bbox"][1],
+                                         block["bbox"][2], block["bbox"][3]),
+                                "font_size": avg_font_size,
+                                "is_bold": is_bold,
+                            })
 
-        # Close doc temporarily, we'll reopen if needed for figure extraction
-        doc.close()
+                # Release page reference to free memory
+                del page
+        finally:
+            doc.close()
 
         # Extract figures using rendered page approach (better for academic PDFs)
         if use_rendered_figures:
@@ -169,8 +182,13 @@ class DocumentIngestorAgent(StudioAgent):
             metadata=metadata,
         )
 
+    # Memory limits for figure extraction
+    MAX_FIGURES = 20
+    MAX_FIGURE_BYTES = 50 * 1024 * 1024  # 50 MB total
+
     def _extract_rendered_figures(
-        self, path: Path, text_blocks: List[Dict[str, Any]]
+        self, path: Path, text_blocks: List[Dict[str, Any]],
+        max_figures: int = 0, max_figure_bytes: int = 0,
     ) -> List[Dict[str, Any]]:
         """
         Extract figures by rendering pages and detecting figure regions.
@@ -178,101 +196,132 @@ class DocumentIngestorAgent(StudioAgent):
         This method finds figure captions in the text and extracts the image
         region above each caption. Works much better for academic PDFs where
         embedded images are often fragmented.
+
+        Memory-managed: caps total figures and cumulative PNG bytes to prevent
+        OOM on large, image-heavy documents. Pixmaps are freed after each figure.
+
+        Args:
+            max_figures: Maximum figures to extract (0 = use class default).
+            max_figure_bytes: Maximum total PNG bytes (0 = use class default).
         """
         import fitz
         import re
-        import io
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        if max_figures <= 0:
+            max_figures = self.MAX_FIGURES
+        if max_figure_bytes <= 0:
+            max_figure_bytes = self.MAX_FIGURE_BYTES
 
         doc = fitz.open(str(path))
         images = []
+        total_bytes = 0
 
-        # Find figure captions grouped by page
-        caption_pattern = re.compile(
-            r"(FIGURE|Figure|Fig\.?|TABLE|Table)\s*(\d+)",
-            re.IGNORECASE
-        )
+        try:
+            page_count = len(doc)
 
-        captions_by_page: Dict[int, List[Dict]] = {}
-        for block in text_blocks:
-            text = block["text"].strip()
-            match = caption_pattern.match(text)
-            if match:
-                page_num = block["page"]
-                if page_num not in captions_by_page:
-                    captions_by_page[page_num] = []
-                captions_by_page[page_num].append({
-                    "text": text,
-                    "bbox": block["bbox"],
-                    "figure_num": match.group(2),
-                    "figure_type": match.group(1).upper().replace(".", ""),
-                })
+            # Find figure captions grouped by page
+            caption_pattern = re.compile(
+                r"(FIGURE|Figure|Fig\.?|TABLE|Table)\s*(\d+)",
+                re.IGNORECASE
+            )
 
-        # For each page with captions, render and extract figure regions
-        seen_figures = set()  # Track figure numbers to avoid duplicates
+            captions_by_page: Dict[int, List[Dict]] = {}
+            for block in text_blocks:
+                text = block["text"].strip()
+                match = caption_pattern.match(text)
+                if match:
+                    page_num = block["page"]
+                    if page_num not in captions_by_page:
+                        captions_by_page[page_num] = []
+                    captions_by_page[page_num].append({
+                        "text": text,
+                        "bbox": block["bbox"],
+                        "figure_num": match.group(2),
+                        "figure_type": match.group(1).upper().replace(".", ""),
+                    })
 
-        for page_num in sorted(captions_by_page.keys()):
-            page = doc[page_num]
-            page_rect = page.rect
-            page_width = page_rect.width
-            page_height = page_rect.height
+            # Lower zoom for large documents to reduce per-pixmap memory
+            zoom = 1.5 if page_count > 10 else 2.0
 
-            # Render page at 2x resolution for quality
-            zoom = 2.0
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat)
+            # For each page with captions, render and extract figure regions
+            seen_figures = set()  # Track figure numbers to avoid duplicates
 
-            for cap in captions_by_page[page_num]:
-                fig_key = f"{cap['figure_type']}_{cap['figure_num']}"
-                if fig_key in seen_figures:
-                    continue
-                seen_figures.add(fig_key)
+            for page_num in sorted(captions_by_page.keys()):
+                if len(images) >= max_figures or total_bytes >= max_figure_bytes:
+                    logger.info(
+                        "Figure extraction capped at %d figures / %.1f MB",
+                        len(images), total_bytes / (1024 * 1024),
+                    )
+                    break
 
-                # Caption bbox (in page coordinates)
-                cap_x0, cap_y0, cap_x1, cap_y1 = cap["bbox"]
+                page = doc[page_num]
+                page_rect = page.rect
+                page_width = page_rect.width
 
-                # Figure region is above the caption
-                # Use full page width, from top of page (or previous caption) to caption top
-                margin = 10  # Small margin
-                fig_x0 = margin
-                fig_x1 = page_width - margin
-                fig_y0 = max(0, cap_y0 - 400)  # Up to 400pt above caption
-                fig_y1 = cap_y0 - 5  # Just above caption
+                mat = fitz.Matrix(zoom, zoom)
 
-                # Skip if region is too small
-                if fig_y1 - fig_y0 < 50:
-                    continue
+                for cap in captions_by_page[page_num]:
+                    if len(images) >= max_figures or total_bytes >= max_figure_bytes:
+                        break
 
-                # Convert to pixel coordinates (account for zoom)
-                clip_rect = fitz.Rect(
-                    fig_x0 * zoom,
-                    fig_y0 * zoom,
-                    fig_x1 * zoom,
-                    fig_y1 * zoom
-                )
+                    fig_key = f"{cap['figure_type']}_{cap['figure_num']}"
+                    if fig_key in seen_figures:
+                        continue
+                    seen_figures.add(fig_key)
 
-                # Clip the pixmap to extract just the figure region
-                try:
-                    # Re-render with clip for this specific region
-                    fig_pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(fig_x0, fig_y0, fig_x1, fig_y1))
-                    img_bytes = fig_pix.tobytes("png")
+                    # Caption bbox (in page coordinates)
+                    cap_x0, cap_y0, cap_x1, cap_y1 = cap["bbox"]
 
-                    if len(img_bytes) < 5000:  # Skip if too small
+                    # Figure region is above the caption
+                    margin = 10
+                    fig_x0 = margin
+                    fig_x1 = page_width - margin
+                    fig_y0 = max(0, cap_y0 - 400)  # Up to 400pt above caption
+                    fig_y1 = cap_y0 - 5  # Just above caption
+
+                    # Skip if region is too small
+                    if fig_y1 - fig_y0 < 50:
                         continue
 
-                    images.append({
-                        "page": page_num,
-                        "bbox": (fig_x0, fig_y0, fig_x1, fig_y1),
-                        "image_bytes": img_bytes,
-                        "ext": "png",
-                        "width": fig_pix.width,
-                        "height": fig_pix.height,
-                        "figure_number": cap["figure_num"],
-                        "caption": cap["text"],
-                    })
-                except Exception as e:
-                    continue
+                    # Render clipped region for this specific figure
+                    try:
+                        fig_pix = page.get_pixmap(
+                            matrix=mat,
+                            clip=fitz.Rect(fig_x0, fig_y0, fig_x1, fig_y1),
+                        )
+                        img_bytes = fig_pix.tobytes("png")
+                        fig_width = fig_pix.width
+                        fig_height = fig_pix.height
+                        # Free pixmap immediately
+                        del fig_pix
 
-        doc.close()
+                        if len(img_bytes) < 5000:  # Skip if too small
+                            del img_bytes
+                            continue
+
+                        total_bytes += len(img_bytes)
+
+                        images.append({
+                            "page": page_num,
+                            "bbox": (fig_x0, fig_y0, fig_x1, fig_y1),
+                            "image_bytes": img_bytes,
+                            "ext": "png",
+                            "width": fig_width,
+                            "height": fig_height,
+                            "figure_number": cap["figure_num"],
+                            "caption": cap["text"],
+                        })
+                    except Exception:
+                        continue
+
+                # Release page reference after processing all captions on it
+                del page
+        finally:
+            doc.close()
+
         return images
 
     def _extract_embedded_images(self, path: Path) -> List[Dict[str, Any]]:

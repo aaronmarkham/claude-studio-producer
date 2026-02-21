@@ -1139,15 +1139,19 @@ async def _run_production(
     scene_audio_map: Dict[str, str] = {}
     if scene_audio:
         for audio_track in scene_audio:
-            if audio_track.audio_path and Path(audio_track.audio_path).exists():
-                scene_audio_map[audio_track.scene_id] = str(audio_track.audio_path)
+            # SceneAudio may have audio_path (post-render) or not (mock/pre-render)
+            audio_path = getattr(audio_track, 'audio_path', None)
+            if audio_path and Path(audio_path).exists():
+                scene_audio_map[audio_track.scene_id] = str(audio_path)
 
         # For audio-led mode: update scene durations from actual audio
         if production_mode == ProductionMode.AUDIO_LED:
             for audio_track in scene_audio:
                 for scene in scenes:
                     if scene.scene_id == audio_track.scene_id:
-                        scene.duration = audio_track.duration
+                        duration = getattr(audio_track, 'duration', None)
+                        if duration:
+                            scene.duration = duration
                         break
 
     if not as_json:
