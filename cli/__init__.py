@@ -20,6 +20,7 @@ from .secrets import secrets_cli
 from .resume import resume_cmd
 from .training import training
 from .produce_video import produce_video_cmd
+from .produce_unified import produce_unified_cmd
 from .assemble import assemble_cmd
 from .assets import assets
 from .upload import upload_cmd
@@ -66,7 +67,8 @@ def main():
 
 
 # Main production commands
-main.add_command(produce_cmd, name="produce")
+main.add_command(produce_unified_cmd, name="produce")
+main.add_command(produce_cmd, name="produce-legacy")
 main.add_command(produce_video_cmd, name="produce-video")
 main.add_command(assemble_cmd, name="assemble")
 main.add_command(assets, name="assets")
