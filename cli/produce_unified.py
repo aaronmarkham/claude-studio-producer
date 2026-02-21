@@ -84,15 +84,16 @@ def produce_unified_cmd():
 
 @produce_unified_cmd.command()
 @click.argument("kb_id")
+@click.option("--prompt", "-c", default=None, help="Production direction/focus")
 @_common_options
-def paper(kb_id, budget, style, voice, duration, live, interactive, provider):
+def paper(kb_id, prompt, budget, style, voice, duration, live, interactive, provider):
     """Produce video from a knowledge base project.
 
     KB_ID is the project name or ID (e.g., kb_1c28d10264bd).
     """
     manifest = _init_run(
         source_type=SourceType.PAPER,
-        prompt=f"Produce from KB: {kb_id}",
+        prompt=prompt or f"Create an explainer video from this research",
         budget=budget, style=style, live=live,
         kb_project=kb_id,
     )

@@ -98,10 +98,24 @@ async def stage_plan(manifest: RunManifest, duration: float = 60.0,
         script_out.write_text(script_text, encoding="utf-8")
 
     elif manifest.source_type == SourceType.PAPER and manifest.kb_project:
-        # Load KB and generate script via existing pipeline
-        # For now, create placeholder scenes — the kb produce path
-        # will be wired to call the existing pipeline
-        _run_kb_produce(manifest)
+        # Load KB and generate real script via ScriptWriterAgent
+        from core.pipeline.script_gen import generate_script_from_kb, present_figure_options
+
+        try:
+            scene_manifests = await generate_script_from_kb(
+                manifest,
+                prompt=manifest.prompt,
+                duration=duration,
+                style=manifest.style,
+            )
+            manifest.scenes = scene_manifests
+
+            # Interactive figure selection
+            if interactive:
+                present_figure_options(manifest)
+        except Exception as e:
+            print(f"⚠️  Script generation failed ({e}), falling back to placeholder plan")
+            _run_kb_produce(manifest)
 
     elif manifest.source_type == SourceType.TOPIC:
         # Research → KB → script (future)
