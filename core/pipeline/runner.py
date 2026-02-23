@@ -18,7 +18,7 @@ from core.models.run_manifest import (
 
 async def run_pipeline(manifest: RunManifest, provider: str = "auto",
                        voice: str = "nova", duration: float = 60.0,
-                       interactive: bool = False):
+                       interactive: bool = False, language: str = None):
     """Execute the production pipeline from the manifest's current stage.
 
     Calls into existing pipeline functions, wrapping each stage
@@ -44,7 +44,7 @@ async def run_pipeline(manifest: RunManifest, provider: str = "auto",
 
         # Stage: AUDIO
         if manifest.stage == RunStage.AUDIO:
-            await stage_audio(manifest, voice)
+            await stage_audio(manifest, voice, language=language or manifest.language)
 
         # Stage: ASSEMBLY
         if manifest.stage == RunStage.ASSEMBLY:
@@ -211,13 +211,16 @@ async def stage_produce(manifest: RunManifest, provider: str = "auto"):
         print(f"⚠️  {failed} scene(s) failed — use `cs produce edit` to retry")
 
 
-async def stage_audio(manifest: RunManifest, voice: str = "nova"):
+async def stage_audio(manifest: RunManifest, voice: str = "nova",
+                      language: str = "en"):
     """Audio stage: generate TTS narration."""
     run_dir = Path(manifest.run_dir)
     audio_dir = run_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
     manifest.audio.voice = voice
+
+    is_multilingual = language and language != "en"
 
     if manifest.script_text and manifest.live:
         # Generate real TTS
@@ -226,8 +229,23 @@ async def stage_audio(manifest: RunManifest, voice: str = "nova"):
             from core.providers.base import AudioProviderConfig
             from core.secrets import get_api_key
 
-            config = AudioProviderConfig(api_key=get_api_key("OPENAI_API_KEY"))
-            tts = OpenAITTSProvider(config)
+            # Try ElevenLabs first for multilingual support
+            tts = None
+            if is_multilingual:
+                el_key = get_api_key("ELEVENLABS_API_KEY")
+                if el_key:
+                    try:
+                        from core.providers.audio.elevenlabs import ElevenLabsProvider
+                        tts = ElevenLabsProvider(model="eleven_multilingual_v2")
+                        print(f"🌐 Using ElevenLabs multilingual v2 ({language})")
+                    except Exception:
+                        pass
+
+            if tts is None:
+                config = AudioProviderConfig(api_key=get_api_key("OPENAI_API_KEY"))
+                tts = OpenAITTSProvider(config)
+                if is_multilingual:
+                    print(f"🌐 Using OpenAI TTS ({language} — auto-detected from text)")
 
             narration_path = audio_dir / "narration.mp3"
             result = await tts.generate_speech(

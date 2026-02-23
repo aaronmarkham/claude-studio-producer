@@ -133,6 +133,9 @@ class RunManifest:
     style: str = "explainer"
     live: bool = False
 
+    # Language
+    language: str = "en"        # ISO 639-1 code (en, cs, es, fr, de, ja, etc.)
+
     # Content
     prompt: str = ""
     kb_project: Optional[str] = None
@@ -190,8 +193,9 @@ class RunManifest:
 
     def summary(self) -> str:
         """Human-readable status summary."""
+        lang_note = f" [{self.language}]" if self.language != "en" else ""
         lines = [
-            f"Run: {self.run_id} ({self.source_type.value})",
+            f"Run: {self.run_id} ({self.source_type.value}){lang_note}",
             f"Stage: {self.stage.value}",
             f"Scenes: {self.scenes_ready}/{len(self.scenes)} ready"
             + (f", {self.scenes_failed} failed" if self.scenes_failed else ""),

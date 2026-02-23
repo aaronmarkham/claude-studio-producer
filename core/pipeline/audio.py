@@ -31,6 +31,7 @@ async def generate_scene_audio(
     script_text: str = None,
     structured_script: "StructuredScript" = None,
     content_library: "ContentLibrary" = None,
+    language: str = "en",
 ) -> dict:
     """
     Generate audio for each scene using ElevenLabs (scene-by-scene to avoid length limits).
@@ -67,13 +68,18 @@ async def generate_scene_audio(
     audio_provider = None
     force_provider = _os.environ.get("TTS_PROVIDER", "").lower()
 
+    is_multilingual = language and language != "en"
+
     if force_provider != "openai":
         api_key = get_api_key("ELEVENLABS_API_KEY")
         if api_key:
             try:
                 from core.providers.audio.elevenlabs import ElevenLabsProvider
-                audio_provider = ElevenLabsProvider()
-                console.print(f"[{t.label}]Using ElevenLabs TTS[/]")
+                # Use multilingual v2 for non-English languages
+                el_model = "eleven_multilingual_v2" if is_multilingual else "eleven_monolingual_v1"
+                audio_provider = ElevenLabsProvider(model=el_model)
+                lang_note = f" ({language}, multilingual)" if is_multilingual else ""
+                console.print(f"[{t.label}]Using ElevenLabs TTS{lang_note}[/]")
             except Exception as e:
                 console.print(f"[{t.warning}]ElevenLabs unavailable: {e}[/]")
 

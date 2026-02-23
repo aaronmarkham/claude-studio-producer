@@ -30,6 +30,8 @@ def _common_options(f):
                      help="Total budget in USD")(f)
     f = click.option("--style", "-s", default="explainer",
                      help="Video style (explainer, documentary, tutorial)")(f)
+    f = click.option("--language", "-l", default="en",
+                     help="Script/TTS language (ISO 639-1: en, cs, es, fr, de, ja, etc.)")(f)
     f = click.option("--voice", default="nova",
                      help="TTS voice")(f)
     f = click.option("--duration", "-d", type=float, default=60.0,
@@ -86,7 +88,7 @@ def produce_unified_cmd():
 @click.argument("kb_id")
 @click.option("--prompt", "-c", default=None, help="Production direction/focus")
 @_common_options
-def paper(kb_id, prompt, budget, style, voice, duration, live, interactive, provider):
+def paper(kb_id, prompt, budget, style, language, voice, duration, live, interactive, provider):
     """Produce video from a knowledge base project.
 
     KB_ID is the project name or ID (e.g., kb_1c28d10264bd).
@@ -96,6 +98,7 @@ def paper(kb_id, prompt, budget, style, voice, duration, live, interactive, prov
         prompt=prompt or f"Create an explainer video from this research",
         budget=budget, style=style, live=live,
         kb_project=kb_id,
+        language=language,
     )
     manifest.audio.voice = voice
     manifest.save()
@@ -113,7 +116,7 @@ def paper(kb_id, prompt, budget, style, voice, duration, live, interactive, prov
 @produce_unified_cmd.command()
 @click.argument("topic_text")
 @_common_options
-def topic(topic_text, budget, style, voice, duration, live, interactive, provider):
+def topic(topic_text, budget, style, language, voice, duration, live, interactive, provider):
     """Research a topic and produce a video.
 
     Automatically researches the topic, builds a KB, then produces.
@@ -122,6 +125,7 @@ def topic(topic_text, budget, style, voice, duration, live, interactive, provide
         source_type=SourceType.TOPIC,
         prompt=topic_text,
         budget=budget, style=style, live=live,
+        language=language,
     )
     manifest.audio.voice = voice
     manifest.save()
@@ -140,7 +144,7 @@ def topic(topic_text, budget, style, voice, duration, live, interactive, provide
 @click.option("--assets", "asset_paths", multiple=True, help="Asset files/dirs to include")
 @click.option("--prompt", "-c", required=True, help="Production prompt")
 @_common_options
-def project(shards, kb, asset_paths, prompt, budget, style, voice, duration, live, interactive, provider):
+def project(shards, kb, asset_paths, prompt, budget, style, language, voice, duration, live, interactive, provider):
     """Multi-source production from shards + KB + assets.
 
     Combines knowledge from multiple sources into a single video.
@@ -155,6 +159,7 @@ def project(shards, kb, asset_paths, prompt, budget, style, voice, duration, liv
         prompt=prompt,
         budget=budget, style=style, live=live,
         shard_refs=list(shards),
+        language=language,
     )
     manifest.audio.voice = voice
     manifest.save()
@@ -176,13 +181,14 @@ def project(shards, kb, asset_paths, prompt, budget, style, voice, duration, liv
 @produce_unified_cmd.command("script")
 @click.argument("script_file", type=click.Path(exists=True))
 @_common_options
-def script_cmd(script_file, budget, style, voice, duration, live, interactive, provider):
+def script_cmd(script_file, budget, style, language, voice, duration, live, interactive, provider):
     """Produce video from a pre-written script file."""
     manifest = _init_run(
         source_type=SourceType.SCRIPT,
         prompt=f"Produce from script: {script_file}",
         budget=budget, style=style, live=live,
         script_path=str(Path(script_file).resolve()),
+        language=language,
     )
     manifest.audio.voice = voice
     manifest.save()
@@ -335,4 +341,5 @@ def _run_pipeline(manifest: RunManifest, provider: str, voice: str,
         voice=voice,
         duration=duration,
         interactive=interactive,
+        language=manifest.language,
     ))

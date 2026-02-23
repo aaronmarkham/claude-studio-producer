@@ -16,6 +16,24 @@ from core.models.run_manifest import (
 )
 
 
+LANGUAGE_NAMES = {
+    "en": "English", "cs": "Czech", "es": "Spanish", "fr": "French",
+    "de": "German", "it": "Italian", "pt": "Portuguese", "ja": "Japanese",
+    "ko": "Korean", "zh": "Chinese", "ru": "Russian", "ar": "Arabic",
+    "nl": "Dutch", "pl": "Polish", "sv": "Swedish", "da": "Danish",
+    "fi": "Finnish", "no": "Norwegian", "tr": "Turkish", "hi": "Hindi",
+    "uk": "Ukrainian", "el": "Greek", "ro": "Romanian", "hu": "Hungarian",
+    "sk": "Slovak", "bg": "Bulgarian", "hr": "Croatian", "sr": "Serbian",
+    "sl": "Slovenian", "th": "Thai", "vi": "Vietnamese", "id": "Indonesian",
+    "ms": "Malay", "tl": "Filipino", "he": "Hebrew",
+}
+
+
+def _language_name(code: str) -> str:
+    """Convert ISO 639-1 code to full language name."""
+    return LANGUAGE_NAMES.get(code, code)
+
+
 def load_kb_context(kb_project: str) -> dict:
     """Load a KB project and return structured context.
 
@@ -95,6 +113,10 @@ async def generate_script_from_kb(
         full_concept = concept
         if prompt:
             full_concept = f"PRODUCTION DIRECTION: {prompt}\n\n{concept}"
+        # Add language directive if non-English
+        if manifest.language and manifest.language != "en":
+            lang_directive = f"LANGUAGE: Write the entire script (narration, titles, descriptions) in {_language_name(manifest.language)}. All voiceover text must be in {_language_name(manifest.language)}.\n\n"
+            full_concept = lang_directive + full_concept
         concept_path.write_text(full_concept, encoding="utf-8")
 
     # Fast path: build scenes from KB structure
