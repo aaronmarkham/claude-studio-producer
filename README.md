@@ -600,6 +600,21 @@ pytest
 uvicorn server.main:app --reload
 ```
 
+### Shared KB pipeline (spiritwriter)
+
+The document/knowledge models — and, as the migration proceeds, the
+ingestion/classification/KB code — are sourced from
+[`spiritwriter`](https://github.com/aaronmarkham/spiritwriter-core). A plain
+install resolves the published `spiritwriter>=0.9.0` from PyPI. When working
+on both repos together, install it editable from a sibling checkout so CSP
+picks up local changes:
+
+```bash
+pip install -e ../spiritwriter-core
+```
+
+See claude-studio-producer#15 for the consolidation plan.
+
 ## Roadmap
 
 ### Completed

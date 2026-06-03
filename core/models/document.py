@@ -9,7 +9,7 @@ the spiritwriter path as its own module is ported.
 See claude-studio-producer#15 / spiritwriter-core#76.
 """
 
-from spiritwriter.models.document import (  # noqa: F401
+from spiritwriter.models.document import (
     AtomType,
     DocumentType,
     ZoneRole,
@@ -18,3 +18,13 @@ from spiritwriter.models.document import (  # noqa: F401
     DocumentAtom,
     DocumentGraph,
 )
+
+__all__ = [
+    "AtomType",
+    "DocumentType",
+    "ZoneRole",
+    "DocumentZone",
+    "ContentProfile",
+    "DocumentAtom",
+    "DocumentGraph",
+]

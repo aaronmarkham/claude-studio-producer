@@ -9,7 +9,7 @@ the spiritwriter path as its own module is ported.
 See claude-studio-producer#15 / spiritwriter-core#76.
 """
 
-from spiritwriter.models.knowledge import (  # noqa: F401
+from spiritwriter.models.knowledge import (
     SourceType,
     KnowledgeSource,
     CrossSourceLink,
@@ -19,3 +19,14 @@ from spiritwriter.models.knowledge import (  # noqa: F401
     KnowledgeProject,
     generate_id,
 )
+
+__all__ = [
+    "SourceType",
+    "KnowledgeSource",
+    "CrossSourceLink",
+    "Note",
+    "Connection",
+    "KnowledgeGraph",
+    "KnowledgeProject",
+    "generate_id",
+]
