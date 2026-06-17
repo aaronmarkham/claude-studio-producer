@@ -34,7 +34,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "spiritwriter>=0.9.0",  # shared KB pipeline (models in 0.9.0; bump floor as later steps consume newer modules)
+    "spiritwriter @ git+https://github.com/aaronmarkham/spiritwriter-core.git",  # shared KB pipeline; git dep tracks main during the migration (avoids a PyPI release per step)
     "anthropic>=0.34.0",
     "strands-agents>=0.1.0",
     "aiohttp>=3.9.0",
@@ -50,7 +50,6 @@ dependencies = [
     "textstat>=0.7.0",
     "numpy>=1.24.0",
     "pymupdf>=1.24.0",
-    "spiritwriter-core @ git+https://github.com/aaronmarkham/spiritwriter-core.git",
     "Pillow>=10.0.0",
 ]
 
