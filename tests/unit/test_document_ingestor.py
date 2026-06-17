@@ -7,12 +7,36 @@ the StudioAgent constructor mapping and end-to-end ingest() in mock mode,
 plus the document models (re-exported from spiritwriter).
 """
 
+import json
+
 import pytest
 from pathlib import Path
 
 from core.models.document import AtomType, DocumentAtom, DocumentGraph
 from agents.document_ingestor import DocumentIngestorAgent, ExtractionResult
 from tests.mocks import MockClaudeClient
+
+
+class _IngestMockClient(MockClaudeClient):
+    """Content-aware mock: routes the ingest pipeline's two prompt kinds to
+    canned JSON, so the non-mock path is exercised independent of how many
+    block-classification chunks the PDF produces."""
+
+    async def query(self, prompt: str, system_prompt=None) -> str:
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        if "Classify each text block" in prompt:
+            return json.dumps({
+                "title": "Machine Learning for Climate Analysis",
+                "authors": ["John Smith", "Jane Doe"],
+                "blocks": [{"block_index": 0, "type": "title", "topics": []}],
+            })
+        if "Generate summaries" in prompt:
+            return json.dumps({
+                "one_sentence": "A paper on ML for climate analysis.",
+                "one_paragraph": "Longer summary.",
+                "full_summary": "Full summary.",
+            })
+        return json.dumps({})
 
 
 def _create_test_pdf(path: Path):
@@ -239,6 +263,48 @@ class TestDocumentIngestorAgent:
         assert len(d["atoms"]) == graph.atom_count
         assert isinstance(d["flow"], list)
         assert isinstance(d["hierarchy"], dict)
+
+
+class TestNonMockProviderContract:
+    """Lock the adapter→spiritwriter-provider contract on the non-mock path.
+
+    Every other test runs in mock mode; these are the only guard against the
+    inherited LLM/vision behavior drifting (e.g. the spiritwriter vision API
+    changing the kwarg it expects). No network: the provider is mocked.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nonmock_ingest_routes_text_through_provider(self, test_pdf):
+        client = _IngestMockClient()
+        agent = DocumentIngestorAgent(claude_client=client, mock_mode=False)
+
+        graph = await agent.ingest(str(test_pdf))
+
+        assert isinstance(graph, DocumentGraph)
+        # Text analysis + summaries both went through the provider.
+        assert any("Classify each text block" in c["prompt"] for c in client.calls)
+        assert any("Generate summaries" in c["prompt"] for c in client.calls)
+        # The provider's JSON was parsed back into the graph.
+        assert graph.title == "Machine Learning for Climate Analysis"
+        assert graph.one_sentence == "A paper on ML for climate analysis."
+        assert graph.atom_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_describe_image_uses_vision_with_image_bytes(self):
+        # Locks the inherited _describe_image → query_with_image(image_data=bytes)
+        # contract — the riskiest inherited path, untouched by the mock route.
+        client = MockClaudeClient()
+        client.add_response("A line chart of rising temperatures, 2010-2024.")
+        agent = DocumentIngestorAgent(claude_client=client, mock_mode=False)
+
+        png_bytes = b"\x89PNG\r\n\x1a\nFAKE"
+        description = await agent._describe_image({"image_bytes": png_bytes, "ext": "png"})
+
+        assert description == "A line chart of rising temperatures, 2010-2024."
+        vision_calls = [c for c in client.calls if "image_data" in c]
+        assert len(vision_calls) == 1
+        assert vision_calls[0]["image_data"] == png_bytes
+        assert vision_calls[0]["image_path"] is None
 
 
 class TestExtractionResult:

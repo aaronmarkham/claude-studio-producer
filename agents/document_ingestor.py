@@ -27,6 +27,14 @@ class DocumentIngestorAgent(StudioAgent, DocumentIngestor):
     (``llm_provider=``), wiring the StudioAgent client as the provider. All
     ingestion logic (``ingest``, extraction, classification, summaries) is
     inherited from ``DocumentIngestor``.
+
+    MRO note: ``(StudioAgent, DocumentIngestor)`` linearizes as
+    [DocumentIngestorAgent, StudioAgent, Agent, DocumentIngestor, object], so on
+    any name collision **StudioAgent wins**. That's safe today only because the
+    ingestion names (``ingest``, ``_describe_image``, ``_generate_doc_id``, …)
+    are disjoint from strands ``Agent``/``StudioAgent``. If a future shared name
+    appears, it resolves to the StudioAgent side silently — disambiguate
+    explicitly rather than relying on this order.
     """
 
     _is_stub = False

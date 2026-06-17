@@ -94,6 +94,50 @@ class MockClaudeClient:
         # Default
         return json.dumps({"status": "mock_response"})
 
+    async def query_with_image(
+        self,
+        prompt: str,
+        image_data=None,
+        system_prompt: Optional[str] = None,
+        return_usage: bool = False,
+        *,
+        image_path=None,
+        **kwargs,
+    ) -> str:
+        """Mock single-image vision query.
+
+        Records the image inputs so tests can assert the provider was called
+        with the ``image_data=`` (bytes) form. Returns the next queued response,
+        else a canned figure description.
+        """
+        self.calls.append({
+            "prompt": prompt, "system_prompt": system_prompt,
+            "image_data": image_data, "image_path": image_path,
+        })
+        if self.responses and self.response_index < len(self.responses):
+            response = self.responses[self.response_index]
+            self.response_index += 1
+            return response
+        return "A mock description of the figure."
+
+    async def query_with_images(
+        self,
+        prompt: str,
+        images: list,
+        system_prompt: Optional[str] = None,
+        return_usage: bool = False,
+        **kwargs,
+    ) -> str:
+        """Mock multi-image vision query (records the image list)."""
+        self.calls.append({
+            "prompt": prompt, "system_prompt": system_prompt, "images": images,
+        })
+        if self.responses and self.response_index < len(self.responses):
+            response = self.responses[self.response_index]
+            self.response_index += 1
+            return response
+        return "A mock description of the figures."
+
     def reset(self):
         """Reset call tracking (for test cleanup)"""
         self.calls.clear()
