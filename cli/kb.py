@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Optional, Dict, List
+from typing import Optional
 
 import click
 from rich.console import Console
@@ -14,20 +14,10 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from core.content_classifier import is_theme_candidate
-
-# Fix Windows encoding issues
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-
-console = Console()
-
-KB_DIR = Path("artifacts") / "kb"
-
 # KB logic consolidated into spiritwriter (claude-studio-producer#15 /
-# spiritwriter-core#76). Thin wrappers keep the local names + behavior
-# (KB_DIR binding, has_knowledge_graph flag) while delegating to spiritwriter.kb.
+# spiritwriter-core#76). The duplicated helpers are re-exported under their
+# local names; the two thin wrappers below (near KB_DIR) preserve CSP-specific
+# behavior. spiritwriter.kb is tested in spiritwriter-core's test_kb.py.
 from spiritwriter.kb import (
     resolve_project as _sw_resolve_project,
     load_project as _load_project,
@@ -40,20 +30,27 @@ from spiritwriter.kb import (
     STRUCTURAL_NOISE_TERMS,
 )
 
+# Fix Windows encoding issues
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+console = Console()
+
+KB_DIR = Path("artifacts") / "kb"
+
 
 def _resolve_project(project):
+    # Wrapper: bind the module's KB_DIR (spiritwriter's resolve_project takes
+    # kb_dir explicitly).
     return _sw_resolve_project(project, KB_DIR)
 
 
 def _rebuild_knowledge_graph(project_dir, project):
-    _sw_rebuild_knowledge_graph(project_dir, project)  # writes knowledge_graph.json
-    project.has_knowledge_graph = True
-
-
-
-
-
-
+    # Wrapper: spiritwriter's rebuild_knowledge_graph writes knowledge_graph.json,
+    # sets project.has_knowledge_graph, and returns the graph. We discard the
+    # return to preserve CSP's None-return contract for this call site.
+    _sw_rebuild_knowledge_graph(project_dir, project)
 
 
 

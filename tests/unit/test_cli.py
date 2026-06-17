@@ -785,6 +785,63 @@ class TestKBCommand:
         assert "Knowledge base" in result.output or "kb" in result.output.lower()
 
 
+class TestKBSpiritwriterDelegation:
+    """Lock the cli.kb -> spiritwriter.kb delegation contract.
+
+    The KB helpers were consolidated into spiritwriter (claude-studio-producer#15
+    / spiritwriter-core#76). The moved logic is tested in spiritwriter-core's
+    test_kb.py; these tests guard the two pieces of CSP-specific glue that have
+    no coverage there: the re-export identities and the two thin wrappers.
+    """
+
+    def test_helpers_are_spiritwriter_reexports(self):
+        import cli.kb as kb
+        import spiritwriter.kb as swkb
+
+        assert kb._load_project is swkb.load_project
+        assert kb._save_project is swkb.save_project
+        assert kb._build_concept_from_kb is swkb.build_concept_from_kb
+        assert kb._calculate_topic_quality is swkb.calculate_topic_quality
+        assert kb._calculate_entity_quality is swkb.calculate_entity_quality
+        assert kb._get_atom_type_distribution is swkb.get_atom_type_distribution
+        assert kb.STRUCTURAL_NOISE_TERMS is swkb.STRUCTURAL_NOISE_TERMS
+
+    def test_resolve_project_binds_kb_dir(self, monkeypatch):
+        import cli.kb as kb
+
+        captured = {}
+
+        def fake_resolve(project, kb_dir):
+            captured["args"] = (project, kb_dir)
+            return "RESOLVED"
+
+        monkeypatch.setattr(kb, "_sw_resolve_project", fake_resolve)
+        result = kb._resolve_project("my-project")
+
+        assert result == "RESOLVED"
+        assert captured["args"] == ("my-project", kb.KB_DIR)
+
+    def test_rebuild_knowledge_graph_returns_none_and_sets_flag(self, monkeypatch):
+        import cli.kb as kb
+
+        class FakeProject:
+            has_knowledge_graph = False
+
+        def fake_rebuild(project_dir, project):
+            # Mirror spiritwriter: sets the flag and returns the graph.
+            project.has_knowledge_graph = True
+            return "GRAPH"
+
+        monkeypatch.setattr(kb, "_sw_rebuild_knowledge_graph", fake_rebuild)
+        proj = FakeProject()
+        result = kb._rebuild_knowledge_graph("proj-dir", proj)
+
+        # Wrapper preserves CSP's None-return contract...
+        assert result is None
+        # ...while the delegated call leaves has_knowledge_graph set.
+        assert proj.has_knowledge_graph is True
+
+
 # ============================================================
 # Provider (Onboarding) Command
 # ============================================================
