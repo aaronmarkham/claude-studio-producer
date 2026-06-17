@@ -633,7 +633,10 @@ def produce_cmd(
     """
     Run the full video production pipeline with multi-agent orchestration.
 
-    This command demonstrates sophisticated agent patterns including:
+    This is the classic one-shot concept->video flow, now invoked as
+    `produce-legacy` (the `produce` command is a group — see `cs produce --help`).
+
+    It demonstrates sophisticated agent patterns including:
     - Sequential planning stages (Producer → ScriptWriter)
     - Parallel asset generation (Video + Audio via Strands)
     - Quality evaluation pipeline (QA → Critic → Editor)
@@ -641,22 +644,22 @@ def produce_cmd(
     Examples:
 
         # Quick 5-second demo with mock providers
-        claude-studio produce -c "Logo reveal for TechCorp" -d 5 --mock
+        claude-studio produce-legacy -c "Logo reveal for TechCorp" -d 5 --mock
 
         # Live production with Luma
-        claude-studio produce -c "Product demo for mobile app" -b 15 -d 30 --live -p luma
+        claude-studio produce-legacy -c "Product demo for mobile app" -b 15 -d 30 --live -p luma
 
         # Full production with audio
-        claude-studio produce -c "Tutorial video" -b 50 -d 60 --audio-tier simple_overlay --live
+        claude-studio produce-legacy -c "Tutorial video" -b 50 -d 60 --audio-tier simple_overlay --live
 
         # Use a different color theme
-        claude-studio produce -c "test" --mock --theme matrix
+        claude-studio produce-legacy -c "test" --mock --theme matrix
 
         # Longer timeout for busy Luma queue
-        claude-studio produce -c "My video" --live -p luma --timeout 900
+        claude-studio produce-legacy -c "My video" --live -p luma --timeout 900
 
         # Use seed images for video generation
-        claude-studio produce -c "Product showcase" --live -s ./assets/product_images
+        claude-studio produce-legacy -c "Product showcase" --live -s ./assets/product_images
     """
     # Set theme (from CLI arg or environment variable)
     theme_name = theme or get_default_theme_name()

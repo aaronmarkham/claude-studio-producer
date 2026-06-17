@@ -2,6 +2,7 @@
 
 import click
 from dotenv import load_dotenv
+from ._version import __version__
 from .status import status_cmd
 from .providers import providers_cmd
 from .agents import agents_cmd
@@ -31,34 +32,53 @@ load_dotenv()
 
 
 @click.group()
-@click.version_option(version="0.7.0")
+@click.version_option(version=__version__)
 def main():
     """Claude Studio Producer - AI Video Production Pipeline
 
     \b
     Quick Start:
-      claude-studio produce -c "Your video concept" --mock
-      claude-studio produce -c "Your video concept" --live -p luma
+      cs produce topic "How to make French press coffee" --mock
+      cs produce paper <kb_id> --live -p luma
+      cs produce script myscript.txt --budget 15
 
     \b
-    Commands:
-      produce        Run full video production pipeline
-      produce-video  Generate explainer video from podcast script
-      assemble       Assemble rough cut video from production run
+    Production (produce is a group — pick an input):
+      produce paper     Produce a video from a knowledge base project
+      produce topic     Research a topic, build a KB, then produce
+      produce script    Produce from a pre-written script file
+      produce project   Multi-source production (shards + KB + assets)
+      produce status    Show status of a production run
+      produce resume    Resume a run from its last checkpoint
+      produce list      List all production runs
+      produce edit      Edit a single scene in a run
+      produce-legacy    Classic one-shot concept->video pipeline (-c CONCEPT)
+      produce-video     Generate explainer video from a podcast script
+
+    \b
+    Post-production & assets:
+      assemble       Assemble a rough cut from a production run
+      figures        Inject/list/remove figures in a run
       assets         Asset tracking and approval workflow
-      resume         Resume a production from where it stopped
       render         Render commands (edl, mix video+audio)
-      test-provider  Test a single provider (quick validation)
-      luma           Luma API management (list, download, recover)
-      memory         Memory and learnings management
-      qa             QA inspection (view quality scores)
+      upload         Upload videos to platforms (YouTube)
+
+    \b
+    Knowledge & inputs:
       document       Document ingestion (PDF to knowledge graph)
       kb             Knowledge base management (multi-source projects)
+      memory         Memory and learnings management
+
+    \b
+    Providers, config & info:
+      test-provider  Test a single provider (quick validation)
       provider       Provider onboarding and management
+      providers      List and manage providers
+      luma           Luma API management (list, download, recover)
       training       Training pipeline for podcast calibration
+      qa             QA inspection (view quality scores)
       secrets        Secure API key management (OS keychain)
       status         Show system status
-      providers      List and manage providers
       agents         List and manage agents
       config         Manage configuration
       themes         List and preview color themes

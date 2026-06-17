@@ -57,14 +57,15 @@ artifacts/        # Run outputs, memory.json, training_output/
 ## Common Commands
 
 ```bash
-# Production (mock mode - no API costs)
-python -m cli.produce "concept" --budget 5
+# Production — `produce` is a command group; pick an input subcommand:
+cs produce topic "concept" --budget 5            # research a topic -> KB -> video (mock)
+cs produce paper <kb_id> --budget 5 --live -p luma  # from an existing KB, live
+cs produce script myscript.txt --budget 5        # from a pre-written script
 
-# Live mode with real generation
-python -m cli.produce "concept" --budget 5 --live --provider luma
-
-# With narrative style
-python -m cli.produce "concept" --style podcast  # or: educational, documentary, visual_storyboard
+# Classic one-shot concept->video (the old `produce`, now `produce-legacy`)
+cs produce-legacy -c "concept" --budget 5
+cs produce-legacy -c "concept" --budget 5 --live --provider luma
+cs produce-legacy -c "concept" --style podcast   # or: educational, documentary, visual_storyboard
 
 # Knowledge base
 claude-studio kb create "Project" -d "Description"

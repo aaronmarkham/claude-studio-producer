@@ -563,7 +563,7 @@ ffmpeg -i source.mp4 -crf 30 -s 1280x720 mobile_quality.mp4
 # Complete video production and rendering pipeline
 
 # 1. Generate video
-claude-studio produce -c "Product demonstration" -b 25 -d 45 --live -p luma
+claude-studio produce-legacy -c "Product demonstration" -b 25 -d 45 --live -p luma
 
 # 2. Resume if needed
 claude-studio resume latest --live

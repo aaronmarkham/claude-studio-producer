@@ -128,7 +128,7 @@ The most powerful workflow: generate video, audio, and automatically mix them in
 
 ```bash
 # Audio-led production where narration drives the timeline
-claude-studio produce "The history of espresso" --style podcast --budget 10 --live --provider luma
+claude-studio produce-legacy -c "The history of espresso" --style podcast --budget 10 --live --provider luma
 
 # What happens automatically:
 # 1. ScriptWriter breaks down the concept into scenes
@@ -177,7 +177,7 @@ The system supports two production workflows:
 
 **Audio-Led (Explicit):**
 ```bash
-claude-studio produce "Coffee brewing techniques" \
+claude-studio produce-legacy -c "Coffee brewing techniques" \
   --mode audio-led \
   --budget 15 \
   --live \
@@ -187,7 +187,7 @@ claude-studio produce "Coffee brewing techniques" \
 
 **Video-Led (Default):**
 ```bash
-claude-studio produce "Cinematic product showcase" \
+claude-studio produce-legacy -c "Cinematic product showcase" \
   --style visual_storyboard \
   --budget 10 \
   --live \

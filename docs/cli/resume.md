@@ -359,7 +359,7 @@ Resume fits into the complete production workflow:
 
 ```bash
 # 1. Start production
-claude-studio produce -c "Product demo" -b 20 --live -p luma
+claude-studio produce-legacy -c "Product demo" -b 20 --live -p luma
 
 # 2. Production interrupted (API limit, network, etc.)
 # ... interruption occurs ...

@@ -5,15 +5,21 @@ Complete CLI reference for the AI video production pipeline.
 ## Quick Start
 
 ```bash
-# Quick demo with mock providers
-cs produce -c "Logo reveal for TechCorp" -d 5 --mock
+# Research a topic end-to-end with mock providers
+cs produce topic "How to make French press coffee" --mock
 
-# Live production with Luma
-cs produce -c "Product demo" -b 15 -d 30 --live -p luma
+# Produce from a knowledge base with Luma
+cs produce paper kb_1c28d10264bd -b 15 -d 30 --live -p luma
+
+# Classic one-shot concept->video (legacy command)
+cs produce-legacy -c "Logo reveal for TechCorp" -d 5 --mock
 
 # Generate video from transcript
 cs produce-video --script script.txt --live --kb my-project
 ```
+
+> `produce` is now a **command group** (`paper`, `topic`, `script`, `project`, …).
+> The old one-shot `produce -c "concept"` is now [`produce-legacy`](produce-legacy.md).
 
 ## Command Reference
 
@@ -29,9 +35,11 @@ cs produce-video --script script.txt --live --kb my-project
 
 | Command | Description | Docs |
 |---------|-------------|------|
-| `produce` | Full video production pipeline | [produce.md](produce.md) |
+| `produce` | Production group — `paper`, `topic`, `script`, `project`, `status`, `resume`, `list`, `edit` | [produce.md](produce.md) |
+| `produce-legacy` | Classic one-shot concept→video pipeline (`-c CONCEPT`) | [produce-legacy.md](produce-legacy.md) |
 | `produce-video` | Explainer video from scripts/training | [produce-video.md](produce-video.md) |
 | `assemble` | Rough cut assembly from production assets | [assemble.md](assemble.md) |
+| `figures` | Inject/list/remove figures in a production run | [produce.md](produce.md) |
 | `assets` | Asset tracking and approval workflow | [assets.md](assets.md) |
 | `render` | Render EDLs, mix video+audio | [render.md](render.md) |
 | `resume` | Resume interrupted productions | [resume.md](resume.md) |
