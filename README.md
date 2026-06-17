@@ -69,11 +69,18 @@ cp .env.example .env
 # Add ANTHROPIC_API_KEY and LUMA_API_KEY
 
 # Run a production (mock mode - no API costs)
-claude-studio produce "A serene mountain lake at sunset" --budget 5
+claude-studio produce topic "A serene mountain lake at sunset" --budget 5
 
 # Run with real video generation
-claude-studio produce "A serene mountain lake at sunset" --budget 5 --live --provider luma
+claude-studio produce topic "A serene mountain lake at sunset" --budget 5 --live --provider luma
+
+# Prefer the classic one-shot concept->video flow?
+claude-studio produce-legacy -c "A serene mountain lake at sunset" --budget 5
 ```
+
+> `produce` is a command group — pick an input subcommand (`topic`, `paper`,
+> `script`, `project`). The old single-command `produce -c "concept"` flow is
+> now `produce-legacy`. See [docs/cli/produce.md](docs/cli/produce.md).
 
 ## Architecture
 
@@ -178,14 +185,14 @@ PROVIDER LEARNING LIFECYCLE
 ### CLI with Live Progress
 
 ```bash
-# Basic production
-python -m cli.produce "Product demo for mobile app" --budget 10
+# Basic production (classic one-shot concept->video)
+cs produce-legacy -c "Product demo for mobile app" --budget 10
 
-# With seed image (image-to-video)
-python -m cli.produce "Animate this logo" --budget 5 --seed logo.png
+# With seed images (image-to-video) — point at a directory of PNG/JPG
+cs produce-legacy -c "Animate this logo" --budget 5 --seed-assets ./logo_assets/
 
 # Live mode with real generation
-python -m cli.produce "Tech startup intro" --budget 15 --live --provider luma
+cs produce-legacy -c "Tech startup intro" --budget 15 --live --provider luma
 ```
 
 The CLI shows:
@@ -288,16 +295,16 @@ Control how verbose and conversational your scripts are:
 
 ```bash
 # Brief visual storyboard (default) - ~20-30 words per scene
-claude-studio produce -c "Product demo" --style visual_storyboard
+claude-studio produce-legacy -c "Product demo" --style visual_storyboard
 
 # Rich podcast narrative (NotebookLM-style) - ~100 words per scene
-claude-studio produce -c "Explain quantum computing" --style podcast
+claude-studio produce-legacy -c "Explain quantum computing" --style podcast
 
 # Educational lecture format - ~80-120 words per scene
-claude-studio produce -c "Tutorial on React hooks" --style educational
+claude-studio produce-legacy -c "Tutorial on React hooks" --style educational
 
 # Documentary with gravitas - ~60-100 words per scene
-claude-studio produce -c "History of the internet" --style documentary
+claude-studio produce-legacy -c "History of the internet" --style documentary
 ```
 
 | Style | Words/Scene | Best For |
@@ -373,10 +380,10 @@ In audio-led mode, the audio narration drives the timeline. Videos are generated
 
 ```bash
 # Audio-led production (auto-detected from style)
-claude-studio produce "Explain quantum computing" --style podcast --budget 5 --live
+claude-studio produce-legacy -c "Explain quantum computing" --style podcast --budget 5 --live
 
 # Or explicitly set mode
-claude-studio produce "Tutorial on Python decorators" --mode audio-led --budget 5 --live
+claude-studio produce-legacy -c "Tutorial on Python decorators" --mode audio-led --budget 5 --live
 ```
 
 #### Video-Led Production (Visual Storyboard, Cinematic)
@@ -387,7 +394,7 @@ In video-led mode, the video drives the timeline. Audio is generated to match vi
 
 ```bash
 # Video-led production (default for visual styles)
-claude-studio produce "Cinematic coffee commercial" --style visual_storyboard --budget 5 --live
+claude-studio produce-legacy -c "Cinematic coffee commercial" --style visual_storyboard --budget 5 --live
 ```
 
 #### Automatic Audio-Video Mixing

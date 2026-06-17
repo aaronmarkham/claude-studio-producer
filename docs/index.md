@@ -97,15 +97,16 @@ To a production-ready platform with:
 ## Quick Commands
 
 ```bash
-# Production (mock mode - no API costs)
-claude-studio produce "concept" --budget 5
+# Production — `produce` is a command group (pick an input subcommand)
+claude-studio produce topic "concept" --budget 5            # mock mode, no API costs
+claude-studio produce paper <kb_id> --budget 10 --live      # from a knowledge base
 
-# Live mode with automatic audio-video mixing
-claude-studio produce "concept" --style podcast --budget 10 --live
+# Classic one-shot concept->video (now `produce-legacy`)
+claude-studio produce-legacy -c "concept" --style podcast --budget 10 --live
 
-# Video-led vs audio-led production
-claude-studio produce "concept" --mode audio-led --budget 5 --live
-claude-studio produce "concept" --mode video-led --budget 5 --live
+# Video-led vs audio-led production (legacy)
+claude-studio produce-legacy -c "concept" --mode audio-led --budget 5 --live
+claude-studio produce-legacy -c "concept" --mode video-led --budget 5 --live
 
 # Knowledge base workflow
 claude-studio kb create "Research" -d "AI papers"

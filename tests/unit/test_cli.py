@@ -46,9 +46,11 @@ class TestMainGroup:
         assert "training" in result.output
 
     def test_version(self, runner):
+        from cli._version import __version__
+
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "0.7.0" in result.output
+        assert __version__ in result.output
 
     def test_no_command_shows_help(self, runner):
         result = runner.invoke(main, [])
@@ -864,3 +866,80 @@ class TestSecretsCommand:
     def test_help(self, runner):
         result = runner.invoke(main, ["secrets", "--help"])
         assert result.exit_code == 0
+
+
+# ============================================================
+# Full command-tree coverage
+# ============================================================
+
+def _all_command_paths(cmd, prefix=()):
+    """Every (sub)command path under the root group, as token tuples."""
+    paths = []
+    for name, sub in getattr(cmd, "commands", {}).items():
+        path = prefix + (name,)
+        paths.append(path)
+        paths.extend(_all_command_paths(sub, path))
+    return paths
+
+
+ALL_COMMAND_PATHS = _all_command_paths(main)
+
+
+class TestEveryCommandHelp:
+    """Command-level coverage guarantee: every registered command and
+    subcommand must expose a working ``--help``.
+
+    Parametrized over the *live* Click tree, so commands added later are
+    covered automatically, and any command whose import/decorator wiring
+    breaks (or whose options fail to construct) fails here rather than only
+    surfacing at runtime for a user.
+    """
+
+    def test_command_tree_is_populated(self):
+        # Guard against the walker silently returning an empty/partial tree,
+        # which would make the parametrized test vacuously pass. Rather than a
+        # loose count floor, assert a representative slice across the tree — a
+        # top-level command, the produce group + a subcommand, a nested group
+        # subcommand, and a leaf — so dropping a whole group fails here.
+        flat = {" ".join(p) for p in ALL_COMMAND_PATHS}
+        expected = {
+            "produce",            # the verb-group root
+            "produce paper",      # a produce subcommand
+            "produce-legacy",     # the renamed one-shot command
+            "kb",                 # a group
+            "kb produce",         # a nested subcommand
+            "upload youtube",     # a deeper nested subcommand
+            "secrets",            # another group
+            "status",             # a leaf command
+        }
+        missing = expected - flat
+        assert not missing, f"command tree missing expected commands: {sorted(missing)}"
+
+    @pytest.mark.parametrize(
+        "path", ALL_COMMAND_PATHS, ids=[" ".join(p) for p in ALL_COMMAND_PATHS]
+    )
+    def test_help_works(self, runner, path):
+        result = runner.invoke(main, [*path, "--help"])
+        assert result.exit_code == 0, result.output
+        assert result.exception is None
+
+
+class TestProduceSubcommandSmoke:
+    """Functional smoke for the new ``produce`` verb-group (the surface this
+    branch introduces) beyond ``--help`` — the read-only/no-setup subcommands
+    run end-to-end against an empty workspace without raising."""
+
+    def test_list_runs_empty(self, isolated_runner):
+        result = isolated_runner.invoke(main, ["produce", "list"])
+        assert result.exit_code == 0
+        assert result.exception is None
+
+    def test_status_missing_run_is_graceful(self, isolated_runner):
+        result = isolated_runner.invoke(main, ["produce", "status", "nonexistent_run_id"])
+        assert result.exit_code == 0
+        assert result.exception is None
+
+    def test_resume_missing_run_is_graceful(self, isolated_runner):
+        result = isolated_runner.invoke(main, ["produce", "resume", "nonexistent_run_id"])
+        assert result.exit_code == 0
+        assert result.exception is None
