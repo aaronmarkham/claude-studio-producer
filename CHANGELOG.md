@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+_Nothing yet._
+
 ## [0.8.0] - 2026-06-17
 
 The knowledge-base pipeline is now sourced entirely from **spiritwriter** instead of duplicated in this repo. Over a six-step lift-and-shift consume-back migration (#15), CSP's copies of the KB models, JSON extractor, content classifier, LLM client, document ingestor, and `kb` helpers were deleted and replaced with thin shims/adapters/delegations over `spiritwriter`. CSP now depends on spiritwriter via a single git dependency; ~3,600 lines of duplicated code were removed. No user-facing behavior changed (the CSP test suite validates each step against the consolidated code), except the default-model bump noted below.
@@ -15,7 +17,7 @@ The knowledge-base pipeline is now sourced entirely from **spiritwriter** instea
   - `core/claude_client.py` → thin re-export of `spiritwriter`'s `AnthropicProvider` (aliased `ClaudeClient`) + `JSONExtractor`; local implementation deleted. Public API is a backward-compatible superset (`query`, `query_with_image`/`image_path=`, `query_with_images`, `return_usage`, `system_prompt`). Keychain resolution stays on the `claude-studio` service. (#19)
   - `agents/document_ingestor.py` → `DocumentIngestorAgent(StudioAgent, DocumentIngestor)` adapter; ~1000 lines removed (#20)
   - `cli/kb.py` → its 8 duplicated KB helpers delegate to `spiritwriter.kb`; Click CLI unchanged (#22)
-- **`--version` now reads from package metadata** instead of a hardcoded string, so it can't drift from `pyproject.toml` (it was stuck at `0.7.0`).
+- **`--version` now reads from a single in-package version module** (`cli/_version.py`) that `pyproject.toml` also derives its version from, so the two can't drift. Previously `--version` was a hardcoded string (stuck at `0.7.0`), separate from `pyproject`; reading `importlib.metadata` instead would have returned a stale `0.6.0` in editable installs, so the in-package module is the source of truth.
 
 ### Fixed
 - Cleaned up 10 stale `produce` CLI tests left over from the `produce` → subcommand-group refactor (the old command is now `produce-legacy`); the unit suite is green except pre-existing ffmpeg/youtube env failures. (#21)

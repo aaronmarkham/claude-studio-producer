@@ -897,8 +897,23 @@ class TestEveryCommandHelp:
 
     def test_command_tree_is_populated(self):
         # Guard against the walker silently returning an empty/partial tree,
-        # which would make the parametrized test vacuously pass.
-        assert len(ALL_COMMAND_PATHS) >= 90
+        # which would make the parametrized test vacuously pass. Rather than a
+        # loose count floor, assert a representative slice across the tree — a
+        # top-level command, the produce group + a subcommand, a nested group
+        # subcommand, and a leaf — so dropping a whole group fails here.
+        flat = {" ".join(p) for p in ALL_COMMAND_PATHS}
+        expected = {
+            "produce",            # the verb-group root
+            "produce paper",      # a produce subcommand
+            "produce-legacy",     # the renamed one-shot command
+            "kb",                 # a group
+            "kb produce",         # a nested subcommand
+            "upload youtube",     # a deeper nested subcommand
+            "secrets",            # another group
+            "status",             # a leaf command
+        }
+        missing = expected - flat
+        assert not missing, f"command tree missing expected commands: {sorted(missing)}"
 
     @pytest.mark.parametrize(
         "path", ALL_COMMAND_PATHS, ids=[" ".join(p) for p in ALL_COMMAND_PATHS]
