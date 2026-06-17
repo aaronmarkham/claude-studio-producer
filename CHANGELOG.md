@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **LLM model default**: `ClaudeClient` now defaults to `claude-sonnet-4-6` (was the older `claude-sonnet-4-20250514`). This is a live behavior change for every call site that doesn't pass an explicit `model=`. Pin a model per call if you depend on the previous default.
+- **`ClaudeClient` consolidated onto spiritwriter**: `core/claude_client.py` is now a thin re-export of spiritwriter's `AnthropicProvider` (aliased `ClaudeClient`) plus `JSONExtractor`. The local implementation was deleted. The public API is a backward-compatible superset (`query`, `query_with_image`/`image_path=`, `query_with_images`, `return_usage`, `system_prompt` all unchanged). Keychain resolution stays on the `claude-studio` service. (#19 / #15)
+
 ## [0.7.0] - 2026-02-17
 
 ### Added
