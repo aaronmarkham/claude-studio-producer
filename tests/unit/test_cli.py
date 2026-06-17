@@ -11,6 +11,9 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from cli import main
+from core.models.run_manifest import (
+    RunManifest, RunStage, SourceType, SceneManifest, SceneStatus,
+)
 
 
 # ============================================================
@@ -942,4 +945,237 @@ class TestProduceSubcommandSmoke:
     def test_resume_missing_run_is_graceful(self, isolated_runner):
         result = isolated_runner.invoke(main, ["produce", "resume", "nonexistent_run_id"])
         assert result.exit_code == 0
+        assert result.exception is None
+
+
+# ============================================================
+# produce group — functional (mock-pipeline) coverage
+# ============================================================
+
+# The async production engine. Source subcommands hand off to it after building
+# a manifest; stubbing it lets us exercise the command bodies (manifest wiring,
+# option plumbing, on-disk persistence) without real providers/ffmpeg/API.
+PIPELINE = "cli.produce_unified._run_pipeline"
+
+
+def _write_manifest(run_id, **kwargs):
+    """Build + save a RunManifest under ./artifacts/runs/<run_id>.
+
+    Paths are cwd-relative (matching the CLI), so call inside an isolated
+    filesystem.
+    """
+    run_dir = Path("artifacts/runs") / run_id
+    manifest = RunManifest(run_id=run_id, run_dir=str(run_dir), **kwargs)
+    manifest.save()
+    return manifest
+
+
+class TestProduceSourceCommands:
+    """paper / topic / script / project build a RunManifest and hand off to the
+    pipeline. The pipeline is stubbed; we assert the command body wired the
+    manifest correctly and persisted it."""
+
+    def test_paper_initializes_run_and_invokes_pipeline(self, isolated_runner):
+        with patch(PIPELINE) as pipe:
+            result = isolated_runner.invoke(main, [
+                "produce", "paper", "kb_demo",
+                "--mock", "-b", "5", "-s", "documentary",
+                "--voice", "echo", "-c", "focus on methods",
+            ])
+        assert result.exit_code == 0, result.output
+        assert "initialized (paper: kb_demo)" in result.output
+        pipe.assert_called_once()
+        manifest = pipe.call_args[0][0]
+        assert manifest.source_type == SourceType.PAPER
+        assert manifest.kb_project == "kb_demo"
+        assert manifest.prompt == "focus on methods"
+        assert manifest.budget.total == 5.0
+        assert manifest.style == "documentary"
+        assert manifest.live is False
+        assert manifest.audio.voice == "echo"
+        assert (Path(manifest.run_dir) / "manifest.json").exists()
+
+    def test_paper_default_prompt_when_omitted(self, isolated_runner):
+        with patch(PIPELINE) as pipe:
+            result = isolated_runner.invoke(main, ["produce", "paper", "kb_x", "--mock"])
+        assert result.exit_code == 0, result.output
+        manifest = pipe.call_args[0][0]
+        assert manifest.prompt  # falls back to a non-empty default
+
+    def test_paper_requires_kb_id(self, runner):
+        result = runner.invoke(main, ["produce", "paper"])
+        assert result.exit_code == 2  # missing required argument
+
+    def test_topic_initializes_run(self, isolated_runner):
+        with patch(PIPELINE) as pipe:
+            result = isolated_runner.invoke(
+                main, ["produce", "topic", "French press coffee", "--mock"]
+            )
+        assert result.exit_code == 0, result.output
+        manifest = pipe.call_args[0][0]
+        assert manifest.source_type == SourceType.TOPIC
+        assert manifest.prompt == "French press coffee"
+
+    def test_script_initializes_run(self, isolated_runner):
+        Path("script.txt").write_text("Scene 1: hello", encoding="utf-8")
+        with patch(PIPELINE) as pipe:
+            result = isolated_runner.invoke(main, ["produce", "script", "script.txt", "--mock"])
+        assert result.exit_code == 0, result.output
+        manifest = pipe.call_args[0][0]
+        assert manifest.source_type == SourceType.SCRIPT
+        assert manifest.script_path and manifest.script_path.endswith("script.txt")
+
+    def test_script_requires_existing_file(self, runner):
+        result = runner.invoke(main, ["produce", "script", "does_not_exist.txt"])
+        assert result.exit_code == 2
+
+    def test_project_requires_prompt(self, runner):
+        result = runner.invoke(main, ["produce", "project", "--mock"])
+        assert result.exit_code == 2  # -c/--prompt is required
+
+    def test_project_defaults_interactive_and_collects_sources(self, isolated_runner):
+        with patch(PIPELINE) as pipe:
+            result = isolated_runner.invoke(main, [
+                "produce", "project", "-c", "synthesis",
+                "--kb", "kb1", "--shards", "shard1", "--mock",
+            ])
+        assert result.exit_code == 0, result.output
+        manifest = pipe.call_args[0][0]
+        assert manifest.source_type == SourceType.PROJECT
+        assert manifest.prompt == "synthesis"
+        assert manifest.shard_refs == ["shard1"]
+        # _run_pipeline(manifest, provider, voice, duration, interactive)
+        # project mode forces interactive even without --interactive.
+        assert pipe.call_args[0][4] is True
+
+    def test_project_echoes_assets(self, isolated_runner):
+        Path("brand").mkdir()
+        with patch(PIPELINE) as pipe:
+            result = isolated_runner.invoke(main, [
+                "produce", "project", "-c", "synthesis", "--assets", "brand", "--mock",
+            ])
+        assert result.exit_code == 0, result.output
+        assert "Assets: brand" in result.output
+        assert pipe.called
+
+
+class TestProduceManagementCommands:
+    """status / resume / edit / list operate on existing manifests on disk."""
+
+    def test_status_shows_summary_and_timeline(self, isolated_runner):
+        _write_manifest("20260101_000000", source_type=SourceType.TOPIC,
+                        stage=RunStage.PLAN, prompt="demo topic")
+        result = isolated_runner.invoke(main, ["produce", "status", "20260101_000000"])
+        assert result.exit_code == 0, result.output
+        assert "20260101_000000" in result.output
+        assert "plan" in result.output
+
+    def test_list_shows_runs(self, isolated_runner):
+        _write_manifest("20260101_000001", source_type=SourceType.PAPER)
+        _write_manifest("20260101_000002", source_type=SourceType.TOPIC)
+        result = isolated_runner.invoke(main, ["produce", "list"])
+        assert result.exit_code == 0, result.output
+        assert "20260101_000001" in result.output
+        assert "20260101_000002" in result.output
+
+    def test_resume_loads_manifest(self, isolated_runner):
+        _write_manifest("20260101_000003", stage=RunStage.PRODUCTION)
+        result = isolated_runner.invoke(main, ["produce", "resume", "20260101_000003"])
+        assert result.exit_code == 0, result.output
+        assert "Resuming run 20260101_000003" in result.output
+
+    def test_resume_from_stage_overrides_and_persists(self, isolated_runner):
+        _write_manifest("20260101_000004", stage=RunStage.PRODUCTION)
+        result = isolated_runner.invoke(main, [
+            "produce", "resume", "20260101_000004", "--from", "audio",
+        ])
+        assert result.exit_code == 0, result.output
+        assert "restart from audio" in result.output
+        reloaded = RunManifest.find_run("20260101_000004")
+        assert reloaded.stage == RunStage.AUDIO
+
+    def test_edit_lists_scenes_without_scene_arg(self, isolated_runner):
+        _write_manifest("20260101_000005", scenes=[
+            SceneManifest(scene_id="s1", title="Intro", status=SceneStatus.READY),
+        ])
+        result = isolated_runner.invoke(main, ["produce", "edit", "20260101_000005"])
+        assert result.exit_code == 0, result.output
+        assert "s1" in result.output
+        assert "Intro" in result.output
+
+    def test_edit_change_provider_requeues_scene(self, isolated_runner):
+        _write_manifest("20260101_000006", scenes=[
+            SceneManifest(scene_id="s1", provider="luma", status=SceneStatus.READY),
+        ])
+        result = isolated_runner.invoke(main, [
+            "produce", "edit", "20260101_000006", "--scene", "s1", "--provider", "higgsfield",
+        ])
+        assert result.exit_code == 0, result.output
+        scene = RunManifest.find_run("20260101_000006").get_scene("s1")
+        assert scene.provider == "higgsfield"
+        assert scene.status == SceneStatus.PENDING
+
+    def test_edit_replace_asset(self, isolated_runner):
+        Path("new_clip.mp4").write_text("fake", encoding="utf-8")
+        _write_manifest("20260101_000007", scenes=[
+            SceneManifest(scene_id="s1", status=SceneStatus.READY),
+        ])
+        result = isolated_runner.invoke(main, [
+            "produce", "edit", "20260101_000007", "--scene", "s1", "--asset", "new_clip.mp4",
+        ])
+        assert result.exit_code == 0, result.output
+        scene = RunManifest.find_run("20260101_000007").get_scene("s1")
+        assert scene.status == SceneStatus.REPLACED
+        assert scene.provider == "manual"
+        assert scene.asset_path.endswith("new_clip.mp4")
+
+    def test_edit_unknown_scene_is_graceful(self, isolated_runner):
+        _write_manifest("20260101_000008", scenes=[SceneManifest(scene_id="s1")])
+        result = isolated_runner.invoke(main, [
+            "produce", "edit", "20260101_000008", "--scene", "nope",
+        ])
+        assert result.exit_code == 0
+        assert "not found" in result.output
+
+    # --- partial-match and edge branches ---
+
+    def test_status_partial_id_match(self, isolated_runner):
+        _write_manifest("20260101_999999", source_type=SourceType.TOPIC)
+        # An ID prefix (not an exact dir) resolves via the glob fallback.
+        result = isolated_runner.invoke(main, ["produce", "status", "20260101_9"])
+        assert result.exit_code == 0, result.output
+        assert "20260101_999999" in result.output
+
+    def test_resume_partial_id_match(self, isolated_runner):
+        _write_manifest("20260101_888888", stage=RunStage.PLAN)
+        result = isolated_runner.invoke(main, ["produce", "resume", "20260101_8"])
+        assert result.exit_code == 0, result.output
+        assert "Resuming run 20260101_888888" in result.output
+
+    def test_edit_partial_id_match(self, isolated_runner):
+        _write_manifest("20260101_777777", scenes=[SceneManifest(scene_id="s1", title="Intro")])
+        result = isolated_runner.invoke(main, ["produce", "edit", "20260101_7"])
+        assert result.exit_code == 0, result.output
+        assert "s1" in result.output
+
+    def test_edit_missing_run_is_graceful(self, isolated_runner):
+        result = isolated_runner.invoke(main, ["produce", "edit", "no_such_run", "--scene", "s1"])
+        assert result.exit_code == 0
+        assert "not found" in result.output
+
+    def test_list_empty_dir_without_manifests(self, isolated_runner):
+        # artifacts/runs exists but holds no manifests.
+        (Path("artifacts/runs")).mkdir(parents=True, exist_ok=True)
+        result = isolated_runner.invoke(main, ["produce", "list"])
+        assert result.exit_code == 0
+        assert "No runs with manifests found." in result.output
+
+    def test_list_tolerates_corrupt_manifest(self, isolated_runner):
+        bad = Path("artifacts/runs/badrun")
+        bad.mkdir(parents=True, exist_ok=True)
+        (bad / "manifest.json").write_text("{ not valid json", encoding="utf-8")
+        result = isolated_runner.invoke(main, ["produce", "list"])
+        # The corrupt entry is reported as 'error', not raised.
+        assert result.exit_code == 0, result.output
+        assert "badrun" in result.output
         assert result.exception is None
