@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Union
 from core.secrets import get_api_key
 
+# JSONExtractor and its JSON-repair helper were consolidated into
+# spiritwriter (claude-studio-producer#15 / spiritwriter-core#76).
+# Re-exported so existing `from core.claude_client import JSONExtractor`
+# call sites keep working until they migrate to the spiritwriter path.
+from spiritwriter.llm.anthropic import JSONExtractor  # noqa: F401
+
 
 class ClaudeClient:
     """
@@ -373,149 +379,3 @@ class ClaudeClient:
                 return str(message.__dict__['result'])
         
         return ""
-
-
-def _repair_truncated_json(json_str: str) -> str:
-    """
-    Attempt to repair truncated JSON by closing unclosed brackets/braces.
-
-    This handles cases where LLM output is cut off mid-response.
-    """
-    # Count unclosed brackets
-    open_braces = json_str.count('{') - json_str.count('}')
-    open_brackets = json_str.count('[') - json_str.count(']')
-
-    if open_braces <= 0 and open_brackets <= 0:
-        return json_str  # Already balanced or over-closed
-
-    # Try to find the last complete value and truncate there
-    # Look for patterns like: "key": value, or "key": "value",
-    # and try to close after them
-
-    repaired = json_str.rstrip()
-
-    # Remove trailing comma if present
-    if repaired.endswith(','):
-        repaired = repaired[:-1]
-
-    # If we're in the middle of a string, try to close it
-    # Count quotes to see if we're mid-string
-    quote_count = repaired.count('"') - repaired.count('\\"')
-    if quote_count % 2 == 1:
-        repaired += '"'
-
-    # Close any unclosed brackets/braces
-    # We need to close in reverse order of what's open
-    # Simple heuristic: close brackets first (arrays), then braces (objects)
-    stack = []
-    for char in json_str:
-        if char == '{':
-            stack.append('}')
-        elif char == '[':
-            stack.append(']')
-        elif char in '}]':
-            if stack and stack[-1] == char:
-                stack.pop()
-
-    # Close in reverse order
-    repaired += ''.join(reversed(stack))
-
-    return repaired
-
-
-class JSONExtractor:
-    """Utility to extract JSON from Claude responses"""
-
-    @staticmethod
-    def extract(response: str, debug: bool = False) -> Dict[str, Any]:
-        """
-        Extract JSON from Claude response, handling various formats
-        
-        Args:
-            response: Raw text response from Claude
-            debug: Print debug info if True
-            
-        Returns:
-            Parsed JSON dict
-            
-        Raises:
-            ValueError: If no valid JSON found
-        """
-        if not response or not response.strip():
-            raise ValueError("Empty response")
-        
-        response = response.strip()
-        
-        if debug:
-            print(f"\n[JSON EXTRACT DEBUG] Response length: {len(response)}")
-            print(f"[JSON EXTRACT DEBUG] First 300 chars:\n{response[:300]}")
-        
-        # Try markdown code blocks first (most common)
-        json_match = re.search(
-            r'```(?:json)?\s*\n(.*?)\n```',
-            response,
-            re.DOTALL | re.IGNORECASE
-        )
-        if json_match:
-            json_str = json_match.group(1).strip()
-            if debug:
-                print(f"[JSON EXTRACT DEBUG] Found code block, length: {len(json_str)}")
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as e:
-                if debug:
-                    print(f"[JSON EXTRACT DEBUG] Code block parse failed: {e}")
-                    print(f"[JSON EXTRACT DEBUG] Problematic JSON:\n{json_str}")
-                # Try to fix common issues
-                # Remove any backslash escapes that aren't valid JSON escapes
-                json_str_fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_str)
-                try:
-                    return json.loads(json_str_fixed)
-                except json.JSONDecodeError:
-                    pass
-
-        # Try markdown code blocks without closing fence (truncated response)
-        # This handles cases like: ```json\n{...} without the closing ```
-        open_fence_match = re.search(
-            r'```(?:json)?\s*\n(\{.*)',
-            response,
-            re.DOTALL | re.IGNORECASE
-        )
-        if open_fence_match:
-            json_str = open_fence_match.group(1).strip()
-            # Remove trailing ``` if present (partial fence)
-            json_str = re.sub(r'```\s*$', '', json_str).strip()
-            if debug:
-                print(f"[JSON EXTRACT DEBUG] Found open code block, length: {len(json_str)}")
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError:
-                # Try to repair truncated JSON
-                repaired = _repair_truncated_json(json_str)
-                if debug:
-                    print(f"[JSON EXTRACT DEBUG] Attempting repair, added: {len(repaired) - len(json_str)} chars")
-                try:
-                    return json.loads(repaired)
-                except json.JSONDecodeError as e:
-                    if debug:
-                        print(f"[JSON EXTRACT DEBUG] Repair failed: {e}")
-                    pass
-
-        # Try to find JSON object anywhere in the text
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(0)
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError:
-                pass
-        
-        # Try parsing the whole response as JSON
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"No valid JSON found in response.\n"
-                f"Error: {e}\n"
-                f"Response preview: {response[:300]}"
-            )
