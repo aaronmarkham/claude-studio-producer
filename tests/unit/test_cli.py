@@ -78,11 +78,13 @@ class TestMainGroup:
 # Produce Command
 # ============================================================
 
-class TestProduceCommand:
-    """Tests for the 'produce' command."""
+class TestProduceLegacyCommand:
+    """Tests for the 'produce-legacy' command — the original single-command
+    interface (``--concept`` etc.). ``produce`` is now a subcommand group
+    (see TestProduceGroup); the legacy command was renamed, not removed."""
 
     def test_help(self, runner):
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         assert result.exit_code == 0
         assert "--concept" in result.output
         assert "--budget" in result.output
@@ -91,66 +93,66 @@ class TestProduceCommand:
         assert "--mock" in result.output
 
     def test_requires_concept(self, runner):
-        result = runner.invoke(main, ["produce"])
+        result = runner.invoke(main, ["produce-legacy"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "required" in result.output.lower()
 
     def test_invalid_provider_choice(self, runner):
         result = runner.invoke(main, [
-            "produce", "-c", "test", "--provider", "nonexistent"
+            "produce-legacy", "-c", "test", "--provider", "nonexistent"
         ])
         assert result.exit_code != 0
         assert "Invalid value" in result.output or "invalid choice" in result.output.lower()
 
     def test_valid_provider_choices(self, runner):
         """Verify all valid provider choices are accepted in help."""
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         assert "luma" in result.output
         assert "runway" in result.output
         assert "mock" in result.output
 
     def test_invalid_audio_tier_choice(self, runner):
         result = runner.invoke(main, [
-            "produce", "-c", "test", "--audio-tier", "invalid"
+            "produce-legacy", "-c", "test", "--audio-tier", "invalid"
         ])
         assert result.exit_code != 0
 
     def test_valid_audio_tier_choices(self, runner):
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         for tier in ["none", "music_only", "simple_overlay", "time_synced"]:
             assert tier in result.output
 
     def test_invalid_style_choice(self, runner):
         result = runner.invoke(main, [
-            "produce", "-c", "test", "--style", "invalid"
+            "produce-legacy", "-c", "test", "--style", "invalid"
         ])
         assert result.exit_code != 0
 
     def test_valid_style_choices(self, runner):
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         for style in ["visual_storyboard", "podcast", "educational", "documentary"]:
             assert style in result.output
 
     def test_invalid_execution_strategy_choice(self, runner):
         result = runner.invoke(main, [
-            "produce", "-c", "test", "--execution-strategy", "invalid"
+            "produce-legacy", "-c", "test", "--execution-strategy", "invalid"
         ])
         assert result.exit_code != 0
 
     def test_mode_choices(self, runner):
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         assert "video-led" in result.output
         assert "audio-led" in result.output
 
     def test_budget_type_validation(self, runner):
         result = runner.invoke(main, [
-            "produce", "-c", "test", "--budget", "not_a_number"
+            "produce-legacy", "-c", "test", "--budget", "not_a_number"
         ])
         assert result.exit_code != 0
 
     def test_seed_assets_nonexistent_path(self, runner):
         result = runner.invoke(main, [
-            "produce", "-c", "test", "--seed-assets", "/nonexistent/path"
+            "produce-legacy", "-c", "test", "--seed-assets", "/nonexistent/path"
         ])
         assert result.exit_code != 0
 
@@ -171,7 +173,7 @@ class TestProduceCommand:
             },
         }
         result = runner.invoke(main, [
-            "produce", "-c", "A test concept", "--mock",
+            "produce-legacy", "-c", "A test concept", "--mock",
             "--output-dir", str(tmp_path),
         ])
         # The command calls asyncio.run(_run_production(...))
@@ -195,7 +197,7 @@ class TestProduceCommand:
             },
         }
         result = runner.invoke(main, [
-            "produce", "-c", "test concept", "--mock", "--json",
+            "produce-legacy", "-c", "test concept", "--mock", "--json",
             "--output-dir", str(tmp_path),
         ])
         # If pipeline runs, output should be valid JSON
@@ -207,17 +209,31 @@ class TestProduceCommand:
 
     def test_default_budget(self, runner):
         """Budget option accepts float values"""
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         # Check that --budget option exists with FLOAT type
         assert "--budget" in result.output
         assert "FLOAT" in result.output
 
     def test_default_duration(self, runner):
         """Duration option accepts float values"""
-        result = runner.invoke(main, ["produce", "--help"])
+        result = runner.invoke(main, ["produce-legacy", "--help"])
         # Check that --duration option exists with FLOAT type
         assert "--duration" in result.output
         assert "FLOAT" in result.output
+
+
+class TestProduceGroup:
+    """The 'produce' command is now a subcommand group (cli/produce_unified.py)."""
+
+    def test_help_lists_subcommands(self, runner):
+        result = runner.invoke(main, ["produce", "--help"])
+        assert result.exit_code == 0
+        for sub in ("paper", "topic", "script", "status", "resume"):
+            assert sub in result.output
+
+    def test_subcommand_help_ok(self, runner):
+        result = runner.invoke(main, ["produce", "topic", "--help"])
+        assert result.exit_code == 0
 
 
 # ============================================================
