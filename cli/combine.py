@@ -1,4 +1,13 @@
-"""Combine command - Create custom video sequences from specific scenes"""
+"""Combine command - Create custom video sequences from specific scenes.
+
+This is a standalone module entry point, intentionally NOT registered as a
+subcommand in ``cli/__init__.py``. It is invoked directly as a script::
+
+    python -m cli.combine <run_id> --scenes 1,3,5
+
+This usage is documented in CLAUDE.md, README.md, docs/cli/utilities.md, and
+the video-production skill. Smoke tests live in tests/unit/test_combine.py.
+"""
 
 import os
 import subprocess
