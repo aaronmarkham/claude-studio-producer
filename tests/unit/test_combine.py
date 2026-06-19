@@ -52,14 +52,23 @@ def test_list_scenes_missing_videos_dir(tmp_path):
 # find_ffmpeg
 # ------------------------------------------------------------------
 
-def test_find_ffmpeg_returns_first_working(tmp_path):
+def test_find_ffmpeg_prefers_path():
+    with patch("cli.combine.shutil.which", return_value="/usr/bin/ffmpeg"):
+        assert find_ffmpeg() == "/usr/bin/ffmpeg"
+
+
+def test_find_ffmpeg_falls_back_when_not_on_path():
+    # Not on PATH; first fallback fails, second works.
     ok = MagicMock(returncode=0)
-    with patch("cli.combine.subprocess.run", return_value=ok):
-        assert find_ffmpeg() == "ffmpeg"
+    with patch("cli.combine.shutil.which", return_value=None), \
+         patch("cli.combine.subprocess.run",
+               side_effect=[FileNotFoundError, ok]):
+        assert find_ffmpeg() == r"C:\Program Files\ffmpeg\bin\ffmpeg.exe"
 
 
 def test_find_ffmpeg_raises_when_absent():
-    with patch("cli.combine.subprocess.run", side_effect=FileNotFoundError):
+    with patch("cli.combine.shutil.which", return_value=None), \
+         patch("cli.combine.subprocess.run", side_effect=FileNotFoundError):
         with pytest.raises(FileNotFoundError):
             find_ffmpeg()
 
@@ -189,3 +198,26 @@ def test_combine_ffmpeg_not_found(runner):
 
         assert result.exit_code == 0
         assert "no ffmpeg" in result.output
+
+
+def test_combine_output_not_created(runner):
+    # ffmpeg "succeeds" (returncode 0) but no output file lands on disk.
+    with runner.isolated_filesystem() as fs:
+        _make_run(Path(fs), "run1", [1, 2])
+        ok = MagicMock(returncode=0, stderr="", stdout="")
+        with patch("cli.combine.find_ffmpeg", return_value="ffmpeg"), \
+             patch("cli.combine.subprocess.run", return_value=ok):
+            result = runner.invoke(combine_cmd, ["run1", "--scenes", "1,2"])
+
+        assert result.exit_code == 0
+        assert "Output file not created" in result.output
+
+
+def test_list_mode_formats_megabytes(runner):
+    # A scene >= 1 MB exercises the KB -> MB formatting branch in list mode.
+    with runner.isolated_filesystem() as fs:
+        run_dir = _make_run(Path(fs), "run1", [1])
+        (run_dir / "videos" / "scene_1_v0.mp4").write_bytes(b"\x00" * (2 * 1024 * 1024))
+        result = runner.invoke(combine_cmd, ["run1", "--list"])
+        assert result.exit_code == 0
+        assert "MB" in result.output
