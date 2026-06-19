@@ -163,3 +163,33 @@ cs luma recover -o ./recovered -n 100
 | `status` | `GENERATION_ID`, `--json` | Show generation status |
 | `download` | `GENERATION_ID`, `-o PATH` | Download a generation |
 | `recover` | `-o DIR`, `-n LIMIT`, `--dry-run` | Recover completed generations |
+
+---
+
+## Combine (`python -m cli.combine`)
+
+Stitch specific scene videos from a production run into a custom sequence
+(e.g. a highlight reel that skips some scenes). This is a **standalone module
+entry point**, run directly with `python -m cli.combine` — it is intentionally
+not registered as a `cs`/`claude-studio` subcommand. Requires `ffmpeg` on your
+`PATH`.
+
+```bash
+# List the available scenes in a run
+python -m cli.combine <run_id> --list
+
+# Combine scenes 1 and 3 (skipping scene 2)
+python -m cli.combine <run_id> --scenes 1,3
+
+# Combine with a custom output name
+python -m cli.combine <run_id> --scenes 1,3,5 -o highlight_reel.mp4
+```
+
+| Option | Description |
+|--------|-------------|
+| `RUN_ID` | Run directory name under `artifacts/runs/` (e.g. `20260109_080534`) |
+| `-s`, `--scenes` | Comma-separated scene numbers to combine (≥ 2 required) |
+| `-o`, `--output` | Output filename (default: `scenes_<n>_..._combined.mp4`) |
+| `-l`, `--list` | List available scenes instead of combining |
+
+Output is written to `artifacts/runs/<run_id>/renders/`.

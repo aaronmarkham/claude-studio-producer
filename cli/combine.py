@@ -1,6 +1,16 @@
-"""Combine command - Create custom video sequences from specific scenes"""
+"""Combine command - Create custom video sequences from specific scenes.
+
+This is a standalone module entry point, intentionally NOT registered as a
+subcommand in ``cli/__init__.py``. It is invoked directly as a script::
+
+    python -m cli.combine <run_id> --scenes 1,3,5
+
+This usage is documented in CLAUDE.md, README.md, docs/cli/utilities.md, and
+the video-production skill. Smoke tests live in tests/unit/test_combine.py.
+"""
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -12,18 +22,21 @@ from rich import box
 
 console = Console()
 
-# Try to find ffmpeg - check common locations on Windows
-FFMPEG_PATHS = [
-    "ffmpeg",  # System PATH
-    r"C:\Users\aaron\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-essentials_build\bin\ffmpeg.exe",
+# Common ffmpeg install locations checked only if it isn't already on PATH.
+# Keep these generic and machine-independent (no per-user paths).
+FFMPEG_FALLBACK_PATHS = [
     r"C:\ffmpeg\bin\ffmpeg.exe",
     r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
 ]
 
 
 def find_ffmpeg() -> str:
-    """Find ffmpeg executable"""
-    for path in FFMPEG_PATHS:
+    """Find the ffmpeg executable, preferring one on PATH."""
+    on_path = shutil.which("ffmpeg")
+    if on_path:
+        return on_path
+
+    for path in FFMPEG_FALLBACK_PATHS:
         try:
             result = subprocess.run(
                 [path, "-version"],
@@ -32,7 +45,7 @@ def find_ffmpeg() -> str:
             )
             if result.returncode == 0:
                 return path
-        except (subprocess.SubprocessError, FileNotFoundError):
+        except (subprocess.SubprocessError, FileNotFoundError, OSError):
             continue
 
     raise FileNotFoundError(
