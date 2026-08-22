@@ -57,11 +57,12 @@ That inversion — time as key, location as check — is the core idea of this s
 
 ```
 Timeline export ─┐
-                 ├─► TripJoin ─► TripKnowledge ─► StructuredScript ─► existing pipeline
-Photo folder   ──┘   (time-      (beats, places,   (segments with       (DoP, audio,
-                      indexed     photo clusters)    intents)             assembly)
-                      join)
-                          │
+                 ├─► TripJoin ─► TripKnowledge ─► StructuredScript ─► VisualGrammar ─► assembly
+Photo folder   ──┘   (time-      (beats, places,   (segments with      (cuts, holds,    (audio,
+                      indexed     photographers,     intents,            map moves,       render)
+                      join)       photo clusters)    salience)           credits)
+                          │                              │
+                          │                              └─► DoP (which asset per segment)
                           └─► ContentLibrary (photos as pre-approved assets, cost $0)
 ```
 
@@ -259,6 +260,8 @@ class Photo:
     confidence: TrackConfidence = TrackConfidence.UNKNOWN
     # Provenance
     camera: Optional[str] = None            # "Apple iPhone 14 Pro"
+    camera_key: str = "unknown"             # Make/Model/Serial fingerprint — see Attribution
+    credit: Optional[str] = None            # Photographer name, resolved from camera_key
     width: int = 0
     height: int = 0
     is_screenshot: bool = False             # heuristic: no camera, display aspect ratio
@@ -267,6 +270,58 @@ class Photo:
 Screenshots should be detected and excluded by default (`--include-screenshots` to keep
 them). They have timestamps, so they will happily join to a location and appear in the
 video as a photo of someone's home screen.
+
+### Attribution: who took the picture
+
+A trip is usually shot by more than one person, and crediting them is both the decent thing
+to do and a genuine narrative device — knowing a shot is someone else's changes how it reads.
+
+**Google will not tell us.** Two paths look promising and neither survives contact:
+
+- **Takeout of a collaborative album** exports only the items *you* uploaded. Photos other
+  people added to a shared or collaborative album are silently excluded from the export — not
+  merely unattributed, but absent. An export of a collab album is an export of your own half
+  of it.
+- **`MediaItem.contributorInfo`** in the Library API carries exactly the wanted
+  `displayName` and profile picture of whoever added an item, but only for albums *created by
+  the calling app*, only with the sharing scope — and that scope was removed on
+  March 31, 2025. It is legacy surface.
+
+There is a partial workaround worth testing: saving a shared album's items into your own
+library should make them yours and therefore exportable, with `googlePhotosOrigin` marking
+them as having come from a shared album. It still would not say who shot them.
+
+**So attribute by camera, not by account.** EXIF `Make`, `Model`, and — on most dedicated
+bodies and some phones — `BodySerialNumber` fingerprint a device precisely enough to
+partition a mixed folder into its contributing cameras with essentially no ambiguity:
+
+```python
+def camera_key(exif: dict) -> str:
+    # Stable per-device fingerprint. Falls back gracefully as tags go missing.
+    parts = [exif.get("Make"), exif.get("Model"), exif.get("BodySerialNumber")]
+    return "/".join(p.strip() for p in parts if p) or "unknown"
+```
+
+The user names each cluster once, and the mapping is reusable across every trip that device
+shot:
+
+```bash
+cs produce timeline ~/Takeout --photos ~/trip \
+    --credit "Apple iPhone 14 Pro=Aaron" \
+    --credit "Canon EOS R6=Dana"
+```
+
+This is strictly better than depending on Google: it works on a folder assembled from
+AirDrop, a messaging thread, a shared Drive, or three separate Takeouts — which is what a
+real multi-person trip folder actually is. It also costs nothing extra, because Component 3
+already groups photos by camera to infer clock offsets. Same partition, second use: a camera
+that needed a +1h correction is also a distinct photographer.
+
+Photos whose `camera_key` has no configured credit are simply uncredited. Never guess a name.
+
+> **Do not use the sidecar's `people` field for this.** It holds face-recognition tags —
+> who is *in* the photograph, not who took it. Wiring it to credits would confidently
+> attribute every photo to its subject, and the error would look plausible enough to ship.
 
 ---
 
@@ -573,7 +628,97 @@ that actually matters here — "not that one" is the common edit.
 
 ---
 
-## Component 8: CLI
+## Component 8: Visual Grammar
+
+```python
+# NEW — core/visual_grammar.py
+```
+
+The DoP decides *which* asset a segment shows. Something still has to decide how one shot
+becomes the next — and that decision is where a photo-driven video either reads as authored
+or reads as a screensaver.
+
+Two obvious approaches both fail, in opposite directions:
+
+- **Pinned photos on a map, zooming in, every beat.** The map is *information*: it answers
+  "where are we now." Once answered, repeating it spends the viewer's attention on a question
+  nobody is still asking. This is the auto-generated year-in-review look.
+- **A pool of transitions rotated through.** Rotation *is* arbitrariness. Viewers register it
+  — not consciously, but as a sense that no cut means anything.
+
+The principle instead: **every cut is caused by something in the join data.** The output of
+Component 3 is unusually rich — time deltas, place changes, day boundaries, burst structure,
+salience — and it is enough to derive the edit rather than decorate it. Transitions become
+grammar, and grammar carries meaning.
+
+### The rules
+
+| Condition between consecutive shots | Cut |
+|---|---|
+| Δt < 90 s, same place — a burst, one moment seen twice | hard cut, short holds (0.6–1.2 s) |
+| Same place, Δt of hours | short dissolve (~0.5 s) |
+| New place within walking distance | dissolve + place label |
+| New place, real travel | **map move** — the only context in which the map appears |
+| Day boundary crossed | date card |
+| First and last beat of the trip | establishing zoom, country → city, once each |
+
+The map earning its impact through scarcity is the point of the last two rows. It is the
+establishing shot of film convention: arrive, establish once, then stay in the scene.
+`max_map_clips` (Component 7) is the hard ceiling that keeps this honest even on a trip with
+forty movements.
+
+### Pacing follows salience
+
+Hold duration and photos-per-beat come from `importance_score`, not a fixed cadence. A beat
+with four hundred photos and a full day earns a long sequence; a two-hour stop with three
+photos gets one shot and moves on. The edit then breathes where the trip did, which is the
+cheapest available source of the feeling that someone made this on purpose.
+
+### Motion is motivated, and rationed
+
+Ken Burns direction is derived, never random: portraits take a slow vertical push, landscapes
+drift along the bearing toward the *next* beat — so the movement points where the trip is
+going. Most usefully, a meaningful fraction of shots hold completely still. Constant motion is
+exhausting and reads as filler; stillness is what makes the moving shots land.
+
+### Credit placement
+
+Two placements with different rules, both driven by `Photo.credit` from Component 2:
+
+- **In-frame** — a small monospace credit, lower left, rendered *only on the shot where the
+  photographer changes from the previous one*, then held silently through that run. This is
+  the documentary photo-credit convention. Crediting every frame is noise; crediting the
+  handoff is information.
+- **End credits** — a roll grouped by person with counts: `Photography — Dana (186),
+  Aaron (412), Priya (44)`.
+
+Both are suppressed entirely when only one camera is present, which is the common case and
+should cost the viewer nothing.
+
+### Output
+
+The grammar emits a list of timed edit decisions consumed by the assembler — it renders
+nothing itself and adds no new provider:
+
+```python
+@dataclass
+class Cut:
+    from_asset_id: Optional[str]
+    to_asset_id: str
+    transition: str                 # "cut" | "dissolve" | "map_move" | "date_card"
+    duration_sec: float             # of the transition itself
+    hold_sec: float                 # how long the incoming shot rests
+    motion: Optional[str] = None    # "push_in" | "drift_bearing:142" | "still"
+    overlay: Optional[str] = None   # place label, date, or credit text
+    reason: str = ""                # which rule fired — for `cs timeline inspect --edit`
+```
+
+`reason` is not decoration. When an edit feels wrong, the question is always "why did it cut
+there," and a grammar that cannot answer it is a grammar nobody will trust enough to tune.
+
+---
+
+## Component 9: CLI
 
 ```bash
 # Inspect first — no video, no cost, no LLM. The debugging entry point.
@@ -584,7 +729,11 @@ cs timeline inspect ~/Takeout --photos ~/Pictures/portugal --from 2023-05-01 --t
 cs produce timeline ~/Takeout \
     --photos ~/Pictures/portugal \
     --from 2023-05-01 --to 2023-05-14 \
+    --credit "Apple iPhone 14 Pro=Aaron" --credit "Canon EOS R6=Dana" \
     --budget 5 --style travelogue --mock
+
+# Explain the edit — every cut with the rule that produced it
+cs timeline inspect ~/Takeout --photos ~/Pictures/portugal --edit
 ```
 
 `cs timeline inspect` prints the `JoinReport` plus the beat list, and is where a user will
@@ -597,6 +746,8 @@ Join quality
   Dated              1043/1043  (sidecar 1043, exif 0)
   Located            1039/1043  (timeline 641, exif 398)
   Confidence         visit 812 · interpolated 190 · inferred 37 · unknown 4
+  Cameras            Apple iPhone 14 Pro   612 photos  May 4–17  → Aaron
+                     Canon EOS R6          431 photos  May 4–17  → uncredited
   Clock offsets      Apple iPhone 14 Pro  +01:00 (sidecar)
                      Canon EOS R6         +01:00 (inferred, 47 photos agreeing)
   ⚠  3 photos disagree with the timeline by >5 km  (see --verbose)
@@ -659,16 +810,20 @@ passing would be worse than not addressing it.
 Each phase is independently useful and independently testable.
 
 **Phase 1 — Ingest and join.** `core/ingest/timeline.py`, `core/ingest/photos.py`,
-`core/ingest/trip_join.py`, and `cs timeline inspect`. No video, no LLM, no network, no cost.
-This is where the risk lives (format sprawl, timezone inference) and it can be fully
-validated on fixtures before anything downstream exists.
+`core/ingest/trip_join.py`, and `cs timeline inspect` — including camera clustering, since
+the same partition serves both clock-offset inference and attribution. No video, no LLM, no
+network, no cost. This is where the risk lives (format sprawl, timezone inference) and it can
+be fully validated on fixtures before anything downstream exists.
 
 **Phase 2 — Trip to script.** `core/ingest/trip_script.py`, the `travelogue` style, the
 `SourceType`/`AssetSource` enum additions, `ContentLibrary` population from photos,
 `cs produce timeline --mock`. End-to-end video with photos and Ken Burns, still $0.
 
-**Phase 3 — Maps.** `core/providers/video/timeline_map.py` with the vector backend, the DoP
-changes, `max_map_clips` tiers. Tile backend after the vector one works.
+**Phase 3 — Maps and grammar.** `core/providers/video/timeline_map.py` with the vector
+backend, the DoP changes, `max_map_clips` tiers, then `core/visual_grammar.py` and credit
+rendering. Maps and grammar ship together because the map-move rule is what makes the map
+scarce, and a map provider without that discipline produces exactly the screensaver
+Component 8 exists to avoid. Tile backend after the vector one works.
 
 **Phase 4 — Live and hardening.** Generated imagery for uncovered beats, opt-in vision
 captions, home redaction, metadata scrubbing verified in tests.
@@ -716,6 +871,14 @@ screenshot.
 - `-map_metadata -1` is present in every FFmpeg call on the personal-media path — assert on
   the constructed command, not on the output file.
 - Redaction: a beat inside the home radius never appears in the resulting `StructuredScript`.
+- Camera clustering partitions a mixed fixture folder into the right number of devices, and
+  degrades to a stable key when `BodySerialNumber` is absent.
+- An uncredited camera yields `credit=None` — never a guessed or inherited name.
+- The grammar is a pure function: the same `TripKnowledge` produces byte-identical `Cut`
+  lists, and every `Cut` carries a non-empty `reason`.
+- Each grammar rule fires on a fixture built to trigger it, and the burst rule does not fire
+  across a place change.
+- A single-camera trip emits no in-frame credits and no credit roll.
 
 **Manual acceptance.** One real export, one real photo folder, `cs timeline inspect`, and a
 human confirming the beat list matches the trip they remember. The join is correct or it
@@ -733,6 +896,9 @@ isn't, and a person who was there can tell in fifteen seconds.
 - **TRANSCRIPT_LED_VIDEO_PRODUCTION.md** — extends the budget-tier model with the
   "ratios apply to uncovered segments" refinement. Worth back-porting: KB figures have the
   same property (free, already exist) and are currently handled by a special case.
+- **VIDEO_ASSEMBLY_ARCHITECTURE.md** — the grammar's `Cut` list is the natural input to
+  assembly. Worth checking whether it should produce an EDL directly rather than a parallel
+  structure the assembler has to reconcile.
 - **ASSET_TRACKING_WORKFLOW.md** — photos enter as `APPROVED`; the reject flow carries the
   weight.
 - **SEED_ASSETS.md** — related but distinct. Seed assets are *style* references the user
@@ -743,18 +909,23 @@ isn't, and a person who was there can tell in fifteen seconds.
 
 ## Open Questions
 
-1. **Video clips in the photo folder.** Phones shoot both. A `.mov` with a timestamp joins
+1. **Recovering other people's photos from a collab album.** Saving shared items into your
+   own library ought to make them exportable via Takeout. This is one five-minute test with
+   three photos, and it decides whether a multi-person trip needs one export or several — so
+   it should happen before Phase 1 rather than after.
+2. **Video clips in the photo folder.** Phones shoot both. A `.mov` with a timestamp joins
    exactly like a photo and is arguably better material. Deferred to keep Phase 1 small, but
    the model should not preclude it — `Photo` may want to become `MediaItem`.
-2. **Live Photos / motion stills.** HEIC pairs with an embedded video. Ken Burns on the
+3. **Live Photos / motion stills.** HEIC pairs with an embedded video. Ken Burns on the
    still is fine; using the motion is nicer. Low priority.
-3. **Multi-person trips.** Merging two people's photo folders and one person's timeline is
-   the actual family use case, and photo-set union with per-camera clock offsets mostly
-   handles it. Worth a validation pass in Phase 2 rather than a design now.
-4. **Music.** A travelogue wants a bed more than a paper does, and the music providers are
+4. **Multi-person trips.** Merging two people's photo folders and one person's timeline is
+   the actual family use case, and photo-set union with per-camera clock offsets and credits
+   mostly handles it. The open part is *whose* timeline wins when two people diverge for an
+   afternoon. Worth a validation pass in Phase 2 rather than a design now.
+5. **Music.** A travelogue wants a bed more than a paper does, and the music providers are
    all stubs (`core/providers/music/`). Out of scope, but this is the source type that would
    justify finishing one.
-5. **Aggressive trip segmentation.** A single export spans years. `--from`/`--to` is the
+6. **Aggressive trip segmentation.** A single export spans years. `--from`/`--to` is the
    Phase 1 answer; automatic trip detection (gaps in home presence) is a nice Phase 2
    addition.
 
@@ -771,8 +942,9 @@ core/ingest/photos.py             # EXIF + Takeout sidecar → Photo
 core/ingest/trip_join.py          # The join, JoinReport, TripKnowledge
 core/ingest/trip_script.py        # TripKnowledge → StructuredScript
 core/ingest/geocode.py            # Three-tier place naming
+core/visual_grammar.py            # Cut rules, pacing, credit placement
 core/providers/video/timeline_map.py
-cli/timeline.py                   # cs timeline inspect
+cli/timeline.py                   # cs timeline inspect [--edit]
 data/gazetteer/cities15000.tsv    # Bundled, CC BY 4.0
 tests/fixtures/timeline/          # Four format samples
 tests/fixtures/photos/            # Six metadata variants
@@ -787,6 +959,7 @@ core/models/content_library.py:32    # AssetSource += PERSONAL_PHOTO, TIMELINE_M
 core/models/content_library.py:47    # AssetRecord += personal-media block
 core/dop.py:34                       # Photo-first assignment, uncovered-only ratios
 core/video_production.py:660         # BUDGET_TIERS += max_map_clips
-cli/produce_unified.py:70            # produce timeline subcommand
+cli/produce_unified.py:70            # produce timeline subcommand, --credit
+cli/assemble.py                      # consume Cut list from the grammar
 docs/providers.md                    # timeline_map, tile attribution obligations
 ```
