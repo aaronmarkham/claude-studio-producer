@@ -322,7 +322,7 @@
       "name": "test_get_headers",
       "status": "passed",
       "error": null,
-      "output": "{'xi-api-key': 'sk_697de35fab577f2d3cf75261531533e02586f30421b53bfe', 'Content-Type': 'application/json'}",
+      "output": "{'xi-api-key': '***REDACTED***', 'Content-Type': 'application/json'}",
       "duration_ms": 0
     },
     {

@@ -26,6 +26,8 @@ from abc import ABC, abstractmethod
 
 import httpx
 
+from core.secrets import redact_secrets
+
 
 # =============================================================================
 # DATA MODELS
@@ -280,7 +282,12 @@ class OnboardingSession:
             sessions_dir.mkdir(parents=True, exist_ok=True)
             path = str(sessions_dir / f"{self.provider_name}.json")
 
-        Path(path).write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        # Defense in depth: the per-test choke point in ProviderTester scrubs
+        # captured output, but a session also carries generated code, LLM notes
+        # and learnings. Scrub the whole payload on the way to disk -- these
+        # files are committed.
+        payload = redact_secrets(json.dumps(self.to_dict(), indent=2))
+        Path(path).write_text(payload, encoding="utf-8")
         return path
 
     @classmethod
@@ -933,7 +940,33 @@ Start your response with [ and end with ]."""
                 result["error"] = str(e)
 
         result["duration_ms"] = int((time.time() - start) * 1000)
+
+        # Single choke point: captured output and error text are persisted to
+        # .claude-studio/onboarding_sessions/<provider>.json, which is committed.
+        # A provider's get_headers() returns the live API key, so scrub before
+        # any of it reaches disk.
+        secret_values = self._provider_secrets(provider_instance)
+        result["output"] = redact_secrets(result["output"], secret_values)
+        result["error"] = redact_secrets(result["error"], secret_values)
+
         return result
+
+    @staticmethod
+    def _provider_secrets(provider_instance: Any) -> List[str]:
+        """Collect literal secret values held by a provider instance.
+
+        The key may have come from the OS keychain rather than the environment,
+        so redaction cannot rely on scanning os.environ alone.
+        """
+        secrets: List[str] = []
+        for holder in (provider_instance, getattr(provider_instance, "config", None)):
+            if holder is None:
+                continue
+            for attr in ("api_key", "api_secret", "token", "client_secret"):
+                value = getattr(holder, attr, None)
+                if isinstance(value, str) and value:
+                    secrets.append(value)
+        return secrets
 
     def _determine_method(self, test_case: Dict[str, Any], provider: Any) -> Optional[str]:
         """Determine which provider method to call based on test case"""
