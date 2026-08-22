@@ -1,0 +1,39 @@
+{
+  "_comment": "A realistic three-day trip: two days in Lisbon, a train to Sintra, one day there. Unlike the per-format parsing fixtures, visits here span real hours so the full parse -> join -> beats path produces beats.",
+  "timelineObjects": [
+    {
+      "placeVisit": {
+        "location": {"latitudeE7": 387223000, "longitudeE7": -91393000,
+                     "name": "Alfama", "address": "Alfama, Lisbon, Portugal"},
+        "duration": {"startTimestamp": "2023-05-04T08:00:00Z",
+                     "endTimestamp": "2023-05-04T19:30:00Z"}
+      }
+    },
+    {
+      "placeVisit": {
+        "location": {"latitudeE7": 387100000, "longitudeE7": -91500000,
+                     "name": "Belém", "address": "Belém, Lisbon, Portugal"},
+        "duration": {"startTimestamp": "2023-05-05T09:00:00Z",
+                     "endTimestamp": "2023-05-05T17:00:00Z"}
+      }
+    },
+    {
+      "activitySegment": {
+        "startLocation": {"latitudeE7": 387100000, "longitudeE7": -91500000},
+        "endLocation": {"latitudeE7": 387975000, "longitudeE7": -93906000},
+        "duration": {"startTimestamp": "2023-05-06T08:00:00Z",
+                     "endTimestamp": "2023-05-06T09:10:00Z"},
+        "activityType": "IN_PASSENGER_VEHICLE",
+        "distance": 28400
+      }
+    },
+    {
+      "placeVisit": {
+        "location": {"latitudeE7": 387975000, "longitudeE7": -93906000,
+                     "name": "Sintra", "address": "Sintra, Portugal"},
+        "duration": {"startTimestamp": "2023-05-06T09:10:00Z",
+                     "endTimestamp": "2023-05-06T18:00:00Z"}
+      }
+    }
+  ]
+}

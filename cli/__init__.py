@@ -26,6 +26,7 @@ from .assemble import assemble_cmd
 from .assets import assets
 from .upload import upload_cmd
 from .figures import figures
+from .timeline import timeline_cmd
 
 # Load .env file at CLI startup
 load_dotenv()
@@ -101,6 +102,7 @@ main.add_command(memory_cmd, name="memory")
 main.add_command(qa_cmd, name="qa")
 main.add_command(document_cmd, name="document")
 main.add_command(kb_cmd, name="kb")
+main.add_command(timeline_cmd, name="timeline")
 
 # Provider management commands
 main.add_command(provider, name="provider")
