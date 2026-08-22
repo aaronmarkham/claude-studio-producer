@@ -655,14 +655,36 @@ grammar, and grammar carries meaning.
 
 | Condition between consecutive shots | Cut |
 |---|---|
-| Δt < 90 s, same place — a burst, one moment seen twice | hard cut, short holds (0.6–1.2 s) |
-| Same place, Δt of hours | short dissolve (~0.5 s) |
+| Δt < 90 s, same place, same camera — a burst | hard cut, short holds (0.6–1.2 s) |
+| Δt < 5 min, same place, **different cameras** — one moment, two angles | hard cut, short holds |
+| Same place, Δt beyond the burst window | short dissolve (~0.5 s) |
 | New place within walking distance | dissolve + place label |
 | New place, real travel | **map move** — the only context in which the map appears |
 | Day boundary crossed | date card |
 | First and last beat of the trip | establishing zoom, country → city, once each |
 
-The map earning its impact through scarcity is the point of the last two rows. It is the
+### Why the burst window widens across cameras
+
+The first two rows differ only in whose camera fired, and the looser threshold is on the
+*harder-looking* case. That is deliberate.
+
+Within one camera, Δt is a shutter interval: 90 seconds is generous for "the same moment,
+tried twice." Across two cameras it measures something else entirely — how long it took two
+people to both decide a thing was worth photographing. That is a stronger signal of a single
+moment than any one person's shutter rhythm, because it took two independent judgments to
+produce it, and it runs on human reaction time rather than burst mode.
+
+The threshold comes from real photos rather than a guess: two frames of the same scene, one
+from a Pixel and one from an iPhone, landed 194 seconds apart. Under a single 90-second rule
+they would have dissolved as if unrelated, when they are the most cuttable pair in the set.
+
+Both rows require the same place, so a five-minute window cannot bridge a move. The condition
+is `same beat AND different camera_key`, which is exactly the partition Component 2 already
+computes — no new state, and it degrades to the single-camera rule on a trip shot by one
+person.
+
+The map earning its impact through scarcity is the point of the map-move and
+establishing-zoom rows. It is the
 establishing shot of film convention: arrive, establish once, then stay in the scene.
 `max_map_clips` (Component 7) is the hard ceiling that keeps this honest even on a trip with
 forty movements.
@@ -709,6 +731,7 @@ class Cut:
     duration_sec: float             # of the transition itself
     hold_sec: float                 # how long the incoming shot rests
     motion: Optional[str] = None    # "push_in" | "drift_bearing:142" | "still"
+    cross_camera: bool = False      # the pair that widened the burst window
     overlay: Optional[str] = None   # place label, date, or credit text
     reason: str = ""                # which rule fired — for `cs timeline inspect --edit`
 ```
