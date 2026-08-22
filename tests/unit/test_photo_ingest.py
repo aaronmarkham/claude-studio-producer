@@ -267,3 +267,58 @@ class TestLoadPhotos:
     def test_ignores_json_sidecar_files_as_photos(self):
         photos = load_photos(FIXTURES / "sidecars", include_screenshots=True)
         assert all(p.path.suffix.lower() != ".json" for p in photos)
+
+
+class TestBlankedGpsBlock:
+    """Real-world regression: a photo that went through a sharing or upload
+    pipeline keeps its GPS block but with the values blanked — NaN rationals and
+    empty hemisphere refs. Read naively that becomes a position of NaN, and the
+    join then declines to supply a real one because the photo appears to already
+    know where it was. Found on actual phone photos, not synthesized.
+    """
+
+    def _photo_with_gps(self, tmp_path, lat, lon, lat_ref, lon_ref):
+        from PIL import Image
+        from PIL.TiffImagePlugin import IFDRational
+
+        path = tmp_path / "blanked.jpg"
+        img = Image.new("RGB", (16, 16), (10, 20, 30))
+        exif = img.getexif()
+        exif[0x010F] = "Google"
+        exif[0x0110] = "Pixel 8 Pro"
+        gps = exif.get_ifd(0x8825)
+        gps[1] = lat_ref
+        gps[2] = tuple(IFDRational(*r) for r in lat)
+        gps[3] = lon_ref
+        gps[4] = tuple(IFDRational(*r) for r in lon)
+        img.save(path, "JPEG", exif=exif.tobytes())
+        return path
+
+    def test_nan_rationals_read_as_no_position(self, tmp_path):
+        """0/0 is how EXIF spells 'no value'; Pillow surfaces it as NaN."""
+        zeros = [(0, 0), (0, 0), (0, 0)]
+        self._photo_with_gps(tmp_path, zeros, zeros, "\x00", "\x00")
+        photo = load_photos(tmp_path)[0]
+        assert photo.exif_lat is None and photo.exif_lon is None
+        assert photo.lat is None and photo.lon is None
+        assert photo.location_source == LocationSource.NONE
+        assert not photo.has_own_position, (
+            "a blanked GPS block must not look like a real fix — the join would "
+            "then refuse to place the photo from the timeline"
+        )
+
+    def test_a_real_fix_still_reads(self, tmp_path):
+        """The guard must not throw away genuine coordinates."""
+        lat = [(38, 1), (43, 1), (2028, 100)]      # 38°43'20.28" N
+        lon = [(9, 1), (8, 1), (2148, 100)]        # 9°8'21.48" W
+        self._photo_with_gps(tmp_path, lat, lon, "N", "W")
+        photo = load_photos(tmp_path)[0]
+        assert photo.has_own_position
+        assert photo.exif_lat == pytest.approx(38.7223, abs=1e-3)
+        assert photo.exif_lon == pytest.approx(-9.1393, abs=1e-3)
+
+    def test_exact_zero_zero_is_not_the_gulf_of_guinea(self, tmp_path):
+        zeros = [(0, 1), (0, 1), (0, 1)]
+        self._photo_with_gps(tmp_path, zeros, zeros, "N", "E")
+        photo = load_photos(tmp_path)[0]
+        assert not photo.has_own_position

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -153,9 +154,13 @@ def _sidecar_geo(data: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]
     lat, lon = geo.get("latitude"), geo.get("longitude")
     if lat is None or lon is None:
         return None, None
-    if float(lat) == 0.0 and float(lon) == 0.0:
+    try:
+        lat, lon = float(lat), float(lon)
+    except (TypeError, ValueError):
         return None, None
-    return float(lat), float(lon)
+    if not _valid_position(lat, lon):
+        return None, None
+    return lat, lon
 
 
 # --------------------------------------------------------------------------- #
@@ -202,17 +207,41 @@ def _dms_to_decimal(dms: Any, ref: Optional[str]) -> Optional[float]:
         return None
     try:
         degrees, minutes, seconds = (float(x) for x in dms)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, ZeroDivisionError):
         return None
     value = degrees + minutes / 60.0 + seconds / 3600.0
+    if not math.isfinite(value):
+        return None
     if ref in ("S", "W"):
         value = -value
     return value
 
 
+def _valid_position(lat: Optional[float], lon: Optional[float]) -> bool:
+    """Whether a coordinate pair is a real measurement rather than a placeholder.
+
+    Photos that have passed through a sharing or upload pipeline routinely keep a
+    GPS block whose values have been blanked rather than removed: NaN rationals
+    (a 0/0 numerator, which is how EXIF spells "no value"), empty hemisphere refs,
+    or an exact 0/0 that would put the shot in the Gulf of Guinea. All three must
+    read as "this photo does not know where it was" — otherwise the join sees a
+    position already present, declines to supply one, and the photo ends up with
+    a location of NaN and no way to recover.
+    """
+    if lat is None or lon is None:
+        return False
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return False
+    if lat == 0.0 and lon == 0.0:
+        return False
+    return -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
+
+
 def _gps_from_ifd(gps_ifd: Dict[int, Any]) -> Tuple[Optional[float], Optional[float]]:
     lat = _dms_to_decimal(gps_ifd.get(_TAG_GPS_LAT), gps_ifd.get(_TAG_GPS_LAT_REF))
     lon = _dms_to_decimal(gps_ifd.get(_TAG_GPS_LON), gps_ifd.get(_TAG_GPS_LON_REF))
+    if not _valid_position(lat, lon):
+        return None, None
     return lat, lon
 
 
