@@ -13,6 +13,10 @@ Usage:
     set_api_key("OPENAI_API_KEY", "sk-...")
 """
 
+import json
+import os
+import re
+
 from spiritwriter.secrets.keychain import (  # noqa: F401
     get_api_key,
     set_api_key,
@@ -46,3 +50,99 @@ configure(
         "YOUTUBE_API_KEY": "YouTube Data API key",
     },
 )
+
+
+# =============================================================================
+# REDACTION
+# =============================================================================
+#
+# Onboarding/test harnesses capture provider output verbatim into checkpoint
+# files that get committed. A provider's get_headers() legitimately returns the
+# live API key, so any such capture must be scrubbed before it hits disk.
+
+REDACTED = "***REDACTED***"
+
+# Shape-based backstop: catches keys regardless of where they came from
+# (env var, keychain, or hardcoded in a fixture).
+_SECRET_PATTERNS = (
+    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),          # Anthropic
+    re.compile(r"sk-proj-[A-Za-z0-9_\-]{20,}"),         # OpenAI (project)
+    re.compile(r"sk_[A-Za-z0-9]{24,}"),                 # ElevenLabs
+    re.compile(r"sk-[A-Za-z0-9]{24,}"),                 # OpenAI (legacy)
+    re.compile(r"luma-[0-9a-fA-F\-]{20,}"),             # Luma
+    re.compile(r"key-[A-Za-z0-9]{24,}"),                # Runway
+    re.compile(r"AIza[A-Za-z0-9_\-]{30,}"),             # Google
+    re.compile(r"(?:ghp|gho|ghs|ghu)_[A-Za-z0-9]{30,}"),  # GitHub
+    re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"),       # Slack
+)
+
+# Minimum length for a literal value to be worth redacting. Guards against a
+# short/empty env var (e.g. "test") blanking out unrelated text.
+_MIN_LITERAL_LEN = 8
+
+
+def _escaped_forms(value):
+    """Return a value alongside the forms it takes once serialized.
+
+    ``str(dict)`` and ``json.dumps`` escape quotes and backslashes, so a
+    credential containing either appears in serialized text in a form that no
+    longer matches the raw literal. Match those representations too.
+    """
+    forms = {value}
+    forms.add(json.dumps(value)[1:-1])   # JSON escaping
+    forms.add(repr(value)[1:-1])         # Python repr escaping
+    return {f for f in forms if len(f) >= _MIN_LITERAL_LEN}
+
+
+def redact_structure(obj, extra_values=None):
+    """Recursively redact strings in a container before it gets serialized.
+
+    Preferred over redacting serialized text: scrubbing the raw strings means
+    escaping never gets a chance to hide a credential from the matcher.
+    Containers are rebuilt; unknown objects are returned unchanged.
+    """
+    if isinstance(obj, str):
+        return redact_secrets(obj, extra_values)
+    if isinstance(obj, dict):
+        return {k: redact_structure(v, extra_values) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return type(obj)(redact_structure(v, extra_values) for v in obj)
+    return obj
+
+
+def redact_secrets(text, extra_values=None):
+    """Replace API keys in ``text`` with a redaction marker.
+
+    Scrubs three sources, in order of precision:
+      1. ``extra_values`` -- literals the caller knows are secret (e.g. the
+         ``api_key`` off a provider instance, which may come from the keychain).
+      2. Live values of known secret env vars.
+      3. Well-known key shapes (see ``_SECRET_PATTERNS``).
+
+    Args:
+        text: Value to scrub. Non-strings are returned unchanged.
+        extra_values: Optional iterable of literal secret values to redact.
+
+    Returns:
+        The scrubbed string, or ``text`` unchanged if it is not a string.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+
+    literals = set()
+    for value in extra_values or ():
+        if isinstance(value, str) and len(value) >= _MIN_LITERAL_LEN:
+            literals.update(_escaped_forms(value))
+    for name in KNOWN_KEYS:
+        value = os.environ.get(name)
+        if value and len(value) >= _MIN_LITERAL_LEN:
+            literals.update(_escaped_forms(value))
+
+    # Longest first, so an embedded shorter secret can't partially mask a longer one.
+    for value in sorted(literals, key=len, reverse=True):
+        text = text.replace(value, REDACTED)
+
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(REDACTED, text)
+
+    return text

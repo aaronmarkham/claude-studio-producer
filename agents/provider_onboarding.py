@@ -26,6 +26,23 @@ from abc import ABC, abstractmethod
 
 import httpx
 
+from core.secrets import redact_secrets, redact_structure
+
+# Attribute names that hold credentials. Covers every AuthType the onboarding
+# agent supports: API_KEY_HEADER, BEARER_TOKEN, BASIC_AUTH and OAUTH2.
+_SECRET_ATTRS = (
+    "api_key", "api_secret", "secret_key",
+    "token", "access_token", "refresh_token", "bearer_token",
+    "client_secret", "password", "passphrase", "private_key", "credentials",
+)
+
+# Backstop for AuthType.CUSTOM, where a provider may name its credential
+# something not enumerated above.
+_SECRET_ATTR_RE = re.compile(
+    r"(api_?key|secret|token|password|passphrase|credential|private_?key)",
+    re.IGNORECASE,
+)
+
 
 # =============================================================================
 # DATA MODELS
@@ -280,7 +297,14 @@ class OnboardingSession:
             sessions_dir.mkdir(parents=True, exist_ok=True)
             path = str(sessions_dir / f"{self.provider_name}.json")
 
-        Path(path).write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        # Defense in depth: the per-test choke point in ProviderTester scrubs
+        # captured output, but a session also carries generated code, LLM notes
+        # and learnings. Scrub the whole payload on the way to disk -- these
+        # files are committed.
+        # Redact before json.dumps, not after: escaping a quote or backslash
+        # inside a credential would otherwise hide it from the matcher.
+        payload = json.dumps(redact_structure(self.to_dict()), indent=2)
+        Path(path).write_text(payload, encoding="utf-8")
         return path
 
     @classmethod
@@ -890,7 +914,13 @@ Start your response with [ and end with ]."""
                         # It's a property or attribute, already resolved
                         output = method
 
-                    result["output"] = str(output)[:500]  # Truncate output
+                    # Redact before str(): a credential containing a quote or
+                    # backslash is escaped by repr and would survive matching
+                    # against the raw literal.
+                    safe_output = redact_structure(
+                        output, self._provider_secrets(provider_instance)
+                    )
+                    result["output"] = str(safe_output)[:500]  # Truncate output
                     result["status"] = "passed"
 
                     # Run assertions if provided
@@ -933,7 +963,47 @@ Start your response with [ and end with ]."""
                 result["error"] = str(e)
 
         result["duration_ms"] = int((time.time() - start) * 1000)
+
+        # Single choke point: captured output and error text are persisted to
+        # .claude-studio/onboarding_sessions/<provider>.json, which is committed.
+        # A provider's get_headers() returns the live API key, so scrub before
+        # any of it reaches disk.
+        secret_values = self._provider_secrets(provider_instance)
+        result["output"] = redact_secrets(result["output"], secret_values)
+        result["error"] = redact_secrets(result["error"], secret_values)
+
         return result
+
+    @staticmethod
+    def _provider_secrets(provider_instance: Any) -> List[str]:
+        """Collect literal secret values held by a provider instance.
+
+        The key may have come from the OS keychain rather than the environment,
+        so redaction cannot rely on scanning os.environ alone.
+        """
+        secrets: List[str] = []
+        for holder in (provider_instance, getattr(provider_instance, "config", None)):
+            if holder is None:
+                continue
+            for attr in _SECRET_ATTRS:
+                value = getattr(holder, attr, None)
+                if isinstance(value, str) and value:
+                    secrets.append(value)
+
+            # Generic sweep: AuthType allows CUSTOM, so a provider may name its
+            # credential something not listed above. Read instance and class
+            # attributes; some providers have no __dict__ at all.
+            namespaces = []
+            try:
+                namespaces.append(vars(holder))
+            except TypeError:
+                pass  # __slots__ or a bare object
+            namespaces.append(vars(type(holder)))
+            for namespace in namespaces:
+                for attr, value in namespace.items():
+                    if isinstance(value, str) and value and _SECRET_ATTR_RE.search(attr):
+                        secrets.append(value)
+        return secrets
 
     def _determine_method(self, test_case: Dict[str, Any], provider: Any) -> Optional[str]:
         """Determine which provider method to call based on test case"""
