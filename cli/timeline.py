@@ -148,6 +148,64 @@ def timeline_cmd():
     """Inspect Google Timeline exports joined with a photo folder."""
 
 
+@timeline_cmd.command("extract")
+@click.argument("photo_dir", type=click.Path(exists=True, path_type=Path))
+@click.option("--out", "-o", type=click.Path(path_type=Path), default=None,
+              help="Manifest path (default: <photo_dir>/trip-manifest.json)")
+@click.option("--location", type=click.Choice(["full", "coarse", "none"]), default="full",
+              show_default=True,
+              help="How much location to record: exact, rounded, or omitted")
+@click.option("--coarse-places", type=int, default=2, show_default=True,
+              help="Decimal places kept when --location coarse (2 ≈ 1 km)")
+@click.option("--include-screenshots", is_flag=True, help="Record screenshots too")
+def extract_cmd(photo_dir, out, location, coarse_places, include_screenshots):
+    """Capture photo metadata into a portable manifest, before anything strips it.
+
+    \b
+    Run this on the machine holding the originals. Everything downstream can then
+    work from the manifest, so the photos can be copied, shared or re-uploaded
+    without losing what the pipeline needs:
+
+      cs timeline extract ~/Pictures/portugal
+      cs timeline extract ~/Pictures/portugal --location coarse -o trip.json
+
+    Metadata is read, not written: your photos are never modified.
+    """
+    from core.ingest.manifest import DEFAULT_FILENAME, build_manifest
+    from core.ingest.photos import load_photos
+
+    photos = load_photos(photo_dir, include_screenshots=include_screenshots)
+    if not photos:
+        raise click.ClickException(f"No readable images found in {photo_dir}")
+
+    manifest = build_manifest(
+        photos, source_dir=photo_dir, location=location, coarse_places=coarse_places
+    )
+    target = out or (photo_dir / DEFAULT_FILENAME)
+    manifest.save(target)
+
+    with_time = sum(1 for e in manifest.entries if e.taken_utc or e.taken_local_naive)
+    with_gps = sum(1 for e in manifest.entries if e.lat is not None)
+    cameras = {e.camera_key for e in manifest.entries}
+    methods = _counts({m: sum(1 for e in manifest.entries if e.content_method == m)
+                       for m in {e.content_method for e in manifest.entries}})
+
+    console.print()
+    console.print(f"[bold]Captured[/bold] {len(manifest.entries):,} photos → {target}")
+    console.print(f"  {'Timestamps':<15} {with_time}/{len(manifest.entries)}")
+    console.print(f"  {'Coordinates':<15} {with_gps}/{len(manifest.entries)}"
+                  f"  [dim]({manifest.location_policy})[/dim]")
+    console.print(f"  {'Cameras':<15} {len(cameras)}")
+    console.print(f"  {'Content keys':<15} {methods}")
+    if with_gps == 0 and location != "none":
+        console.print(
+            "  [yellow]⚠[/yellow]  No coordinates found — if these photos have "
+            "already passed\n     through a sharing or upload step, capture from "
+            "the originals instead."
+        )
+    console.print()
+
+
 @timeline_cmd.command("inspect")
 @click.argument("export_path", type=click.Path(exists=True, path_type=Path), required=False)
 @click.option("--photos", "photo_dir", type=click.Path(exists=True, path_type=Path),
@@ -156,6 +214,8 @@ def timeline_cmd():
 @click.option("--to", "date_to", help="End date, YYYY-MM-DD")
 @click.option("--credit", "credit_pairs", multiple=True,
               help='Attribute a camera: --credit "Canon EOS R6=Dana"')
+@click.option("--manifest", "manifest_path", type=click.Path(exists=True, path_type=Path),
+              help="Metadata manifest from `cs timeline extract` (wins over EXIF)")
 @click.option("--include-screenshots", is_flag=True, help="Keep screenshots in the set")
 @click.option("--max-accuracy", type=int, default=2000, show_default=True,
               help="Drop location fixes worse than this, in meters")
@@ -163,7 +223,7 @@ def timeline_cmd():
               help="Minutes of track gap before a position is only INFERRED")
 @click.option("--verbose", "-V", is_flag=True, help="List every GPS disagreement")
 @click.option("--json", "as_json", is_flag=True, help="Emit the join report as JSON")
-def inspect_cmd(export_path, photo_dir, date_from, date_to, credit_pairs,
+def inspect_cmd(export_path, photo_dir, date_from, date_to, credit_pairs, manifest_path,
                 include_screenshots, max_accuracy, max_gap, verbose, as_json):
     """Parse, join, and report. No video, no cost, no network.
 
@@ -194,10 +254,22 @@ def inspect_cmd(export_path, photo_dir, date_from, date_to, credit_pairs,
         parse_timeline(export_path, max_accuracy_m=max_accuracy)
         if export_path else Timeline(source_format="photos_only")
     )
+    manifest = None
+    if manifest_path:
+        from core.ingest.manifest import TripManifest
+        manifest = TripManifest.load(manifest_path)
     photos = (
-        load_photos(photo_dir, include_screenshots=include_screenshots, credits=credits)
+        load_photos(photo_dir, include_screenshots=include_screenshots,
+                    credits=credits, manifest=manifest)
         if photo_dir else []
     )
+    if manifest is not None and photos:
+        matched = sum(1 for p in photos if p.taken_utc or p.lat is not None)
+        console.print(
+            f"\n[dim]manifest: {len(manifest.entries)} entries, "
+            f"{matched}/{len(photos)} photos matched "
+            f"({manifest.location_policy} location)[/dim]"
+        )
 
     if start or end:
         def in_range(ts) -> bool:

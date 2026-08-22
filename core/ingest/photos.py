@@ -402,11 +402,40 @@ def _build_photo(path: Path, credits: Dict[str, str]) -> Optional[Photo]:
     )
 
 
+def _apply_manifest(photo: Photo, entry) -> Photo:
+    """Overlay manifest values onto a photo. Highest precedence of all sources.
+
+    The manifest was captured from the intact original, so where it and the file
+    disagree the file is the degraded copy and loses. Fields absent from the
+    manifest leave whatever the file knew — a manifest is allowed to be partial,
+    and a redacted one deliberately is.
+    """
+    if entry.taken_utc:
+        photo.taken_utc = datetime.fromisoformat(entry.taken_utc)
+        photo.tz_offset_source = TzSource(entry.tz_source) if entry.tz_source else photo.tz_offset_source
+        photo.tz_offset_minutes = entry.tz_offset_minutes
+    if entry.taken_local_naive and photo.taken_local_naive is None:
+        photo.taken_local_naive = datetime.fromisoformat(entry.taken_local_naive)
+    if entry.lat is not None and entry.lon is not None:
+        photo.exif_lat, photo.exif_lon = entry.lat, entry.lon
+        photo.lat, photo.lon = entry.lat, entry.lon
+        photo.location_source = LocationSource.EXIF
+    if entry.camera:
+        photo.camera = entry.camera
+    if entry.camera_key and entry.camera_key != "unknown":
+        photo.camera_key = entry.camera_key
+    if entry.width and entry.height:
+        photo.width, photo.height = entry.width, entry.height
+    photo.is_screenshot = entry.is_screenshot or photo.is_screenshot
+    return photo
+
+
 def load_photos(
     directory: Path,
     *,
     include_screenshots: bool = False,
     credits: Optional[Dict[str, str]] = None,
+    manifest=None,
 ) -> List[Photo]:
     """Walk `directory` and build one `Photo` per image file found.
 
@@ -418,6 +447,12 @@ def load_photos(
 
     `credits` maps `camera_key` -> photographer name; a camera absent from the
     mapping is left uncredited.
+
+    `manifest` is an optional `TripManifest` captured from the originals before
+    anything could strip them. Where it has a value it wins over both the sidecar
+    and EXIF, which is the whole point: it was read while the metadata was still
+    there. Credits are resolved after the overlay, so a camera identified only by
+    the manifest is still creditable.
     """
     credits = credits or {}
     directory = Path(directory)
@@ -428,6 +463,11 @@ def load_photos(
         photo = _build_photo(path, credits)
         if photo is None:
             continue
+        if manifest is not None:
+            entry = manifest.match(path)
+            if entry is not None:
+                photo = _apply_manifest(photo, entry)
+                photo.credit = credits.get(photo.camera_key)
         if photo.is_screenshot and not include_screenshots:
             continue
         photos.append(photo)

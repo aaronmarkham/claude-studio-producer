@@ -96,7 +96,7 @@ needs **no new intents**:
 
 `TRANSITION` is the interesting one: in a travelogue it is not a rhetorical bridge but a
 literal one — a movement between two places — and it is exactly the segment a rendered map
-animation binds to (Component 5).
+animation binds to (Component 6).
 
 ---
 
@@ -239,7 +239,7 @@ the match rate. A 60% sidecar hit rate usually means the resolver is wrong, not 
 **2. EXIF, via Pillow** (already a dependency, `pyproject.toml`). Read
 `DateTimeOriginal` (36867), `OffsetTimeOriginal` (36881) when present, the GPS IFD (34853)
 for `GPSLatitude`/`GPSLatitudeRef` DMS rationals, and `Make`/`Model` (used for the
-per-camera clock offset in Component 3). `DateTimeOriginal` is **local wall-clock with no
+per-camera clock offset in Component 4). `DateTimeOriginal` is **local wall-clock with no
 zone** unless `OffsetTimeOriginal` is there — never treat it as UTC.
 
 ### Model
@@ -250,7 +250,7 @@ class Photo:
     photo_id: str                   # content hash, stable across re-imports
     path: Path
     # Time
-    taken_utc: Optional[datetime]   # resolved to UTC (see Component 3)
+    taken_utc: Optional[datetime]   # resolved to UTC (see Component 4)
     taken_local_naive: Optional[datetime]   # raw EXIF wall-clock, kept for debugging
     tz_offset_source: str = "unknown"       # sidecar | exif_offset | inferred | assumed
     # Space — may be filled by the join rather than the file
@@ -313,7 +313,7 @@ cs produce timeline ~/Takeout --photos ~/trip \
 
 This is strictly better than depending on Google: it works on a folder assembled from
 AirDrop, a messaging thread, a shared Drive, or three separate Takeouts — which is what a
-real multi-person trip folder actually is. It also costs nothing extra, because Component 3
+real multi-person trip folder actually is. It also costs nothing extra, because Component 4
 already groups photos by camera to infer clock offsets. Same partition, second use: a camera
 that needed a +1h correction is also a distinct photographer.
 
@@ -325,7 +325,104 @@ Photos whose `camera_key` has no configured credit are simply uncredited. Never 
 
 ---
 
-## Component 3: The Join
+## Component 3: Metadata Capture
+
+```python
+# NEW — core/ingest/manifest.py, core/ingest/content_key.py
+```
+
+Component 2 assumes the photo still knows what it knew when it was taken. Increasingly it
+does not.
+
+Sanitizers strip EXIF in transit — messaging apps, upload pipelines, "remove location before
+sharing" toggles, platform ingest. This is not a bug to route around and it is not going
+away: for almost every other use of a photo, dropping location is the correct default.
+Measured on three real frames while building this feature, from two different phones across
+three separate uploads, every one arrived with a complete GPS block emptied to NaN. One
+iPhone frame still carried `GPSHPositioningError: 7.02` — a value that only exists because
+there *was* a fix — while every coordinate beside it had been blanked. The photos knew where
+they were. Something in the middle decided we shouldn't.
+
+The answer is to stop asking the photo. Read the metadata once, on the machine that holds the
+originals, and write it to a file that travels separately:
+
+```bash
+cs timeline extract ~/Pictures/portugal          # -> trip-manifest.json
+```
+
+From there the manifest is the source of truth. The images can be copied, shared,
+re-uploaded and stripped without losing anything the pipeline needs.
+
+This is the same pattern CSP already uses for generated work. `ContentLibrary`
+(`core/models/content_library.py:163`) is a registry of assets that outlives any single run;
+`RunManifest` (`core/models/run_manifest.py`) records the state of a production. `TripManifest`
+is that idea pointed at material the system did not create and therefore cannot regenerate —
+which is exactly why losing its metadata is unrecoverable in a way a re-runnable DALL-E prompt
+never is.
+
+### The identity problem
+
+A manifest is only useful if an entry can be matched back to its photo later, and the obvious
+key does not work. Stripping metadata rewrites the file, so a content hash of the bytes no
+longer matches.
+
+What survives is the picture. A sanitizer rewrites the JPEG container and leaves the
+entropy-coded scan untouched, so hashing **from the start-of-scan marker onward** produces an
+identifier that no metadata segment can affect. Measured across the three cases:
+
+| | file sha256 | scan-based content key |
+|---|---|---|
+| original | `496d5c34…` | `8039d7fe…` |
+| EXIF stripped (lossless) | changed | **unchanged** |
+| re-encoded at q85 | changed | changed |
+
+Hashing decoded pixels gives the same invariance, but the scan hash needs no decode at all:
+2.8 ms versus 196 ms on a 12 MP frame, which is 3 seconds against 3 minutes across a
+thousand-photo trip. So JPEG takes the scan path and everything else falls back to pixels.
+
+Matching then runs three keys in descending order of what each proves — exact bytes, the
+metadata-invariant content key, then filename plus dimensions.
+
+**An ambiguous key resolves to nothing, never to a guess.** Two copies of one image have
+identical scan data and therefore an identical content key; the first implementation collapsed
+them in a dict and silently gave both photos the *last* entry's time and place. Attaching one
+photo's location to another is precisely the failure this mechanism exists to prevent, and an
+unmatched photo is visible in the report while a mismatched one is invisible forever.
+
+### Precedence
+
+Manifest, then sidecar, then EXIF. Where the manifest and the file disagree, the file is the
+degraded copy and loses — that is what it means to have been captured from the original. A
+manifest may be partial, and a redacted one deliberately is, so absent fields leave whatever
+the file knew.
+
+### Redaction happens at capture
+
+```bash
+cs timeline extract ~/Pictures/portugal --location coarse    # ~1 km, 2 decimals
+cs timeline extract ~/Pictures/portugal --location none      # time and camera only
+```
+
+The reduction is applied when the manifest is written, so a redacted manifest never contains
+the precise value at all. This is stronger than carrying it behind a flag and trusting every
+future reader to honor it.
+
+Which makes the arrangement privacy-preferable rather than a privacy compromise: the photos
+never have to leave the machine for their metadata to be usable, and what does leave can be
+coarsened first. It is the local-first stance in Privacy, made operational.
+
+### Knock-on for the join
+
+Component 4's clock-offset inference needs GPS-bearing photos to cross-correlate against, and
+in a folder assembled from shared sources there may be none — the sanitizer took exactly the
+signal the inference runs on. The refusal rule already handles this correctly (under three
+votes, it declines and falls back), but the spec should not describe GPS-less photos as the
+edge case. In shared folders they are the norm, and a manifest captured before sharing is the
+only thing that restores the signal.
+
+---
+
+## Component 4: The Join
 
 ```python
 # NEW — core/ingest/trip_join.py
@@ -468,7 +565,7 @@ Both halves must work alone:
 
 ---
 
-## Component 4: Reverse Geocoding
+## Component 5: Reverse Geocoding
 
 Places need names. "38.682, −122.395" is not narration.
 
@@ -490,7 +587,7 @@ Never fall through to tier 3 implicitly.
 
 ---
 
-## Component 5: The `timeline_map` Video Provider
+## Component 6: The `timeline_map` Video Provider
 
 ```python
 # NEW — core/providers/video/timeline_map.py
@@ -540,7 +637,7 @@ Attribution requirements go in `docs/providers.md` alongside the other providers
 
 ---
 
-## Component 6: Script Generation
+## Component 7: Script Generation
 
 ```python
 # NEW — core/ingest/trip_script.py
@@ -580,7 +677,7 @@ A new narrative style `travelogue` joins the existing podcast/educational/docume
 
 ---
 
-## Component 7: DoP Extension
+## Component 8: DoP Extension
 
 `core/dop.py:34` currently allocates a scarce DALL-E budget across segments. Personal photos
 break its central assumption — the best asset for most segments is free and already exists —
@@ -628,7 +725,7 @@ that actually matters here — "not that one" is the common edit.
 
 ---
 
-## Component 8: Visual Grammar
+## Component 9: Visual Grammar
 
 ```python
 # NEW — core/visual_grammar.py
@@ -647,7 +744,7 @@ Two obvious approaches both fail, in opposite directions:
   — not consciously, but as a sense that no cut means anything.
 
 The principle instead: **every cut is caused by something in the join data.** The output of
-Component 3 is unusually rich — time deltas, place changes, day boundaries, burst structure,
+Component 4 is unusually rich — time deltas, place changes, day boundaries, burst structure,
 salience — and it is enough to derive the edit rather than decorate it. Transitions become
 grammar, and grammar carries meaning.
 
@@ -686,7 +783,7 @@ person.
 The map earning its impact through scarcity is the point of the map-move and
 establishing-zoom rows. It is the
 establishing shot of film convention: arrive, establish once, then stay in the scene.
-`max_map_clips` (Component 7) is the hard ceiling that keeps this honest even on a trip with
+`max_map_clips` (Component 8) is the hard ceiling that keeps this honest even on a trip with
 forty movements.
 
 ### Pacing follows salience
@@ -741,7 +838,7 @@ there," and a grammar that cannot answer it is a grammar nobody will trust enoug
 
 ---
 
-## Component 9: CLI
+## Component 10: CLI
 
 ```bash
 # Inspect first — no video, no cost, no LLM. The debugging entry point.
@@ -846,7 +943,7 @@ be fully validated on fixtures before anything downstream exists.
 backend, the DoP changes, `max_map_clips` tiers, then `core/visual_grammar.py` and credit
 rendering. Maps and grammar ship together because the map-move rule is what makes the map
 scarce, and a map provider without that discipline produces exactly the screensaver
-Component 8 exists to avoid. Tile backend after the vector one works.
+Component 9 exists to avoid. Tile backend after the vector one works.
 
 **Phase 4 — Live and hardening.** Generated imagery for uncovered beats, opt-in vision
 captions, home redaction, metadata scrubbing verified in tests.
@@ -963,11 +1060,13 @@ core/ingest/__init__.py
 core/ingest/timeline.py           # Format parsing → normalized Timeline
 core/ingest/photos.py             # EXIF + Takeout sidecar → Photo
 core/ingest/trip_join.py          # The join, JoinReport, TripKnowledge
+core/ingest/manifest.py           # TripManifest — capture before transit
+core/ingest/content_key.py        # Strip-invariant image identity
 core/ingest/trip_script.py        # TripKnowledge → StructuredScript
 core/ingest/geocode.py            # Three-tier place naming
 core/visual_grammar.py            # Cut rules, pacing, credit placement
 core/providers/video/timeline_map.py
-cli/timeline.py                   # cs timeline inspect [--edit]
+cli/timeline.py                   # cs timeline extract | inspect [--edit]
 data/gazetteer/cities15000.tsv    # Bundled, CC BY 4.0
 tests/fixtures/timeline/          # Four format samples
 tests/fixtures/photos/            # Six metadata variants
