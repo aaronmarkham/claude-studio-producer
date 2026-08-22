@@ -9,7 +9,7 @@ public repo.
 import json
 import pytest
 
-from core.secrets import REDACTED, redact_secrets
+from core.secrets import REDACTED, redact_secrets, redact_structure
 
 
 # Synthetic keys, shaped like the real thing but not valid credentials.
@@ -176,3 +176,138 @@ class TestCommittedSessionFilesAreClean:
                 offenders.append(path.name)
 
         assert not offenders, f"secrets found in committed session files: {offenders}"
+
+
+# Credentials containing characters that str()/json.dumps escape. A raw-literal
+# match misses these once serialized, so redaction must happen first.
+ESCAPING_SECRETS = [
+    'abc"def\'ghi12345',   # both quote styles -> repr backslash-escapes one
+    "abc\\def12345",        # backslash
+    'quote"inside-12345',
+    "apostrophe'inside-12345",
+]
+
+
+class TestEscapedCredentials:
+    """Regression: escaping must not hide a credential from redaction."""
+
+    @pytest.mark.parametrize("secret", ESCAPING_SECRETS)
+    def test_redact_structure_beats_repr_escaping(self, secret):
+        captured = str(redact_structure({"xi-api-key": secret}, [secret]))
+        assert secret not in captured
+        assert REDACTED in captured
+
+    @pytest.mark.parametrize("secret", ESCAPING_SECRETS)
+    def test_redact_structure_beats_json_escaping(self, secret):
+        payload = json.dumps(redact_structure({"key": secret}, [secret]))
+        assert secret not in payload
+        assert json.dumps(secret)[1:-1] not in payload
+        assert REDACTED in payload
+
+    @pytest.mark.parametrize("secret", ESCAPING_SECRETS)
+    def test_redact_secrets_matches_already_serialized_forms(self, secret):
+        """Backstop for text that was serialized before redaction ran."""
+        already = json.dumps({"key": secret})
+        assert json.dumps(secret)[1:-1] not in redact_secrets(already, [secret])
+
+    def test_redact_structure_recurses_and_preserves_shape(self):
+        data = {"a": [{"b": FAKE_ELEVENLABS}], "c": ("x", FAKE_ANTHROPIC), "n": 1}
+        out = redact_structure(data)
+        assert out["a"][0]["b"] == REDACTED
+        assert out["c"][1] == REDACTED
+        assert isinstance(out["c"], tuple)
+        assert out["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_run_test_redacts_escaped_credential(self):
+        from agents.provider_onboarding import ProviderTester
+
+        secret = 'abc"def\'ghi12345'
+
+        class FakeProvider:
+            def __init__(self):
+                self.api_key = secret
+
+            def get_headers(self):
+                return {"xi-api-key": self.api_key}
+
+        tester = ProviderTester(claude_client=None)
+        result = await tester.run_test(
+            {"name": "test_get_headers", "method": "get_headers", "inputs": {}},
+            FakeProvider(),
+        )
+        assert secret not in json.dumps(result)
+
+    def test_save_redacts_escaped_credential(self, tmp_path, monkeypatch):
+        """save() has no provider instance, so it matches env values and shapes.
+
+        This pins the escaping behaviour: a known credential containing escape
+        characters must not survive serialization in escaped form.
+        """
+        from datetime import datetime
+        from agents.provider_onboarding import OnboardingSession
+
+        secret = 'tok"en\\with-escapes-12345'
+        monkeypatch.setenv("ELEVENLABS_API_KEY", secret)
+
+        session = OnboardingSession(provider_name="fakeprov", started_at=datetime(2026, 1, 1))
+        session.learnings = [f"credential was {secret}"]
+
+        path = tmp_path / "s.json"
+        session.save(str(path))
+        written = path.read_text()
+        assert secret not in written
+        assert json.dumps(secret)[1:-1] not in written
+        assert REDACTED in written
+        json.loads(written)
+
+
+class TestAuthTypeCoverage:
+    """_provider_secrets covers credentials for every supported AuthType."""
+
+    @pytest.mark.parametrize("attr", [
+        "api_key", "access_token", "refresh_token", "bearer_token",
+        "client_secret", "password", "private_key", "secret_key",
+    ])
+    def test_collects_named_credential_attrs(self, attr):
+        from agents.provider_onboarding import ProviderTester
+
+        provider = type("P", (), {})()
+        setattr(provider, attr, "opaque-credential-value-123")
+        assert "opaque-credential-value-123" in ProviderTester._provider_secrets(provider)
+
+    def test_collects_custom_auth_credential_by_name_pattern(self):
+        """AuthType.CUSTOM: a provider may invent its own credential field."""
+        from agents.provider_onboarding import ProviderTester
+
+        provider = type("P", (), {})()
+        provider.x_subscription_secret = "opaque-custom-cred-456"
+        assert "opaque-custom-cred-456" in ProviderTester._provider_secrets(provider)
+
+    def test_ignores_non_credential_attrs(self):
+        from agents.provider_onboarding import ProviderTester
+
+        provider = type("P", (), {})()
+        provider.base_url = "https://api.example.com"
+        provider.timeout = 300
+        assert ProviderTester._provider_secrets(provider) == []
+
+    @pytest.mark.asyncio
+    async def test_oauth_token_in_headers_is_redacted(self):
+        from agents.provider_onboarding import ProviderTester
+
+        token = "opaque-oauth-access-token-no-recognizable-shape"
+
+        class OAuthProvider:
+            def __init__(self):
+                self.access_token = token
+
+            def get_headers(self):
+                return {"Authorization": f"Bearer {self.access_token}"}
+
+        tester = ProviderTester(claude_client=None)
+        result = await tester.run_test(
+            {"name": "test_get_headers", "method": "get_headers", "inputs": {}},
+            OAuthProvider(),
+        )
+        assert token not in json.dumps(result)

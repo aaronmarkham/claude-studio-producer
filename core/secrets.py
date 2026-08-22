@@ -13,6 +13,7 @@ Usage:
     set_api_key("OPENAI_API_KEY", "sk-...")
 """
 
+import json
 import os
 import re
 
@@ -80,6 +81,35 @@ _SECRET_PATTERNS = (
 _MIN_LITERAL_LEN = 8
 
 
+def _escaped_forms(value):
+    """Return a value alongside the forms it takes once serialized.
+
+    ``str(dict)`` and ``json.dumps`` escape quotes and backslashes, so a
+    credential containing either appears in serialized text in a form that no
+    longer matches the raw literal. Match those representations too.
+    """
+    forms = {value}
+    forms.add(json.dumps(value)[1:-1])   # JSON escaping
+    forms.add(repr(value)[1:-1])         # Python repr escaping
+    return {f for f in forms if len(f) >= _MIN_LITERAL_LEN}
+
+
+def redact_structure(obj, extra_values=None):
+    """Recursively redact strings in a container before it gets serialized.
+
+    Preferred over redacting serialized text: scrubbing the raw strings means
+    escaping never gets a chance to hide a credential from the matcher.
+    Containers are rebuilt; unknown objects are returned unchanged.
+    """
+    if isinstance(obj, str):
+        return redact_secrets(obj, extra_values)
+    if isinstance(obj, dict):
+        return {k: redact_structure(v, extra_values) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return type(obj)(redact_structure(v, extra_values) for v in obj)
+    return obj
+
+
 def redact_secrets(text, extra_values=None):
     """Replace API keys in ``text`` with a redaction marker.
 
@@ -102,11 +132,11 @@ def redact_secrets(text, extra_values=None):
     literals = set()
     for value in extra_values or ():
         if isinstance(value, str) and len(value) >= _MIN_LITERAL_LEN:
-            literals.add(value)
+            literals.update(_escaped_forms(value))
     for name in KNOWN_KEYS:
         value = os.environ.get(name)
         if value and len(value) >= _MIN_LITERAL_LEN:
-            literals.add(value)
+            literals.update(_escaped_forms(value))
 
     # Longest first, so an embedded shorter secret can't partially mask a longer one.
     for value in sorted(literals, key=len, reverse=True):
