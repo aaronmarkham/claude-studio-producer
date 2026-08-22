@@ -1,0 +1,19 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2023-05-04T09:12:33Z",
+      "endTime": "2023-05-04T09:12:33Z",
+      "visit": {"topCandidate": {"semanticType": "Lisbon", "placeLocation": {"latLng": "38.7223°, -9.1393°"}}}
+    },
+    {
+      "startTime": "2023-05-05T10:00:00Z",
+      "endTime": "2023-05-05T10:00:00Z",
+      "visit": {"topCandidate": {"semanticType": "Porto", "placeLocation": {"latLng": "41.1579°, -8.6291°"}}}
+    },
+    {
+      "startTime": "2023-05-06T11:30:00Z",
+      "endTime": "2023-05-06T11:30:00Z",
+      "visit": {"topCandidate": {"semanticType": "Sintra", "placeLocation": {"latLng": "38.8029°, -9.3817°"}}}
+    }
+  ]
+}

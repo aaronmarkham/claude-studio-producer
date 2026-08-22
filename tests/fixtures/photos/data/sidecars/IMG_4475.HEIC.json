@@ -1,0 +1,17 @@
+{
+  "title": "IMG_4475.HEIC.json",
+  "photoTakenTime": {
+    "timestamp": "1683191553",
+    "formatted": "irrelevant to the ingester, kept for realism"
+  },
+  "geoData": {
+    "latitude": 38.682,
+    "longitude": -122.395,
+    "altitude": 0.0
+  },
+  "geoDataExif": {
+    "latitude": 38.682,
+    "longitude": -122.395,
+    "altitude": 0.0
+  }
+}

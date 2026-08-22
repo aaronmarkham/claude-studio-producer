@@ -1,0 +1,22 @@
+{
+  "timelineObjects": [
+    {
+      "placeVisit": {
+        "location": {"latitudeE7": 387223000, "longitudeE7": -91393000, "name": "Lisbon", "address": "Lisbon, Portugal"},
+        "duration": {"startTimestamp": "2023-05-04T09:12:33Z", "endTimestamp": "2023-05-04T09:12:33Z"}
+      }
+    },
+    {
+      "placeVisit": {
+        "location": {"latitudeE7": 411579000, "longitudeE7": -86291000, "name": "Porto", "address": "Porto, Portugal"},
+        "duration": {"startTimestamp": "2023-05-05T10:00:00Z", "endTimestamp": "2023-05-05T10:00:00Z"}
+      }
+    },
+    {
+      "placeVisit": {
+        "location": {"latitudeE7": 388029000, "longitudeE7": -93817000, "name": "Sintra", "address": "Sintra, Portugal"},
+        "duration": {"startTimestamp": "2023-05-06T11:30:00Z", "endTimestamp": "2023-05-06T11:30:00Z"}
+      }
+    }
+  ]
+}
