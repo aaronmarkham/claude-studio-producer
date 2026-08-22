@@ -417,9 +417,17 @@ def _apply_manifest(photo: Photo, entry) -> Photo:
     if entry.taken_local_naive and photo.taken_local_naive is None:
         photo.taken_local_naive = datetime.fromisoformat(entry.taken_local_naive)
     if entry.lat is not None and entry.lon is not None:
-        photo.exif_lat, photo.exif_lon = entry.lat, entry.lon
         photo.lat, photo.lon = entry.lat, entry.lon
-        photo.location_source = LocationSource.EXIF
+        source = entry.location_source or "exif"
+        photo.location_source = (
+            LocationSource.SIDECAR if source == "sidecar" else LocationSource.EXIF
+        )
+        # exif_lat/lon means "the photo measured this itself", which the join
+        # uses to validate the timeline and to infer clock offsets. Only a real
+        # EXIF fix earns that standing; a sidecar coordinate is a position but
+        # not the photo's own measurement.
+        if photo.location_source == LocationSource.EXIF:
+            photo.exif_lat, photo.exif_lon = entry.lat, entry.lon
     if entry.camera:
         photo.camera = entry.camera
     if entry.camera_key and entry.camera_key != "unknown":

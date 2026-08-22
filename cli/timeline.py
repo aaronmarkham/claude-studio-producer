@@ -263,26 +263,30 @@ def inspect_cmd(export_path, photo_dir, date_from, date_to, credit_pairs, manife
                     credits=credits, manifest=manifest)
         if photo_dir else []
     )
-    if manifest is not None and photos:
-        matched = sum(1 for p in photos if p.taken_utc or p.lat is not None)
+    manifest_matched = (
+        sum(1 for p in photos if p.taken_utc or p.lat is not None)
+        if manifest is not None else 0
+    )
+    if manifest is not None and photos and not as_json:
         console.print(
             f"\n[dim]manifest: {len(manifest.entries)} entries, "
-            f"{matched}/{len(photos)} photos matched "
+            f"{manifest_matched}/{len(photos)} photos matched "
             f"({manifest.location_policy} location)[/dim]"
         )
 
     if start or end:
         def in_range(ts) -> bool:
-            if ts is None:
-                return False
             return (start is None or ts >= start) and (end is None or ts <= end)
 
-        photos = [p for p in photos if in_range(p.taken_utc) or p.taken_utc is None]
+        # Photos are bounded inside the join, once their timezone is resolved —
+        # an EXIF-only photo has no UTC time yet, so filtering it here would
+        # either keep everything or drop everything.
         timeline.track = [pt for pt in timeline.track if in_range(pt.ts)]
         timeline.segments = [s for s in timeline.segments if in_range(s.start)]
 
     trip = join_trip(timeline, photos, credits=credits,
-                     max_gap=timedelta(minutes=max_gap))
+                     max_gap=timedelta(minutes=max_gap),
+                     start_after=start, end_before=end)
 
     if as_json:
         report = trip.report
@@ -306,6 +310,11 @@ def inspect_cmd(export_path, photo_dir, date_from, date_to, credit_pairs, manife
                 ],
                 "warnings": report.warnings,
             },
+            **({"manifest": {
+                "entries": len(manifest.entries),
+                "matched": manifest_matched,
+                "location_policy": manifest.location_policy,
+            }} if manifest is not None else {}),
         }, indent=2))
         return
 

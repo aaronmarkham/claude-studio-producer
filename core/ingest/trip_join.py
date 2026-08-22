@@ -431,7 +431,12 @@ def build_beats(
 
     if timeline.segments:
         for seg in timeline.segments:
-            seg_photos = [p for p in photos_by_time if seg.start <= p.taken_utc <= seg.end]
+            # Half-open: Google writes adjacent segments sharing an instant
+            # (one ends exactly as the next begins), and an inclusive test on
+            # both ends puts a photo taken at that instant into two beats,
+            # inflating counts and salience. A photo past the last segment's
+            # end is picked up by the orphan pass below, so nothing is lost.
+            seg_photos = [p for p in photos_by_time if seg.start <= p.taken_utc < seg.end]
             if seg.kind == "visit":
                 raw_beats.append(
                     TripBeat(
@@ -641,12 +646,20 @@ def join_trip(
     credits: Optional[Dict[str, str]] = None,
     max_gap: timedelta = DEFAULT_MAX_GAP,
     gps_disagreement_km: float = DEFAULT_GPS_DISAGREEMENT_KM,
+    start_after: Optional[datetime] = None,
+    end_before: Optional[datetime] = None,
 ) -> TripKnowledge:
     """Run all four join steps and produce the trip's `TripKnowledge`.
 
     Handles both degenerate inputs: photos with no timeline (a pseudo-track
     is built from GPS-bearing photos) and a timeline with no photos (beats
-    are still produced, photo-less)."""
+    are still produced, photo-less).
+
+    `start_after`/`end_before` bound the trip. The filter belongs here rather
+    than in the caller because a photo's UTC time is not known until step 1 has
+    run: an EXIF-only photo arrives with `taken_utc` unset, which is the normal
+    case for a plain folder, and filtering before resolution silently keeps
+    everything."""
     timeline = timeline if timeline is not None else Timeline()
     photos = list(photos) if photos else []
 
@@ -670,6 +683,24 @@ def join_trip(
             )
 
     resolve_times(photos, working_timeline, report)
+
+    if start_after is not None or end_before is not None:
+        # Only now is `taken_utc` populated for every photo that can have one.
+        def _within(ts: Optional[datetime]) -> bool:
+            if ts is None:
+                return False
+            if start_after is not None and ts < start_after:
+                return False
+            return end_before is None or ts <= end_before
+
+        kept = [p for p in photos if _within(p.taken_utc)]
+        dropped = len(photos) - len(kept)
+        if dropped:
+            report.warnings.append(
+                f"{dropped} photos fell outside the requested date range"
+            )
+        photos = kept
+        report.photos_total = len(photos)
 
     located: List[Photo] = []
     for photo in photos:

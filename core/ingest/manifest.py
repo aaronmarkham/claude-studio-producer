@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from core.ingest.content_key import content_key, file_key
+from core.ingest.models import LocationSource
 
 MANIFEST_VERSION = 1
 DEFAULT_FILENAME = "trip-manifest.json"
@@ -62,6 +63,7 @@ class PhotoEntry:
     lon: Optional[float] = None
     altitude_m: Optional[float] = None
     location_precision: Optional[int] = None   # decimal places retained, if reduced
+    location_source: Optional[str] = None      # exif | sidecar — where it came from
 
     # Provenance
     camera: Optional[str] = None
@@ -123,22 +125,22 @@ class TripManifest:
             named = [e for e in bucket if e.filename == path.name]
             return named[0] if len(named) == 1 else None
 
-        name = path.name
-        candidates = [e for e in self.entries if e.filename == name]
-        if len(candidates) == 1:
-            return candidates[0]
-        if candidates:
-            try:
-                from PIL import Image
+        candidates = [e for e in self.entries if e.filename == path.name]
+        if not candidates:
+            return None
+        # A basename is not evidence on its own — point a manifest at an
+        # unrelated folder holding an IMG_0001.jpg and it would inherit a
+        # stranger's time, place and camera. Dimensions must agree too, even
+        # when only one entry carries the name.
+        try:
+            from PIL import Image
 
-                with Image.open(path) as img:
-                    w, h = img.size
-            except Exception:
-                return None
-            sized = [e for e in candidates if e.width == w and e.height == h]
-            if len(sized) == 1:
-                return sized[0]
-        return None
+            with Image.open(path) as img:
+                w, h = img.size
+        except Exception:
+            return None
+        sized = [e for e in candidates if e.width == w and e.height == h]
+        return sized[0] if len(sized) == 1 else None
 
     # ------------------------------------------------------------ persistence
 
@@ -204,6 +206,17 @@ def build_manifest(
     for p in photos:
         digest, method = content_key(p.path)
         keep_location = location != "none"
+        # Take whatever position the photo actually resolved to, not just EXIF.
+        # A Takeout photo's coordinates arrive via the sidecar's geoData and
+        # never touch the EXIF fields, and that is the most common input of all
+        # — capturing only EXIF would write a manifest with no location for it
+        # while claiming to be the portable source of truth.
+        if p.exif_lat is not None and p.exif_lon is not None:
+            src_lat, src_lon, src_name = p.exif_lat, p.exif_lon, "exif"
+        elif p.location_source in (LocationSource.SIDECAR, LocationSource.EXIF):
+            src_lat, src_lon, src_name = p.lat, p.lon, p.location_source.value
+        else:
+            src_lat, src_lon, src_name = None, None, None
         entries.append(
             PhotoEntry(
                 content_hash=digest,
@@ -219,9 +232,10 @@ def build_manifest(
                 ),
                 tz_offset_minutes=p.tz_offset_minutes,
                 tz_source=p.tz_offset_source.value,
-                lat=_round_or_none(p.exif_lat, places) if keep_location else None,
-                lon=_round_or_none(p.exif_lon, places) if keep_location else None,
-                location_precision=places if keep_location else None,
+                lat=_round_or_none(src_lat, places) if keep_location else None,
+                lon=_round_or_none(src_lon, places) if keep_location else None,
+                location_precision=places if keep_location and src_lat is not None else None,
+                location_source=src_name if keep_location else None,
                 camera=p.camera,
                 camera_key=p.camera_key,
                 is_screenshot=p.is_screenshot,
